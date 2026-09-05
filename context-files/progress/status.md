@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-05 (architect: monorepo scaffold)_
+_Last updated: 2026-09-05 (architect: interface skeletons)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -32,8 +32,9 @@ _Last updated: 2026-09-05 (architect: monorepo scaffold)_
 1. 🟡 **[architect]** Scaffold the npm workspaces monorepo skeleton
    (`packages/{core,providers,storage,cli,web}`) + root TS/ESLint/Prettier/Vitest
    config + `npm run verify`. **PR #2 open** on `architect/scaffold-monorepo`.
-2. ⬜ **[architect]** Draft the **storage interface** and **LLM provider
+2. 🟡 **[architect]** Draft the **storage interface** and **LLM provider
    interface** contracts (ADR + skeletons) so other agents can parallelize.
+   **PR open** on `architect/interface-skeletons`.
 3. ⬜ **[integrations-dev]** Implement the default **git/local storage adapter**.
 4. ⬜ **[engine-dev]** Implement the **Assess** path against the storage
    interface (read progress → "where you stand").
