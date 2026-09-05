@@ -1,0 +1,80 @@
+name: CI
+
+# Quality gate for InterviewBudAI.
+# Runs on every PR to main and on pushes to feature branches.
+# Branch protection (configured in GitHub settings) requires this to be green
+# before the founder can merge. See .github/BRANCH_PROTECTION.md.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+# Cancel superseded runs on the same ref to keep morning review fast.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck / lint / build / test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Node.js is set up unconditionally. We do NOT enable `cache: npm` here
+      # because that requires a dependency lockfile (package-lock.json) which
+      # does not exist pre-scaffold. Caching is enabled later, gated behind
+      # scaffold detection, so pre-scaffold runs stay green.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The repo starts before any code is scaffolded. Until package.json
+      # exists, CI passes as a no-op so the foundation PR is green. Once the
+      # monorepo is scaffolded (see progress/status.md), the steps below run
+      # the real checks. Agents MUST NOT weaken these checks to pass (charter §3).
+      - name: Detect project
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "scaffolded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "scaffolded=false" >> "$GITHUB_OUTPUT"
+            echo "No package.json yet — skipping build/test until the monorepo is scaffolded."
+          fi
+
+      # Enable npm caching only once the monorepo is scaffolded and a lockfile
+      # exists. Guarded by scaffold detection so pre-scaffold runs don't fail on
+      # the missing lockfile. Runs after Detect project by design.
+      - name: Cache npm dependencies
+        if: steps.detect.outputs.scaffolded == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        if: steps.detect.outputs.scaffolded == 'true'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.detect.outputs.scaffolded == 'true'
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        if: steps.detect.outputs.scaffolded == 'true'
+        run: npm run lint --if-present
+
+      - name: Build
+        if: steps.detect.outputs.scaffolded == 'true'
+        run: npm run build --if-present
+
+      - name: Test
+        if: steps.detect.outputs.scaffolded == 'true'
+        run: npm test --if-present
