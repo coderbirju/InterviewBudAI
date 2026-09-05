@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-04 (design session)_
+_Last updated: 2026-09-05 (architect: monorepo scaffold)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -20,11 +20,18 @@ _Last updated: 2026-09-04 (design session)_
 | CI workflow + PR template | ✅ (in this PR) | `.github/` |
 | Branch-protection setup guide | ✅ (in this PR) | `.github/BRANCH_PROTECTION.md` |
 
+## Milestone: Scaffold (current)
+
+| Item | Status | Notes |
+|---|---|---|
+| npm workspaces monorepo skeleton | 🟡 PR open | `architect/scaffold-monorepo` → PR #2. `packages/{core,providers,storage,cli,web}` |
+| Root tooling + `npm run verify` | 🟡 PR open | TS project refs, ESLint, Prettier, Vitest; `verify` green locally |
+
 ## Next up (not started — for future sessions)
 
-1. ⬜ **[architect]** Scaffold the npm workspaces monorepo skeleton
+1. 🟡 **[architect]** Scaffold the npm workspaces monorepo skeleton
    (`packages/{core,providers,storage,cli,web}`) + root TS/ESLint/Prettier/Vitest
-   config + `npm run verify`. First real code PR; makes CI meaningful.
+   config + `npm run verify`. **PR #2 open** on `architect/scaffold-monorepo`.
 2. ⬜ **[architect]** Draft the **storage interface** and **LLM provider
    interface** contracts (ADR + skeletons) so other agents can parallelize.
 3. ⬜ **[integrations-dev]** Implement the default **git/local storage adapter**.
@@ -42,4 +49,7 @@ _Last updated: 2026-09-04 (design session)_
 
 ## Open questions / decisions pending
 
-- _None open._ (Foundational decisions recorded in ADR 0001.)
+- _Foundational decisions recorded in ADR 0001._
+- **Deferred (follow-up):** dev-only audit warnings from `eslint@8.57.0`
+  transitive deps (`glob@7`). Upgrading to ESLint 9 (flat config) is a separate
+  scoped change, not pulled into the scaffold PR. Not shipped (devDependency).

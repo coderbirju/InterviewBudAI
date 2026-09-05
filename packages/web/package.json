@@ -1,0 +1,22 @@
+{
+  "name": "@ibai/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Locally hosted web front-end. Thin; delegates to @ibai/core.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@ibai/core": "0.0.0"
+  }
+}

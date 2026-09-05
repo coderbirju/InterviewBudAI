@@ -1,0 +1,34 @@
+{
+  "name": "interviewbudai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Open-source, local-first, AI-assisted interview-prep coach (DSA + System Design).",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --build",
+    "lint": "eslint .",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "build": "tsc --build",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run lint && npm run format && npm run build && npm run test",
+    "clean": "tsc --build --clean"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@typescript-eslint/eslint-plugin": "7.16.0",
+    "@typescript-eslint/parser": "7.16.0",
+    "eslint": "8.57.0",
+    "eslint-config-prettier": "9.1.0",
+    "prettier": "3.3.2",
+    "typescript": "5.5.3",
+    "vitest": "1.6.0"
+  }
+}
