@@ -24,11 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Node.js is set up unconditionally. We do NOT enable `cache: npm` here
+      # because that requires a dependency lockfile (package-lock.json) which
+      # does not exist pre-scaffold. Caching is enabled later, gated behind
+      # scaffold detection, so pre-scaffold runs stay green.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       # The repo starts before any code is scaffolded. Until package.json
       # exists, CI passes as a no-op so the foundation PR is green. Once the
@@ -43,6 +46,18 @@ jobs:
             echo "scaffolded=false" >> "$GITHUB_OUTPUT"
             echo "No package.json yet — skipping build/test until the monorepo is scaffolded."
           fi
+
+      # Enable npm caching only once the monorepo is scaffolded and a lockfile
+      # exists. Guarded by scaffold detection so pre-scaffold runs don't fail on
+      # the missing lockfile. Runs after Detect project by design.
+      - name: Cache npm dependencies
+        if: steps.detect.outputs.scaffolded == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
 
       - name: Install dependencies
         if: steps.detect.outputs.scaffolded == 'true'
