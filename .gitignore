@@ -18,3 +18,6 @@ coverage/
 .idea/
 .vscode/
 *.log
+
+# Local agent tooling (never commit)
+.kiro/
