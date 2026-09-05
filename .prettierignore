@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Prose docs are authored by the design session and reviewed as prose, not
+# code-formatted. Prettier governs code (TS/JS/JSON/YAML), not these.
+*.md
+context-files/
+.github/
+LICENSE
