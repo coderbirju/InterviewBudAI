@@ -6,6 +6,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "ibai": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -17,6 +20,7 @@
     "clean": "tsc --build --clean"
   },
   "dependencies": {
-    "@ibai/core": "0.0.0"
+    "@ibai/core": "0.0.0",
+    "@ibai/storage": "0.0.0"
   }
 }

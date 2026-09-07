@@ -14,6 +14,10 @@
 
 2026-09-06  integrate/storage-git  — LocalFileStorageAdapter with JSON diffable files under user-configured basePath, zero new deps (node:fs/promises + node:path), type guards for untrusted input validation — rejected env-based config — constructor arg keeps config explicit and testable without global state.
 
+2026-09-06  frontend/web-assess  — web front-end (ASSESS slice): Node built-in http localhost:127.0.0.1 composition root; env IBAI_DATA_DIR (+ --data-dir flag) → LocalFileStorageAdapter → core assess() → HTML/JSON render — rejected external web framework (kept zero-dep, local-first) — no product logic in web, front-end parity with engine.
+
 2026-09-07  implement/assess  — Assess implemented against StorageAdapter (type-only import), takes optional front-end-supplied sessionId, no interface change, no ADR needed.
 
-2026-09-06  frontend/web-assess  — web front-end (ASSESS slice): Node built-in http localhost:127.0.0.1 composition root; env IBAI_DATA_DIR (+ --data-dir flag) → LocalFileStorageAdapter → core assess() → HTML/JSON render — rejected external web framework (kept zero-dep, local-first) — no product logic in web, front-end parity with engine.
+2026-09-07  frontend/cli-assess (PR)  — Chose node:util parseArgs (built-in) for arg parsing — rejected CLI frameworks (commander, yargs) — zero-dep, consistent with local-first hard constraint.
+2026-09-07  frontend/cli-assess (PR)  — CLI is composition root that constructs concrete LocalFileStorageAdapter, injects into core's assess() — rejected having core instantiate adapters — keeps core stateless, adapters injectable for testing.
+2026-09-07  frontend/cli-assess (PR)  — Assess slice only; Plan/Coach commands deferred — rejected full CLI in one PR — matches incremental delivery model, engine capability not yet available.

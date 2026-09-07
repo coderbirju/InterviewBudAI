@@ -53,10 +53,10 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 3. 🟡 `integrate` — default **git/local storage adapter** (`LocalFileStorageAdapter`). **PR open** on `integrate/storage-git`. → `code-review`.
 4. 🟡 `implement` — engine **Assess** path (read progress → "where you stand").
    **PR open** on `implement/assess`. → `code-review`.
-5. ⬜ `frontend` — minimal **CLI** wiring config + adapters → engine.
-   → `code-review`.
+5. ✅ `frontend` — minimal **CLI assess** wiring config + adapters → engine.
+   **PR #9 merged** on `frontend/cli-assess`. → `code-review`.
 6. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
-   HTML/JSON render of AssessmentView. **PR open** on `frontend/web-assess`. → `code-review`.
+   HTML/JSON render of AssessmentView. **PR #10 open** on `frontend/web-assess`. → `code-review`.
 
 ## Blocked / needs founder action
 
