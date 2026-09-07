@@ -58,6 +58,10 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 6. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
    HTML/JSON render of AssessmentView. **PR #10 open** on `frontend/web-assess`. → `code-review`.
 
+## Backlog / future
+
+- ⬜ **Web UI/UX rework** — rework the minimal `web` front-end (PR #10 Assess slice: functional 'Where You Stand' HTML with inline styles that proves config → LocalFileStorageAdapter → core.assess() → render) into a polished UX. Local-first, thin (no product logic in the front-end), CLI parity where applicable. Scope TBD; likely a future `frontend` skill task once Plan/Coach engine capabilities exist so the UI has richer content to present.
+
 ## Blocked / needs founder action
 
 - ⛔ **Branch protection on `main`** must be enabled in GitHub settings by the
