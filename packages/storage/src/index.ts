@@ -1,13 +1,150 @@
 /**
- * @ibai/storage — the progress-layer persistence boundary.
+ * `@ibai/storage` — the progress-layer persistence boundary.
  *
- * Will expose the pluggable storage *interface* and adapters. The default
- * adapter is git-backed local files (human-readable, diffable, private). User
- * progress data is owned by the user and is NEVER committed to this repo
- * (see ADR 0001 D3/D4).
+ * This module defines the **pluggable Storage contract** for InterviewBudAI.
+ * It is TYPES/CONTRACTS ONLY: no concrete adapter, no backend, no I/O.
  *
- * Scaffold placeholder; the interface contract lands in a subsequent ADR-backed
- * PR.
+ * Design rules (ADR 0001, ADR 0002):
+ *  - The engine (`@ibai/core`) is stateless per session; ALL durable user
+ *    state lives behind this interface.
+ *  - This package NEVER depends on `@ibai/core` (no dependency cycles).
+ *  - No specific backend (git files, sqlite, cloud, …) is named here; that is
+ *    the concern of a concrete adapter injected by a front-end at startup.
  */
 
-export const PACKAGE_NAME = '@ibai/storage';
+// ---------------------------------------------------------------------------
+// Branded Type Aliases
+// ---------------------------------------------------------------------------
+
+/** Opaque identifier for a coaching session. */
+export type SessionId = string;
+
+/** Opaque identifier for a curriculum topic (e.g. a DSA or system-design area). */
+export type TopicId = string;
+
+/** ISO-8601 timestamp string (e.g. `2026-09-05T12:00:00.000Z`). */
+export type IsoTimestamp = string;
+
+// ---------------------------------------------------------------------------
+// Session Types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single turn in a session's history, as persisted in the user's progress
+ * layer. Role-tagged so the engine can reconstruct prior context on Assess.
+ */
+export interface SessionHistoryEntry {
+  /** Who produced this turn. */
+  readonly role: 'user' | 'assistant' | 'system';
+  /** The turn's textual content. */
+  readonly content: string;
+  /** When the turn occurred. */
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * The full history/context the engine loads for a session during Assess.
+ */
+export interface SessionContext {
+  readonly sessionId: SessionId;
+  /** Chronologically ordered turns for this session. May be empty. */
+  readonly history: readonly SessionHistoryEntry[];
+}
+
+/**
+ * A structured summary the Coach step writes back at the end of a session.
+ * Deliberately structured (not free text) so the Plan step can reason over it.
+ */
+export interface SessionSummary {
+  readonly sessionId: SessionId;
+  /** When the session concluded. */
+  readonly completedAt: IsoTimestamp;
+  /** Topics practised in this session. */
+  readonly topics: readonly TopicId[];
+  /** Human-readable narrative of what happened / was learned. */
+  readonly narrative: string;
+  /** Strengths observed this session, as topic references. */
+  readonly strengths: readonly TopicId[];
+  /** Weaknesses observed this session, as topic references. */
+  readonly weaknesses: readonly TopicId[];
+}
+
+// ---------------------------------------------------------------------------
+// Competency Types
+// ---------------------------------------------------------------------------
+
+/** Proficiency the engine tracks for a single topic. */
+export interface CompetencyEntry {
+  readonly topicId: TopicId;
+  /** Normalised proficiency in [0, 1]; higher is stronger. */
+  readonly proficiency: number;
+  /** When this entry was last updated. */
+  readonly lastUpdated: IsoTimestamp;
+}
+
+/**
+ * The user's competency map: proficiency per topic, keyed by {@link TopicId}.
+ * The Plan step reads this to choose where to focus.
+ */
+export interface CompetencyMap {
+  readonly entries: Readonly<Record<TopicId, CompetencyEntry>>;
+}
+
+// ---------------------------------------------------------------------------
+// Weakness Types
+// ---------------------------------------------------------------------------
+
+/** A recurring weakness the engine wants to keep surfacing. */
+export interface WeaknessEntry {
+  readonly topicId: TopicId;
+  /** Short description of the recurring gap. */
+  readonly note: string;
+  /** How many sessions this weakness has recurred across. */
+  readonly occurrences: number;
+  readonly lastObserved: IsoTimestamp;
+}
+
+/** The register of recurring weaknesses across sessions. */
+export interface WeaknessRegister {
+  readonly entries: readonly WeaknessEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Storage Adapter Contract
+// ---------------------------------------------------------------------------
+
+/**
+ * The single contract a storage backend implements.
+ *
+ * All methods are async and backend-agnostic. Reads that find nothing return
+ * an empty structure or `null` rather than throwing. Implementations MUST NOT
+ * leak backend concepts (files, tables, connections) through this surface.
+ */
+export interface StorageAdapter {
+  /**
+   * Read the full history/context for a session. Used by the engine's Assess
+   * step. Returns an empty context (empty history) for an unknown session.
+   */
+  readSessionContext(sessionId: SessionId): Promise<SessionContext>;
+
+  /**
+   * Persist a structured summary produced by the Coach step. Append-only from
+   * the engine's perspective.
+   */
+  writeSessionSummary(summary: SessionSummary): Promise<void>;
+
+  /** Read the user's competency map. Returns an empty map if none exists. */
+  readCompetencyMap(): Promise<CompetencyMap>;
+
+  /**
+   * Persist an updated competency map. The engine computes the new map; the
+   * adapter only stores it.
+   */
+  updateCompetencyMap(map: CompetencyMap): Promise<void>;
+
+  /** Read the weakness register. Returns an empty register if none exists. */
+  readWeaknessRegister(): Promise<WeaknessRegister>;
+
+  /** Persist an updated weakness register. */
+  updateWeaknessRegister(register: WeaknessRegister): Promise<void>;
+}
