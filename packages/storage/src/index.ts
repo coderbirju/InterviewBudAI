@@ -148,3 +148,5 @@ export interface StorageAdapter {
   /** Persist an updated weakness register. */
   updateWeaknessRegister(register: WeaknessRegister): Promise<void>;
 }
+
+export * from './local-file-adapter.js';
