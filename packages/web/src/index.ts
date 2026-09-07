@@ -3,15 +3,28 @@
  *
  * Same engine as the CLI (front-end parity): capabilities live in @ibai/core
  * and the web app exposes them. Concrete adapters are injected at startup.
- *
- * Scaffold placeholder; it imports @ibai/core only to prove the dependency
- * direction (web -> core) compiles.
  */
-import { engineReady } from '@ibai/core';
 
 export const PACKAGE_NAME = '@ibai/web';
 
-/** Confirms the web front-end can reach the engine. */
-export function webCanReachEngine(): boolean {
-  return engineReady();
-}
+// Config
+export { resolveDataDir, resolvePort, resolveHost } from './config.js';
+
+// Render
+export {
+  escapeHtml,
+  renderAssessmentHtml,
+  renderAssessmentJson,
+} from './render.js';
+
+// Handler
+export { createAssessHandler } from './handler.js';
+export type {
+  AssessHandlerDeps,
+  HandlerRequest,
+  HandlerResponse,
+} from './handler.js';
+
+// Server
+export { startServer } from './server.js';
+export type { ServerHandle, StartServerOptions } from './server.js';
