@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-07 (Assess PR open; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-07 (Ollama provider PR open; Assess PR open; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -55,6 +55,9 @@ verify, code-review). See `team-charter.md` §0 & §9A and
    **PR open** on `implement/assess`. → `code-review`.
 5. 🟡 `frontend` — minimal **CLI assess** wiring config + adapters → engine.
    **PR open** on `frontend/cli-assess`. → `code-review`.
+6. 🟡 `integrate` — **Ollama LLM provider adapter** (first concrete provider,
+   local-first, bring-your-own-LLM). **PR open** on `integrate/provider-ollama`.
+   → `code-review`.
 
 ## Backlog / future
 
