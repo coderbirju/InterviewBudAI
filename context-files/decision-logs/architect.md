@@ -21,3 +21,4 @@
 2026-09-07  frontend/cli-assess (PR)  — Assess slice only; Plan/Coach commands deferred — rejected full CLI in one PR — matches incremental delivery model, engine capability not yet available.
 
 2026-09-07  architect/note-ui-rework  — Recorded founder request to rework the web UI/UX into a polished experience — rejected doing it now — deferred/backlogged pending Plan/Coach engine work so the UI has richer content to present.
+2026-09-07  implement/plan  — Plan: signature plan(view: AssessmentView): SessionPlan — takes pre-computed view, NOT StorageAdapter — rejected plan(storage, sessionId?) that calls assess() internally — avoids duplicate storage reads and duplicate ranking; keeps Plan a pure synchronous derivation; caller (Coach/orchestrator) already has the view or can call assess() once.

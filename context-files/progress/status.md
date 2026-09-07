@@ -43,6 +43,13 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 |---|---|---|
 | Storage + LLM provider interface contracts (types-only) | 🟡 PR open | `architect/interface-skeletons` → PR #4. ADR 0002; `packages/storage`, `packages/providers` |
 
+## Milestone: Engine Jobs
+
+| Item | Status | Notes |
+|---|---|---|
+| Assess engine job | ✅ merged | `implement/assess` → PR merged. Pure read-and-derive from StorageAdapter. |
+| Plan engine job | 🟡 PR open | `implement/plan` → PR open. Pure sync derivation from AssessmentView. |
+
 ## Next up (Architect dispatches these skills)
 
 1. ✅ `scaffold` — npm workspaces skeleton `packages/{core,providers,storage,cli,web}`
