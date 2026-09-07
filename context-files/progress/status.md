@@ -55,6 +55,8 @@ verify, code-review). See `team-charter.md` §0 & §9A and
    **PR open** on `implement/assess`. → `code-review`.
 5. ⬜ `frontend` — minimal **CLI** wiring config + adapters → engine.
    → `code-review`.
+6. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
+   HTML/JSON render of AssessmentView. **PR open** on `frontend/web-assess`. → `code-review`.
 
 ## Blocked / needs founder action
 
