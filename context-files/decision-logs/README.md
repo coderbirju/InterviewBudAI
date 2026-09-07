@@ -10,5 +10,6 @@ work** (source of truth is the context files + ADRs).
   contracts. These logs are a lightweight running record.
 - Format per line: `YYYY-MM-DD  <branch/PR>  — decision — rejected alternative — why`
 
-One file per agent: `architect.md`, `engine-dev.md`, `integrations-dev.md`,
-`interface-dev.md`, `qa-test.md`.
+One file per actor: `architect.md` (orchestration/dispatch decisions) and one
+per skill — `scaffold.md`, `implement.md`, `integrate.md`, `frontend.md`,
+`verify.md`, `code-review.md`.

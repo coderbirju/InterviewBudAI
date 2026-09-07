@@ -4,42 +4,57 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-05 (architect: interface skeletons)_
+_Last updated: 2026-09-06 (interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
 
-## Milestone: Foundation (this session)
+## Team model
+
+Two tiers: **Architect** (sole orchestrator agent; talks to founder; dispatches
+skills) + six **skills** in `skills/` (scaffold, implement, integrate, frontend,
+verify, code-review). See `team-charter.md` §0 & §9A and
+`skills/00-skill-contract.md`.
+
+## Milestone: Foundation
 
 | Item | Status | Notes |
 |---|---|---|
-| Project context + architecture docs | ✅ (in this PR) | `context-files/00`, `01` |
-| Team charter (RFC 2119 rules) | ✅ (in this PR) | `context-files/team-charter.md` |
-| Five team agent files | ✅ (in this PR) | `context-files/team/*.md` |
-| ADR 0001 foundational decisions | ✅ (in this PR) | `context-files/decisions/0001-*` |
-| CI workflow + PR template | ✅ (in this PR) | `.github/` |
-| Branch-protection setup guide | ✅ (in this PR) | `.github/BRANCH_PROTECTION.md` |
+| Project context + architecture docs | ✅ | `context-files/00`, `01` |
+| Team charter (RFC 2119) | ✅ | two-tier model, §9A layered review |
+| Architect orchestrator agent | ✅ | `team/architect.md` |
+| Skill contract + 6 skills | ✅ | `skills/*.md` |
+| ADR 0001 foundational decisions | ✅ | `context-files/decisions/0001-*` |
+| CI workflow + PR template | ✅ | `.github/` |
+| Branch-protection setup guide | ✅ | `.github/BRANCH_PROTECTION.md` |
+| Retired 4 agent files → skills | ✅ | engine/integrations/interface/qa removed |
 
-## Milestone: Scaffold (current)
+## Milestone: Scaffold
 
 | Item | Status | Notes |
 |---|---|---|
-| npm workspaces monorepo skeleton | 🟡 PR open | `architect/scaffold-monorepo` → PR #2. `packages/{core,providers,storage,cli,web}` |
-| Root tooling + `npm run verify` | 🟡 PR open | TS project refs, ESLint, Prettier, Vitest; `verify` green locally |
+| npm workspaces monorepo skeleton | ✅ merged | `architect/scaffold-monorepo` → PR #2 merged. `packages/{core,providers,storage,cli,web}` |
+| Root tooling + `npm run verify` | ✅ merged | TS project refs, ESLint, Prettier, Vitest; `verify` green locally |
+| Two-tier team model restructure | ✅ merged | `architect/two-tier-restructure` → PR #3 merged |
 
-## Next up (not started — for future sessions)
+## Milestone: Interfaces (current)
 
-1. 🟡 **[architect]** Scaffold the npm workspaces monorepo skeleton
-   (`packages/{core,providers,storage,cli,web}`) + root TS/ESLint/Prettier/Vitest
-   config + `npm run verify`. **PR #2 open** on `architect/scaffold-monorepo`.
-2. 🟡 **[architect]** Draft the **storage interface** and **LLM provider
-   interface** contracts (ADR + skeletons) so other agents can parallelize.
-   **PR open** on `architect/interface-skeletons`.
-3. ⬜ **[integrations-dev]** Implement the default **git/local storage adapter**.
-4. ⬜ **[engine-dev]** Implement the **Assess** path against the storage
-   interface (read progress → "where you stand").
-5. ⬜ **[interface-dev]** Minimal **CLI** entry that wires config + adapters and
-   calls the engine.
+| Item | Status | Notes |
+|---|---|---|
+| Storage + LLM provider interface contracts (types-only) | 🟡 PR open | `architect/interface-skeletons` → PR #4. ADR 0002; `packages/storage`, `packages/providers` |
+
+## Next up (Architect dispatches these skills)
+
+1. ✅ `scaffold` — npm workspaces skeleton `packages/{core,providers,storage,cli,web}`
+   + root TS/ESLint/Prettier/Vitest + `npm run verify`. **PR #2 merged.**
+2. 🟡 `architect` (ADR + skeletons) — **storage interface** & **LLM provider
+   interface** contracts, so skills parallelize. **PR #4 open** on
+   `architect/interface-skeletons`; → then `code-review`.
+3. ⬜ `integrate` — default **git/local storage adapter**. → `code-review`.
+4. ⬜ `implement` — engine **Assess** path (read progress → "where you stand").
+   → `code-review`.
+5. ⬜ `frontend` — minimal **CLI** wiring config + adapters → engine.
+   → `code-review`.
 
 ## Blocked / needs founder action
 

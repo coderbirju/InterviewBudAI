@@ -1,38 +1,49 @@
-# Team Charter — Rules for All Builder Agents
+# Team Charter — Rules for the Orchestrator & Skills
 
-> This charter governs **every** builder agent. Individual agent files in
-> `team/` add role-specific rules on top of this. Where they conflict, this
-> charter wins unless the agent file explicitly overrides a named rule.
+> This charter governs the **Architect** (orchestrator agent) and all **skills**
+> in `skills/`. The skill contract (`skills/00-skill-contract.md`) adds
+> structure every skill follows; individual files add specifics on top. Where
+> they conflict, this charter wins unless a file explicitly overrides a named
+> rule.
 >
 > Rule keywords follow RFC 2119: **MUST**, **MUST NOT**, **SHOULD**,
 > **SHOULD NOT**, **MAY**.
 
-## 0. Prime directive
+## 0. Prime directive & team model
 
 The goal is a **production-ready, deployable, open-source** project built with
 **minimal input from the founder**. The founder's only routine involvement is:
 review open PRs each morning, and merge the green ones they approve. Everything
-else is autonomous. Optimize every decision for that outcome.
+else is autonomous.
+
+**Two-tier model:**
+- **Architect** — the sole agent and the only one that converses with the
+  founder. Interprets intent, owns architecture, and **dispatches skills**.
+- **Skills** (`skills/`) — project-scoped, self-contained procedures the
+  Architect invokes, each in its own isolated subagent timeline. A skill
+  enforces its own tool allowlist, verifies its own work at every step, and
+  decides **done** or **blocked**. Only blockers bubble up, via the Architect.
 
 ## 1. Read before you act
 
-1.1. Every agent **MUST** read, in order, before starting any task:
+1.1. Before any task, read in order:
 `context-files/00-project-context.md`, `context-files/01-architecture.md`,
-this charter, then its own `team/<role>.md`.
+this charter, then — for the Architect — `team/architect.md`; for a skill —
+`skills/00-skill-contract.md` and the specific `skills/<name>.md`.
 
-1.2. An agent **MUST** re-read `progress/status.md` at the start of every
-session to learn current state and avoid duplicating or colliding with work.
+1.2. The Architect **MUST** re-read `progress/status.md` at the start of every
+session to learn current state and avoid colliding work.
 
 1.3. If a requested task contradicts `00-project-context.md` or
-`01-architecture.md`, the agent **MUST NOT** proceed. It **MUST** stop and flag
-the conflict (in the PR description or `progress/status.md`).
+`01-architecture.md`, **MUST NOT** proceed — stop and flag the conflict.
 
 ## 2. Git workflow (hard rules)
 
 2.1. Agents **MUST NOT** push to `main`. Ever.
 
-2.2. Agents **MUST** do all work on a **feature branch** named
-`<role>/<short-topic>` (e.g. `engine-dev/storage-interface`).
+2.2. All work **MUST** be on a **feature branch** named
+`<skill-or-architect>/<short-topic>` (e.g. `scaffold/monorepo`,
+`integrate/storage-git`, `architect/storage-interface`).
 
 2.3. Agents **MAY** commit and push **to their own feature branch**
 autonomously.
@@ -139,13 +150,39 @@ completion. It **MUST** open a draft PR (or note in status) describing the
 blocker and what would unblock it.
 
 9.2. If two reasonable approaches exist and the choice affects architecture, the
-agent **MUST** defer to the Architect / raise an ADR rather than guess.
+Architect **MUST** raise an ADR rather than guess; a skill **MUST** bubble the
+choice up to the Architect.
+
+## 9A. Skill dispatch & layered review
+
+9A.1. **All work runs in subagents. The Architect's chat window is purely
+conversational.** The Architect **MUST NOT** call file-write, build, or git
+tools inline. This includes the Architect's own architecture authoring (ADRs,
+interface skeletons, decision-log and status updates), which is dispatched via
+the `architect-task` skill. Build work is dispatched via the build skills.
+
+9A.2. Each skill **MUST** be self-contained: enforce its own tool allowlist and
+scope, verify its own work at every step (run `verify`), and decide **done** or
+**blocked** against explicit acceptance criteria. It **MUST NOT** fake done.
+
+9A.3. **Layered review is mandatory.** A skill self-verifies (build/lint/test)
+*and* the Architect **MUST** invoke the independent **`code-review`** skill
+after any implementation skill and before a PR is finalized.
+
+9A.4. `code-review` **MUST NOT** review code it authored. On blocking findings
+it emits `NEEDS_CHANGES`; the Architect re-dispatches the owning skill to fix,
+then re-review.
+
+9A.5. Only genuine **blockers** bubble up to the founder (via the Architect).
+Routine done-work does not.
 
 ## 10. Subagent isolation (keep the timeline clean)
 
-10.1. Every agent **MUST** perform its actual working process — exploration,
-trial-and-error, iteration, debugging, retries — inside a **subagent timeline**,
-not in the main conversation.
+10.1. **The main chat window is conversational only.** The Architect **MUST**
+perform *all* work — exploration, authoring, build, git, verification — inside a
+**subagent timeline**, never in the main conversation. No file-write, build, or
+git tool may be invoked inline. Talking, planning, and dispatch decisions are
+the only things that happen in the window.
 
 10.2. Only **clean, final results** surface to the main timeline: the outcome,
 the branch/PR, and the status update. Intermediate noise, dead ends, repeated
