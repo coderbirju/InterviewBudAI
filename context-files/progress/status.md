@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-06 (interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-07 (Assess PR open; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -51,8 +51,8 @@ verify, code-review). See `team-charter.md` §0 & §9A and
    interface** contracts, so skills parallelize. **PR #4 open** on
    `architect/interface-skeletons`; → then `code-review`.
 3. 🟡 `integrate` — default **git/local storage adapter** (`LocalFileStorageAdapter`). **PR open** on `integrate/storage-git`. → `code-review`.
-4. ⬜ `implement` — engine **Assess** path (read progress → "where you stand").
-   → `code-review`.
+4. 🟡 `implement` — engine **Assess** path (read progress → "where you stand").
+   **PR open** on `implement/assess`. → `code-review`.
 5. ⬜ `frontend` — minimal **CLI** wiring config + adapters → engine.
    → `code-review`.
 
