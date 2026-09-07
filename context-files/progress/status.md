@@ -56,6 +56,10 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 5. 🟡 `frontend` — minimal **CLI assess** wiring config + adapters → engine.
    **PR open** on `frontend/cli-assess`. → `code-review`.
 
+## Backlog / future
+
+- ⬜ **Web UI/UX rework** — rework the minimal `web` front-end (PR #10 Assess slice: functional 'Where You Stand' HTML with inline styles that proves config → LocalFileStorageAdapter → core.assess() → render) into a polished UX. Local-first, thin (no product logic in the front-end), CLI parity where applicable. Scope TBD; likely a future `frontend` skill task once Plan/Coach engine capabilities exist so the UI has richer content to present.
+
 ## Blocked / needs founder action
 
 - ⛔ **Branch protection on `main`** must be enabled in GitHub settings by the

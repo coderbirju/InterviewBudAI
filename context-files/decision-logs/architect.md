@@ -19,3 +19,5 @@
 2026-09-07  frontend/cli-assess (PR)  — Chose node:util parseArgs (built-in) for arg parsing — rejected CLI frameworks (commander, yargs) — zero-dep, consistent with local-first hard constraint.
 2026-09-07  frontend/cli-assess (PR)  — CLI is composition root that constructs concrete LocalFileStorageAdapter, injects into core's assess() — rejected having core instantiate adapters — keeps core stateless, adapters injectable for testing.
 2026-09-07  frontend/cli-assess (PR)  — Assess slice only; Plan/Coach commands deferred — rejected full CLI in one PR — matches incremental delivery model, engine capability not yet available.
+
+2026-09-07  architect/note-ui-rework  — Recorded founder request to rework the web UI/UX into a polished experience — rejected doing it now — deferred/backlogged pending Plan/Coach engine work so the UI has richer content to present.
