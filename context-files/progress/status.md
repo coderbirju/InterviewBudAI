@@ -50,7 +50,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 2. 🟡 `architect` (ADR + skeletons) — **storage interface** & **LLM provider
    interface** contracts, so skills parallelize. **PR #4 open** on
    `architect/interface-skeletons`; → then `code-review`.
-3. ⬜ `integrate` — default **git/local storage adapter**. → `code-review`.
+3. 🟡 `integrate` — default **git/local storage adapter** (`LocalFileStorageAdapter`). **PR open** on `integrate/storage-git`. → `code-review`.
 4. ⬜ `implement` — engine **Assess** path (read progress → "where you stand").
    → `code-review`.
 5. ⬜ `frontend` — minimal **CLI** wiring config + adapters → engine.

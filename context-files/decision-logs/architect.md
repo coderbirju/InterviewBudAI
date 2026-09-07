@@ -11,3 +11,5 @@
 
 2026-09-05  architect/two-tier-restructure (PR #3)  — Split the two-tier team-model restructure into its own PR, separate from scaffold PR #2 — rejected bundling it into the scaffold PR — keeps scaffold PR focused on monorepo skeleton/tooling; also excluded .kiro/ (local agent tooling) from version control via .gitignore.
 2026-09-05  architect/interface-skeletons (PR #4)  — Landed Storage + LLM Provider interface contracts as types-only skeletons (ADR 0002) — rejected shipping concrete adapters in same PR — charter §5.2 requires interface contracts land separately from implementations; keeps verify green without feature logic.
+
+2026-09-06  integrate/storage-git  — LocalFileStorageAdapter with JSON diffable files under user-configured basePath, zero new deps (node:fs/promises + node:path), type guards for untrusted input validation — rejected env-based config — constructor arg keeps config explicit and testable without global state.
