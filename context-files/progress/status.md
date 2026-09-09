@@ -70,7 +70,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 
 ## Backlog / future
 
-- ⬜ **Web UI/UX rework** — rework the minimal `web` front-end (PR #10 Assess slice: functional 'Where You Stand' HTML with inline styles that proves config → LocalFileStorageAdapter → core.assess() → render) into a polished UX. Local-first, thin (no product logic in the front-end), CLI parity where applicable. Scope TBD; likely a future `frontend` skill task once Plan/Coach engine capabilities exist so the UI has richer content to present. (Recorded via #11.)
+- 🟡 **Web UI/UX rework** — rework the minimal `web` front-end into a polished UX with Plan engine wiring. **PR open** on `frontend/web-plan-ux`. Adds /plan.json endpoint, redesigned HTML with 'Where You Stand' + 'Your Next Session' sections, warmup→focus→twist cards with role badges and proficiency bars. (Tracked via #11.)
 
 ## Blocked / needs founder action
 
