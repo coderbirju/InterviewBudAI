@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-07 (Assess PR open; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-08 (Plan PR #12 merged to main; Ollama provider PR #13 open; CLI assess PR #9 merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -48,7 +48,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | Item | Status | Notes |
 |---|---|---|
 | Assess engine job | ✅ merged | `implement/assess` → PR merged. Pure read-and-derive from StorageAdapter. |
-| Plan engine job | 🟡 PR open | `implement/plan` → PR open. Pure sync derivation from AssessmentView. |
+| Plan engine job | ✅ merged | `implement/plan` → PR #12 merged. Pure sync derivation from AssessmentView. |
 
 ## Next up (Architect dispatches these skills)
 
@@ -64,10 +64,13 @@ verify, code-review). See `team-charter.md` §0 & §9A and
    **PR #9 merged** on `frontend/cli-assess`. → `code-review`.
 6. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
    HTML/JSON render of AssessmentView. **PR #10 open** on `frontend/web-assess`. → `code-review`.
+7. 🟡 `integrate` — **Ollama LLM provider adapter** (first concrete provider,
+   local-first, bring-your-own-LLM). **PR #13 open** on `integrate/provider-ollama`.
+   → `code-review`.
 
 ## Backlog / future
 
-- ⬜ **Web UI/UX rework** — rework the minimal `web` front-end (PR #10 Assess slice: functional 'Where You Stand' HTML with inline styles that proves config → LocalFileStorageAdapter → core.assess() → render) into a polished UX. Local-first, thin (no product logic in the front-end), CLI parity where applicable. Scope TBD; likely a future `frontend` skill task once Plan/Coach engine capabilities exist so the UI has richer content to present.
+- ⬜ **Web UI/UX rework** — rework the minimal `web` front-end (PR #10 Assess slice: functional 'Where You Stand' HTML with inline styles that proves config → LocalFileStorageAdapter → core.assess() → render) into a polished UX. Local-first, thin (no product logic in the front-end), CLI parity where applicable. Scope TBD; likely a future `frontend` skill task once Plan/Coach engine capabilities exist so the UI has richer content to present. (Recorded via #11.)
 
 ## Blocked / needs founder action
 
