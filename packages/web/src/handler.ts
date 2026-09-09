@@ -1,6 +1,12 @@
 import type { StorageAdapter, SessionId } from '@ibai/storage';
-import { assess } from '@ibai/core';
-import { renderAssessmentHtml, renderAssessmentJson } from './render.js';
+import { assess, plan } from '@ibai/core';
+import type { AssessmentView, SessionPlan } from '@ibai/core';
+import {
+  renderAssessmentJson,
+  renderPlanJson,
+  renderDashboardHtml,
+  escapeHtml,
+} from './render.js';
 
 /** Minimal response shape, decoupled from Node http types. */
 export interface HandlerResponse {
@@ -40,11 +46,12 @@ export function createAssessHandler(
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
 
-    // Determine format
-    const isJson = pathname === '/assess.json';
+    // Determine format and endpoint
+    const isAssessJson = pathname === '/assess.json';
+    const isPlanJson = pathname === '/plan.json';
     const isHtml = pathname === '/' || pathname === '/assess';
 
-    if (!isJson && !isHtml) {
+    if (!isAssessJson && !isPlanJson && !isHtml) {
       return {
         status: 404,
         contentType: 'application/json; charset=utf-8',
@@ -57,24 +64,36 @@ export function createAssessHandler(
     const sessionId: SessionId | undefined = sessionIdParam ?? undefined;
 
     try {
-      const view = await assess(deps.storage, sessionId);
+      // Get assessment view (reads storage once)
+      const view: AssessmentView = await assess(deps.storage, sessionId);
 
-      if (isJson) {
+      // Derive session plan (pure, sync - no storage read)
+      const sessionPlan: SessionPlan = plan(view);
+
+      if (isAssessJson) {
         return {
           status: 200,
           contentType: 'application/json; charset=utf-8',
           body: renderAssessmentJson(view),
         };
+      } else if (isPlanJson) {
+        return {
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: renderPlanJson(sessionPlan),
+        };
       } else {
+        // HTML dashboard with both view and plan
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderAssessmentHtml(view),
+          body: renderDashboardHtml(view, sessionPlan),
         };
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Internal server error';
+      const isJson = isAssessJson || isPlanJson;
       const contentType = isJson
         ? 'application/json; charset=utf-8'
         : 'text/html; charset=utf-8';
@@ -90,6 +109,3 @@ export function createAssessHandler(
     }
   };
 }
-
-// Import escapeHtml for error page
-import { escapeHtml } from './render.js';
