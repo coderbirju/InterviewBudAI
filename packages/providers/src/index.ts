@@ -105,3 +105,10 @@ export interface LlmProvider {
    */
   complete(request: CompletionRequest): Promise<CompletionResponse>;
 }
+
+// ---------------------------------------------------------------------------
+// Concrete Adapters
+// ---------------------------------------------------------------------------
+
+export { OllamaProvider } from './ollama.js';
+export type { OllamaProviderConfig } from './ollama.js';
