@@ -62,9 +62,11 @@ verify, code-review). See `team-charter.md` §0 & §9A and
    **PR open** on `implement/assess`. → `code-review`.
 5. ✅ `frontend` — minimal **CLI assess** wiring config + adapters → engine.
    **PR #9 merged** on `frontend/cli-assess`. → `code-review`.
-6. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
+6. 🟡 `frontend` — **CLI plan command** (`@ibai/cli`) plan() wiring + formatPlan + tests.
+   **PR open** on `frontend/cli-plan`. → `code-review`.
+7. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
    HTML/JSON render of AssessmentView. **PR #10 open** on `frontend/web-assess`. → `code-review`.
-7. 🟡 `integrate` — **Ollama LLM provider adapter** (first concrete provider,
+8. 🟡 `integrate` — **Ollama LLM provider adapter** (first concrete provider,
    local-first, bring-your-own-LLM). **PR #13 open** on `integrate/provider-ollama`.
    → `code-review`.
 

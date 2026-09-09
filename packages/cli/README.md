@@ -27,6 +27,19 @@ Show your current standing — strengths, focus areas, and recurring weaknesses:
 ibai assess
 ```
 
+### Plan Command
+
+Show your recommended next session plan based on your assessment:
+
+```bash
+ibai plan
+```
+
+The plan command uses your assessment data to generate a personalized session plan with:
+- **Warmup**: Your strongest topic to build confidence
+- **Focus**: Gap areas that need the most attention
+- **Twist**: A recurring weakness to stretch your skills
+
 ### Options
 
 #### `--data-dir <path>`
@@ -35,6 +48,7 @@ Specify a custom data directory where your progress files are stored.
 
 ```bash
 ibai assess --data-dir /path/to/my/data
+ibai plan --data-dir /path/to/my/data
 ```
 
 #### `--session <id>`
@@ -69,7 +83,9 @@ The CLI determines the data directory using this precedence:
 |----------|-------------|
 | `IBAI_DATA_DIR` | Default data directory path |
 
-## Output Example
+## Output Examples
+
+### Assess Output
 
 ```
 === Where You Stand ===
@@ -94,6 +110,19 @@ Recent Session:
   Turns: 12
   Last role: assistant
   Last activity: 2026-09-05T14:30:00.000Z
+```
+
+### Plan Output
+
+```
+=== Your Next Session ===
+
+  warmup  sorting  ( 92%)  strongest area (92%) — warm up here
+   focus  graphs   ( 25%)  lowest proficiency (25%)
+   focus  dp       ( 33%)  lowest proficiency (33%) with 3 recurring misses
+   twist  trees    ( 45%)  recurring weakness: 2 misses — stretch
+
+Summary: Focus on 2 gap topics; warm up on sorting; stretch on trees.
 ```
 
 ## Development
