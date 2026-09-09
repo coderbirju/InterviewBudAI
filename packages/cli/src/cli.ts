@@ -10,14 +10,14 @@
 
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { assess } from '@ibai/core';
+import { assess, plan } from '@ibai/core';
 import {
   LocalFileStorageAdapter,
   type StorageAdapter,
   type SessionId,
 } from '@ibai/storage';
 import { resolveDataDir } from './config.js';
-import { formatAssessment } from './format.js';
+import { formatAssessment, formatPlan } from './format.js';
 
 /** Result of running the CLI. */
 export interface RunResult {
@@ -39,6 +39,7 @@ Usage: ibai <command> [options]
 
 Commands:
   assess    Show your current standing (strengths, focus areas, weaknesses)
+  plan      Show your recommended next session plan
 
 Options:
   --data-dir <path>   Data directory (default: ~/.ibai/data, or IBAI_DATA_DIR env)
@@ -90,7 +91,7 @@ export async function run(
       };
     }
 
-    if (command !== 'assess') {
+    if (command !== 'assess' && command !== 'plan') {
       return {
         output: `Error: Unknown command '${command}'.\n\n${HELP_TEXT}`,
         exitCode: 1,
@@ -110,11 +111,16 @@ export async function run(
     // Get optional session ID
     const sessionId = values.session as SessionId | undefined;
 
-    // Run assess
+    // Run assess (both commands need the assessment view)
     const view = await assess(storage, sessionId);
 
-    // Format and return
-    return { output: formatAssessment(view), exitCode: 0 };
+    if (command === 'assess') {
+      return { output: formatAssessment(view), exitCode: 0 };
+    }
+
+    // command === 'plan'
+    const sessionPlan = plan(view);
+    return { output: formatPlan(sessionPlan), exitCode: 0 };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { output: `Error: ${message}`, exitCode: 1 };
