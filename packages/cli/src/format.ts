@@ -5,7 +5,7 @@
  * All derivation/sorting done by core; this only presents the data.
  */
 
-import type { AssessmentView } from '@ibai/core';
+import type { AssessmentView, SessionPlan } from '@ibai/core';
 
 /**
  * Formats a proficiency value as a percentage string.
@@ -78,6 +78,45 @@ export function formatAssessment(view: AssessmentView): string {
       lines.push(`  Last activity: ${view.recentSession.lastTimestamp}`);
     }
   }
+
+  return lines.join('\n');
+}
+
+/**
+ * Formats SessionPlan as a human-readable terminal output.
+ *
+ * @param plan - The session plan from core
+ * @returns Formatted string for terminal display
+ */
+export function formatPlan(plan: SessionPlan): string {
+  const lines: string[] = [];
+
+  // Header
+  lines.push('=== Your Next Session ===');
+  lines.push('');
+
+  // Empty state
+  if (plan.topics.length === 0) {
+    lines.push(
+      'No session history yet — complete a practice session to get a personalized plan.',
+    );
+    lines.push('');
+    lines.push(`Summary: ${plan.summary}`);
+    return lines.join('\n');
+  }
+
+  // Topics list
+  for (const topic of plan.topics) {
+    const rolePadded = topic.role.padStart(6);
+    const profPct = Math.round(topic.proficiency * 100);
+    const profStr = String(profPct).padStart(3);
+    lines.push(
+      `  ${rolePadded}  ${topic.topicId}  (${profStr}%)  ${topic.rationale}`,
+    );
+  }
+
+  lines.push('');
+  lines.push(`Summary: ${plan.summary}`);
 
   return lines.join('\n');
 }
