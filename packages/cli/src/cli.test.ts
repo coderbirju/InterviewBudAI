@@ -277,3 +277,112 @@ describe('run', () => {
     });
   });
 });
+
+describe('plan command', () => {
+  describe('with fake storage', () => {
+    it('renders empty plan for new user', async () => {
+      const storage = createFakeStorage();
+      const result = await run(['plan'], { storage, home: '/home/test' });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('=== Your Next Session ===');
+      expect(result.output).toContain(
+        'No session history yet \u2014 complete a practice session to get a personalized plan.',
+      );
+      expect(result.output).toContain('Summary:');
+    });
+
+    it('renders populated plan with topics', async () => {
+      const storage = createFakeStorage({
+        competencyMap: {
+          entries: {
+            sorting: {
+              topicId: 'sorting',
+              proficiency: 0.9,
+              lastUpdated: '2026-09-01T00:00:00.000Z',
+            },
+            arrays: {
+              topicId: 'arrays',
+              proficiency: 0.85,
+              lastUpdated: '2026-09-01T00:00:00.000Z',
+            },
+            graphs: {
+              topicId: 'graphs',
+              proficiency: 0.2,
+              lastUpdated: '2026-09-01T00:00:00.000Z',
+            },
+            dp: {
+              topicId: 'dp',
+              proficiency: 0.25,
+              lastUpdated: '2026-09-01T00:00:00.000Z',
+            },
+          },
+        },
+        weaknessRegister: {
+          entries: [
+            {
+              topicId: 'trees',
+              note: 'BST confusion',
+              occurrences: 3,
+              lastObserved: '2026-09-01T00:00:00.000Z',
+            },
+          ],
+        },
+      });
+
+      const result = await run(['plan'], { storage, home: '/home/test' });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('=== Your Next Session ===');
+      // Should have topics with roles
+      expect(result.output).toContain('warmup');
+      expect(result.output).toContain('focus');
+      expect(result.output).toContain('Summary:');
+      // Should NOT contain empty state
+      expect(result.output).not.toContain('No session history yet');
+    });
+  });
+
+  describe('error handling', () => {
+    it('returns non-zero exit code on storage error', async () => {
+      const failingStorage: StorageAdapter = {
+        async readSessionContext(): Promise<SessionContext> {
+          throw new Error('Storage unavailable');
+        },
+        async writeSessionSummary(): Promise<void> {
+          throw new Error('Storage unavailable');
+        },
+        async readCompetencyMap(): Promise<CompetencyMap> {
+          throw new Error('Storage unavailable');
+        },
+        async updateCompetencyMap(): Promise<void> {
+          throw new Error('Storage unavailable');
+        },
+        async readWeaknessRegister(): Promise<WeaknessRegister> {
+          throw new Error('Storage unavailable');
+        },
+        async updateWeaknessRegister(): Promise<void> {
+          throw new Error('Storage unavailable');
+        },
+      };
+
+      const result = await run(['plan'], {
+        storage: failingStorage,
+        home: '/home/test',
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain('Error:');
+      expect(result.output).toContain('Storage unavailable');
+    });
+  });
+
+  describe('help includes plan', () => {
+    it('--help shows plan command', async () => {
+      const result = await run(['--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('plan');
+      expect(result.output).toContain('recommended next session');
+    });
+  });
+});
