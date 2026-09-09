@@ -24,3 +24,10 @@ export type {
   TopicProficiency,
   RecentSessionSummary,
 } from './assess.js';
+
+// ---------------------------------------------------------------------------
+// Plan engine job
+// ---------------------------------------------------------------------------
+
+export { plan } from './plan.js';
+export type { SessionPlan, PlanTopic, PlanRole } from './plan.js';
