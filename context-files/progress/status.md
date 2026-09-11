@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-10 (CLI Coach wiring PR open on frontend/cli-coach — wires coach into CLI; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-10 (Web Coach wiring PR open on frontend/web-coach — wires coach into web with assess→plan→coach loop + write-back; CLI Coach wiring PR open on frontend/cli-coach — wires coach into CLI; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started

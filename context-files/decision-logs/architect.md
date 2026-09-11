@@ -25,3 +25,5 @@
 
 - 2026-09-08: Added explicit @ibai/core → @ibai/providers dependency declaration for correctness (Coach import edge).
 2026-09-10  frontend/cli-coach  — Wired coach into CLI as thin composition root; outcomes via repeatable --outcome flag (topicId:pass|fail[:note]); OllamaProvider config via --ollama-url/--model (env fallbacks IBAI_OLLAMA_URL/IBAI_OLLAMA_MODEL); friendly Ollama-down error; no interface changes — rejected embedding provider config in core — keeps CLI as sole composition root, adapters injectable for testing.
+
+2026-09-10  frontend/web-coach  — Wired Coach into the local web app for parity with CLI; composition root constructs LocalFileStorageAdapter + OllamaProvider and injects into core; GET /coach (form), POST /coach (run assess→plan→coach with write-back → HTML), POST /coach.json; mutating trigger uses POST; localhost-only, friendly Ollama-down error, all output HTML-escaped — rejected putting any session logic in web — keeps web thin, parity with CLI, core owns the loop.

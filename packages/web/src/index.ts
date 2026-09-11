@@ -8,19 +8,31 @@
 export const PACKAGE_NAME = '@ibai/web';
 
 // Config
-export { resolveDataDir, resolvePort, resolveHost } from './config.js';
+export {
+  resolveDataDir,
+  resolvePort,
+  resolveHost,
+  resolveOllamaUrl,
+  resolveOllamaModel,
+} from './config.js';
 
 // Render
 export {
   escapeHtml,
   renderAssessmentHtml,
   renderAssessmentJson,
+  renderPlanJson,
+  renderDashboardHtml,
+  renderCoachForm,
+  renderCoachResult,
+  renderCoachJson,
 } from './render.js';
 
 // Handler
-export { createAssessHandler } from './handler.js';
+export { createAssessHandler, createCoachHandler } from './handler.js';
 export type {
   AssessHandlerDeps,
+  CoachHandlerDeps,
   HandlerRequest,
   HandlerResponse,
 } from './handler.js';

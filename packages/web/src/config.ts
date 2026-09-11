@@ -73,3 +73,38 @@ export function resolvePort(
 export function resolveHost(): string {
   return '127.0.0.1';
 }
+
+/**
+ * Resolve the Ollama API endpoint URL.
+ * Precedence: opts.endpoint > IBAI_OLLAMA_URL env > default http://127.0.0.1:11434
+ */
+export function resolveOllamaUrl(
+  env: NodeJS.ProcessEnv = process.env,
+  opts?: { endpoint?: string },
+): string {
+  if (opts?.endpoint) {
+    return opts.endpoint;
+  }
+  if (env.IBAI_OLLAMA_URL) {
+    return env.IBAI_OLLAMA_URL;
+  }
+  return 'http://127.0.0.1:11434';
+}
+
+/**
+ * Resolve the Ollama model name.
+ * Precedence: opts.model > IBAI_OLLAMA_MODEL env
+ * Returns undefined if not configured (caller must handle this).
+ */
+export function resolveOllamaModel(
+  env: NodeJS.ProcessEnv = process.env,
+  opts?: { model?: string },
+): string | undefined {
+  if (opts?.model) {
+    return opts.model;
+  }
+  if (env.IBAI_OLLAMA_MODEL) {
+    return env.IBAI_OLLAMA_MODEL;
+  }
+  return undefined;
+}
