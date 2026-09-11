@@ -31,3 +31,10 @@ export type {
 
 export { plan } from './plan.js';
 export type { SessionPlan, PlanTopic, PlanRole } from './plan.js';
+
+// ---------------------------------------------------------------------------
+// Coach engine job
+// ---------------------------------------------------------------------------
+
+export { coach, buildCoachPrompt } from './coach.js';
+export type { CoachInput, CoachResult, TopicOutcome } from './coach.js';

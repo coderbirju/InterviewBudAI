@@ -4,7 +4,20 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "src/**/*.test.ts"],
-  "references": [{ "path": "../storage" }]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../providers"
+    }
+  ]
 }
