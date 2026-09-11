@@ -7,5 +7,9 @@
  */
 
 export { run, type RunResult, type RunDeps } from './cli.js';
-export { formatAssessment, formatPlan } from './format.js';
-export { resolveDataDir, type ResolveDataDirOptions } from './config.js';
+export { formatAssessment, formatPlan, formatCoach } from './format.js';
+export {
+  resolveDataDir,
+  parseOutcomes,
+  type ResolveDataDirOptions,
+} from './config.js';

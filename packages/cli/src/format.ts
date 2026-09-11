@@ -5,7 +5,7 @@
  * All derivation/sorting done by core; this only presents the data.
  */
 
-import type { AssessmentView, SessionPlan } from '@ibai/core';
+import type { AssessmentView, SessionPlan, CoachResult } from '@ibai/core';
 
 /**
  * Formats a proficiency value as a percentage string.
@@ -117,6 +117,52 @@ export function formatPlan(plan: SessionPlan): string {
 
   lines.push('');
   lines.push(`Summary: ${plan.summary}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Formats CoachResult as a human-readable terminal output.
+ *
+ * @param sessionId - The session identifier
+ * @param plan - The session plan used for this coaching session
+ * @param result - The coach result from core
+ * @returns Formatted string for terminal display
+ */
+export function formatCoach(
+  sessionId: string,
+  plan: SessionPlan,
+  result: CoachResult,
+): string {
+  const lines: string[] = [];
+
+  // Header
+  lines.push('=== Coaching Session ===');
+  lines.push('');
+  lines.push(`Session ID: ${sessionId}`);
+  lines.push('');
+
+  // Session framing from plan
+  lines.push(`Topics covered: ${plan.topics.length}`);
+  lines.push(`Plan summary: ${plan.summary}`);
+  lines.push('');
+
+  // Coach narrative
+  lines.push('Session Recap:');
+  if (result.summary.narrative) {
+    lines.push(result.summary.narrative);
+  } else {
+    lines.push('  (No narrative generated)');
+  }
+  lines.push('');
+
+  // Write-back confirmation
+  lines.push('--- Persistence ---');
+  lines.push('Saved session summary');
+  const competencyCount = Object.keys(result.competencyMap.entries).length;
+  lines.push(`Competency entries: ${competencyCount}`);
+  const weaknessCount = result.weaknessRegister.entries.length;
+  lines.push(`Weakness entries: ${weaknessCount}`);
 
   return lines.join('\n');
 }
