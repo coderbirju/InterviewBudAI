@@ -6,6 +6,7 @@
  */
 
 import { normalize, join } from 'node:path';
+import type { TopicOutcome } from '@ibai/core';
 
 /** Options for resolving the data directory. */
 export interface ResolveDataDirOptions {
@@ -52,4 +53,55 @@ export function resolveDataDir(opts: ResolveDataDirOptions): string {
     throw new Error('Cannot determine home directory for default data path');
   }
   return normalize(join(home.trim(), '.ibai', 'data'));
+}
+
+/**
+ * Parse --outcome flag values into TopicOutcome array.
+ *
+ * Format: topicId:pass|fail[:note]
+ * - topicId: the topic identifier
+ * - result: must be exactly 'pass' or 'fail'
+ * - note: optional, may contain ':' characters
+ *
+ * @param values - Array of outcome strings from CLI
+ * @returns Array of TopicOutcome objects
+ * @throws Error if format is invalid
+ */
+export function parseOutcomes(values: string[] | undefined): TopicOutcome[] {
+  if (!values || values.length === 0) {
+    return [];
+  }
+
+  return values.map((raw) => {
+    const parts = raw.split(':');
+    if (parts.length < 2) {
+      throw new Error(
+        `invalid --outcome '${raw}'; expected topicId:pass|fail[:note]`,
+      );
+    }
+
+    const topicId = parts[0] as string;
+    const result = parts[1] as string;
+
+    if (!topicId || topicId.trim() === '') {
+      throw new Error(
+        `invalid --outcome '${raw}'; expected topicId:pass|fail[:note]`,
+      );
+    }
+
+    if (result !== 'pass' && result !== 'fail') {
+      throw new Error(
+        `invalid --outcome '${raw}'; expected topicId:pass|fail[:note]`,
+      );
+    }
+
+    // Join remaining parts as note (note may contain ':')
+    const note = parts.length > 2 ? parts.slice(2).join(':') : undefined;
+
+    return {
+      topicId,
+      succeeded: result === 'pass',
+      ...(note !== undefined && { note }),
+    };
+  });
 }
