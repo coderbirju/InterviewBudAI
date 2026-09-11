@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-08 (Coach PR open on implement/coach — closes the growth loop; Plan PR #12 merged; Ollama provider PR #13 open; CLI assess PR #9 merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-10 (CLI Coach wiring PR open on frontend/cli-coach — wires coach into CLI; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -37,11 +37,11 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | Root tooling + `npm run verify` | ✅ merged | TS project refs, ESLint, Prettier, Vitest; `verify` green locally |
 | Two-tier team model restructure | ✅ merged | `architect/two-tier-restructure` → PR #3 merged |
 
-## Milestone: Interfaces (current)
+## Milestone: Interfaces
 
 | Item | Status | Notes |
 |---|---|---|
-| Storage + LLM provider interface contracts (types-only) | 🟡 PR open | `architect/interface-skeletons` → PR #4. ADR 0002; `packages/storage`, `packages/providers` |
+| Storage + LLM provider interface contracts (types-only) | ✅ merged | `architect/interface-skeletons` → PR #4 merged. ADR 0002; `packages/storage`, `packages/providers` |
 
 ## Milestone: Engine Jobs
 
@@ -49,27 +49,30 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 |---|---|---|
 | Assess engine job | ✅ merged | `implement/assess` → PR merged. Pure read-and-derive from StorageAdapter. |
 | Plan engine job | ✅ merged | `implement/plan` → PR #12 merged. Pure sync derivation from AssessmentView. |
-| Coach engine job | 🟡 PR open | `implement/coach` — closes the growth loop: read progress → session → structured summary → competency/weakness updates. |
+| Coach engine job | ✅ merged | `implement/coach` → PR merged. Closes the growth loop: read progress → session → structured summary → competency/weakness updates. |
+
+## Milestone: Adapters
+
+| Item | Status | Notes |
+|---|---|---|
+| LocalFileStorageAdapter | ✅ merged | `integrate/storage-git` → PR merged. Git/local file storage adapter. |
+| OllamaProvider | ✅ merged | `integrate/provider-ollama` → PR #13 merged. First concrete LLM provider. |
+
+## Milestone: Front-ends (current)
+
+| Item | Status | Notes |
+|---|---|---|
+| CLI assess command | ✅ merged | `frontend/cli-assess` → PR #9 merged. |
+| CLI plan command | ✅ merged | `frontend/cli-plan` → PR merged. |
+| CLI coach command | 🟡 PR open | `frontend/cli-coach` — wires coach into CLI as thin composition root; OllamaProvider config; --outcome flag. |
+| Web assess slice | 🟡 PR open | `frontend/web-assess` → PR #10 open. localhost HTTP server, HTML/JSON render. |
 
 ## Next up (Architect dispatches these skills)
 
-1. ✅ `scaffold` — npm workspaces skeleton `packages/{core,providers,storage,cli,web}`
-   + root TS/ESLint/Prettier/Vitest + `npm run verify`. **PR #2 merged.**
-2. 🟡 `architect` (ADR + skeletons) — **storage interface** & **LLM provider
-   interface** contracts, so skills parallelize. **PR #4 open** on
-   `architect/interface-skeletons`; → then `code-review`.
-3. 🟡 `integrate` — default **git/local storage adapter** (`LocalFileStorageAdapter`). **PR open** on `integrate/storage-git`. → `code-review`.
-4. 🟡 `implement` — engine **Assess** path (read progress → "where you stand").
-   **PR open** on `implement/assess`. → `code-review`.
-5. ✅ `frontend` — minimal **CLI assess** wiring config + adapters → engine.
-   **PR #9 merged** on `frontend/cli-assess`. → `code-review`.
-6. 🟡 `frontend` — **CLI plan command** (`@ibai/cli`) plan() wiring + formatPlan + tests.
-   **PR open** on `frontend/cli-plan`. → `code-review`.
-7. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
+1. 🟡 `frontend` — **CLI coach command** (`@ibai/cli`) coach() wiring + formatCoach + tests.
+   **PR open** on `frontend/cli-coach`. → `code-review`.
+2. 🟡 `frontend` — **web ASSESS slice** (`@ibai/web`) localhost HTTP server,
    HTML/JSON render of AssessmentView. **PR #10 open** on `frontend/web-assess`. → `code-review`.
-8. 🟡 `integrate` — **Ollama LLM provider adapter** (first concrete provider,
-   local-first, bring-your-own-LLM). **PR #13 open** on `integrate/provider-ollama`.
-   → `code-review`.
 
 ## Backlog / future
 

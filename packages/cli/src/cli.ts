@@ -10,14 +10,17 @@
 
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { assess, plan } from '@ibai/core';
+import { assess, plan, coach } from '@ibai/core';
+import type { CoachInput } from '@ibai/core';
 import {
   LocalFileStorageAdapter,
   type StorageAdapter,
   type SessionId,
+  type IsoTimestamp,
 } from '@ibai/storage';
-import { resolveDataDir } from './config.js';
-import { formatAssessment, formatPlan } from './format.js';
+import { OllamaProvider, type LlmProvider } from '@ibai/providers';
+import { resolveDataDir, parseOutcomes } from './config.js';
+import { formatAssessment, formatPlan, formatCoach } from './format.js';
 
 /** Result of running the CLI. */
 export interface RunResult {
@@ -28,6 +31,7 @@ export interface RunResult {
 /** Dependencies that can be injected for testing. */
 export interface RunDeps {
   readonly storage?: StorageAdapter;
+  readonly provider?: LlmProvider;
   readonly env?: Record<string, string | undefined>;
   readonly home?: string;
 }
@@ -40,16 +44,22 @@ Usage: ibai <command> [options]
 Commands:
   assess    Show your current standing (strengths, focus areas, weaknesses)
   plan      Show your recommended next session plan
+  coach     Run a coaching session with AI-powered feedback
 
 Options:
   --data-dir <path>   Data directory (default: ~/.ibai/data, or IBAI_DATA_DIR env)
   --session <id>      Session ID for recent session context
+  --ollama-url <url>  Ollama endpoint (default: http://127.0.0.1:11434, or IBAI_OLLAMA_URL env)
+  --model <name>      Ollama model name (required for coach, or IBAI_OLLAMA_MODEL env)
+  --outcome <spec>    Topic outcome (repeatable): topicId:pass|fail[:note]
   --help              Show this help message
 
 Examples:
   ibai assess
   ibai assess --data-dir /path/to/data
   ibai assess --session my-session-123
+  ibai plan
+  ibai coach --model llama3 --outcome graphs:fail:BFS-confusion --outcome sorting:pass
 `.trim();
 
 const ARGS_CONFIG = {
@@ -58,6 +68,9 @@ const ARGS_CONFIG = {
   options: {
     'data-dir': { type: 'string' as const },
     session: { type: 'string' as const },
+    'ollama-url': { type: 'string' as const },
+    model: { type: 'string' as const },
+    outcome: { type: 'string' as const, multiple: true },
     help: { type: 'boolean' as const, default: false },
   },
 };
@@ -91,7 +104,7 @@ export async function run(
       };
     }
 
-    if (command !== 'assess' && command !== 'plan') {
+    if (command !== 'assess' && command !== 'plan' && command !== 'coach') {
       return {
         output: `Error: Unknown command '${command}'.\n\n${HELP_TEXT}`,
         exitCode: 1,
@@ -120,9 +133,57 @@ export async function run(
 
     // command === 'plan'
     const sessionPlan = plan(view);
-    return { output: formatPlan(sessionPlan), exitCode: 0 };
+
+    if (command === 'plan') {
+      return { output: formatPlan(sessionPlan), exitCode: 0 };
+    }
+
+    // command === 'coach'
+    const env = deps.env ?? process.env;
+    const coachSessionId =
+      (values.session as SessionId | undefined) ??
+      (`cli-${Date.now()}` as SessionId);
+
+    // Build provider (real) unless injected
+    let provider = deps.provider;
+    if (!provider) {
+      const endpoint =
+        (values['ollama-url'] as string | undefined) ??
+        env.IBAI_OLLAMA_URL ??
+        'http://127.0.0.1:11434';
+      const model =
+        (values.model as string | undefined) ?? env.IBAI_OLLAMA_MODEL;
+      if (!model || model.trim() === '') {
+        throw new Error(
+          '--model (or IBAI_OLLAMA_MODEL) is required for the coach command',
+        );
+      }
+      provider = new OllamaProvider({ endpoint, model });
+    }
+
+    const outcomes = parseOutcomes(values.outcome as string[] | undefined);
+    const input: CoachInput = {
+      sessionId: coachSessionId,
+      plan: sessionPlan,
+      outcomes,
+      assessment: view,
+      completedAt: new Date().toISOString() as IsoTimestamp,
+    };
+
+    const result = await coach({ storage, provider }, input);
+    return {
+      output: formatCoach(coachSessionId, sessionPlan, result),
+      exitCode: 0,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Friendly Ollama-down error
+    if (message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
+      return {
+        output: `Error: could not reach the LLM. Is Ollama running? Start it with 'ollama serve' (or set --ollama-url).`,
+        exitCode: 1,
+      };
+    }
     return { output: `Error: ${message}`, exitCode: 1 };
   }
 }
