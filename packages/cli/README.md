@@ -40,6 +40,40 @@ The plan command uses your assessment data to generate a personalized session pl
 - **Focus**: Gap areas that need the most attention
 - **Twist**: A recurring weakness to stretch your skills
 
+### Coach Command
+
+Run a coaching session with AI-powered feedback:
+
+```bash
+ibai coach --model llama3
+```
+
+The coach command:
+1. Runs `assess` to get your current standing
+2. Runs `plan` to determine session focus
+3. Calls the LLM to generate a coaching narrative
+4. Persists the session summary, updated competency map, and weakness register
+
+**Note:** The coach command requires a running Ollama instance. Start it with:
+
+```bash
+ollama serve
+```
+
+#### Recording Outcomes
+
+Use `--outcome` to record topic results (repeatable):
+
+```bash
+ibai coach --model llama3 --outcome graphs:fail:BFS-confusion --outcome sorting:pass
+```
+
+Format: `topicId:pass|fail[:note]`
+
+- `topicId`: The topic identifier
+- `pass` or `fail`: Whether you succeeded
+- `note` (optional): Additional context for failures
+
 ### Options
 
 #### `--data-dir <path>`
@@ -57,6 +91,34 @@ Include recent session context in the assessment:
 
 ```bash
 ibai assess --session my-session-123
+```
+
+#### `--ollama-url <url>`
+
+Ollama endpoint URL (coach command only):
+
+```bash
+ibai coach --model llama3 --ollama-url http://localhost:11434
+```
+
+Default: `http://127.0.0.1:11434` (or `IBAI_OLLAMA_URL` env var)
+
+#### `--model <name>`
+
+Ollama model name (required for coach command):
+
+```bash
+ibai coach --model llama3
+```
+
+Can also be set via `IBAI_OLLAMA_MODEL` environment variable.
+
+#### `--outcome <spec>`
+
+Topic outcome (coach command only, repeatable):
+
+```bash
+ibai coach --model llama3 --outcome graphs:pass --outcome trees:fail:traversal-issues
 ```
 
 #### `--help`
@@ -82,6 +144,8 @@ The CLI determines the data directory using this precedence:
 | Variable | Description |
 |----------|-------------|
 | `IBAI_DATA_DIR` | Default data directory path |
+| `IBAI_OLLAMA_URL` | Ollama endpoint URL (default: `http://127.0.0.1:11434`) |
+| `IBAI_OLLAMA_MODEL` | Ollama model name (required for coach if `--model` not provided) |
 
 ## Output Examples
 
@@ -123,6 +187,26 @@ Recent Session:
    twist  trees    ( 45%)  recurring weakness: 2 misses — stretch
 
 Summary: Focus on 2 gap topics; warm up on sorting; stretch on trees.
+```
+
+### Coach Output
+
+```
+=== Coaching Session ===
+
+Session ID: cli-1725984000000
+
+Topics covered: 3
+Plan summary: Focus on graphs and dp; warm up on sorting.
+
+Session Recap:
+Great session! You showed strong problem-solving skills on sorting.
+Graphs need more practice — focus on BFS vs DFS traversal patterns.
+
+--- Persistence ---
+Saved session summary
+Competency entries: 3
+Weakness entries: 1
 ```
 
 ## Development
