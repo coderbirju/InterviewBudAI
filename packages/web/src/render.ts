@@ -1,4 +1,9 @@
-import type { AssessmentView, SessionPlan, PlanTopic } from '@ibai/core';
+import type {
+  AssessmentView,
+  SessionPlan,
+  PlanTopic,
+  CoachResult,
+} from '@ibai/core';
 
 /**
  * Escape HTML special characters to prevent XSS.
@@ -200,19 +205,10 @@ function renderYourNextSession(plan: SessionPlan): string {
 }
 
 /**
- * Render the full dashboard HTML with both AssessmentView and SessionPlan.
+ * Common CSS styles shared across all HTML pages.
  */
-export function renderDashboardHtml(
-  view: AssessmentView,
-  plan: SessionPlan,
-): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>InterviewBudAI - Dashboard</title>
-  <style>
+function getCommonStyles(): string {
+  return `
     :root {
       --bg-primary: #0f172a;
       --bg-secondary: #1e293b;
@@ -488,7 +484,196 @@ export function renderDashboardHtml(
     footer a:hover {
       text-decoration: underline;
     }
-  </style>
+    
+    /* Coach form styles */
+    .coach-form {
+      margin-top: 1rem;
+    }
+    
+    .outcome-card {
+      background-color: var(--bg-card);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    
+    .outcome-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    
+    .outcome-controls {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .outcome-btn {
+      padding: 0.375rem 0.75rem;
+      border: 2px solid var(--border-color);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: all 0.15s ease;
+    }
+    
+    .outcome-btn:hover {
+      border-color: var(--text-secondary);
+    }
+    
+    .outcome-btn.pass {
+      border-color: var(--accent-green);
+      color: var(--accent-green);
+    }
+    
+    .outcome-btn.fail {
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+    
+    .outcome-btn.selected {
+      background-color: currentColor;
+      color: white;
+    }
+    
+    .outcome-btn.pass.selected {
+      background-color: var(--accent-green);
+    }
+    
+    .outcome-btn.fail.selected {
+      background-color: var(--accent-red);
+    }
+    
+    .note-input {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.5rem;
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      resize: vertical;
+    }
+    
+    .note-input::placeholder {
+      color: var(--text-muted);
+    }
+    
+    .submit-btn {
+      display: block;
+      width: 100%;
+      padding: 1rem;
+      margin-top: 1.5rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+    
+    .submit-btn:hover {
+      opacity: 0.9;
+    }
+    
+    .submit-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    /* Coach result styles */
+    .coach-narrative {
+      background-color: var(--bg-card);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      white-space: pre-wrap;
+      line-height: 1.8;
+    }
+    
+    .coach-confirmation {
+      background-color: var(--bg-card);
+      border-left: 3px solid var(--accent-green);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1.5rem;
+    }
+    
+    .coach-confirmation h4 {
+      color: var(--accent-green);
+      margin-bottom: 0.5rem;
+    }
+    
+    .coach-confirmation ul {
+      list-style: none;
+      color: var(--text-secondary);
+    }
+    
+    .coach-confirmation li::before {
+      content: "✓ ";
+      color: var(--accent-green);
+    }
+    
+    .strength-weakness-grid {
+      display: grid;
+      gap: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+      .strength-weakness-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    
+    .sw-section {
+      background-color: var(--bg-card);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    
+    .sw-section h4 {
+      margin-bottom: 0.75rem;
+    }
+    
+    .sw-section.strengths h4 {
+      color: var(--accent-green);
+    }
+    
+    .sw-section.weaknesses h4 {
+      color: var(--accent-red);
+    }
+    
+    .sw-list {
+      list-style: none;
+    }
+    
+    .sw-list li {
+      padding: 0.25rem 0;
+      color: var(--text-secondary);
+    }
+  `;
+}
+
+/**
+ * Render the full dashboard HTML with both AssessmentView and SessionPlan.
+ */
+export function renderDashboardHtml(
+  view: AssessmentView,
+  plan: SessionPlan,
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Dashboard</title>
+  <style>${getCommonStyles()}</style>
 </head>
 <body>
   <div class="container">
@@ -502,7 +687,7 @@ export function renderDashboardHtml(
     
     <footer>
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
-      <p><a href="/assess.json">View as JSON (assess)</a> &bull; <a href="/plan.json">View as JSON (plan)</a></p>
+      <p><a href="/assess.json">View as JSON (assess)</a> &bull; <a href="/plan.json">View as JSON (plan)</a> &bull; <a href="/coach">Start Coaching Session</a></p>
     </footer>
   </div>
 </body>
@@ -510,11 +695,209 @@ export function renderDashboardHtml(
 }
 
 /**
- * Render AssessmentView as semantic HTML (legacy, kept for backwards compatibility).
- * @deprecated Use renderDashboardHtml instead
+ * Render AssessmentView as a standalone HTML page.
+ * @deprecated Use renderDashboardHtml for the full dashboard.
  */
 export function renderAssessmentHtml(view: AssessmentView): string {
-  // Create an empty plan for backwards compatibility
-  const emptyPlan: SessionPlan = { topics: [], summary: 'No plan available.' };
-  return renderDashboardHtml(view, emptyPlan);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Assessment</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Your AI-powered interview preparation companion</p>
+    </header>
+    
+    ${renderWhereYouStand(view)}
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+      <p><a href="/assess.json">View as JSON</a></p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render the coaching session form (GET /coach).
+ * Displays the current plan topics with controls to mark outcomes.
+ * This is READ-ONLY: no write-back occurs until the form is submitted.
+ *
+ * Behavior: Only topics with explicitly submitted outcomes are included
+ * in the POST. Topics without an outcome selection are omitted (no fabrication).
+ */
+export function renderCoachForm(
+  plan: SessionPlan,
+  _view: AssessmentView,
+): string {
+  const topicsHtml =
+    plan.topics.length > 0
+      ? plan.topics
+          .map(
+            (topic) => `
+        <div class="outcome-card">
+          <div class="outcome-header">
+            <div>
+              <span class="topic-name">${escapeHtml(topic.topicId)}</span>
+              <span class="role-badge" style="background-color: ${roleBadgeColor(topic.role)}">${escapeHtml(topic.role)}</span>
+            </div>
+            <div class="outcome-controls">
+              <button type="button" class="outcome-btn pass" data-topic="${escapeHtml(topic.topicId)}" onclick="selectOutcome(this, 'pass')">Pass</button>
+              <button type="button" class="outcome-btn fail" data-topic="${escapeHtml(topic.topicId)}" onclick="selectOutcome(this, 'fail')">Fail</button>
+            </div>
+          </div>
+          <div class="rationale">${escapeHtml(topic.rationale)}</div>
+          <input type="hidden" name="outcome_${escapeHtml(topic.topicId)}" id="outcome_${escapeHtml(topic.topicId)}" value="">
+          <textarea class="note-input" name="note_${escapeHtml(topic.topicId)}" placeholder="Optional note (what went well or needs work)..."></textarea>
+        </div>`,
+          )
+          .join('')
+      : '<p class="empty-state">No topics in your plan yet. Build up your practice history first.</p>';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Coaching Session</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Coaching Session</p>
+    </header>
+    
+    <section class="dashboard-section">
+      <h2>Practice Session</h2>
+      <div class="plan-summary">${escapeHtml(plan.summary)}</div>
+      
+      <form class="coach-form" method="POST" action="/coach">
+        ${topicsHtml}
+        ${plan.topics.length > 0 ? '<button type="submit" class="submit-btn">Complete Session & Get Feedback</button>' : ''}
+      </form>
+    </section>
+    
+    <footer>
+      <p><a href="/">← Back to Dashboard</a></p>
+    </footer>
+  </div>
+  
+  <script>
+    function selectOutcome(btn, outcome) {
+      const topicId = btn.dataset.topic;
+      const hiddenInput = document.getElementById('outcome_' + topicId);
+      const passBtn = btn.parentElement.querySelector('.pass');
+      const failBtn = btn.parentElement.querySelector('.fail');
+      
+      // Toggle selection
+      if (btn.classList.contains('selected')) {
+        btn.classList.remove('selected');
+        hiddenInput.value = '';
+      } else {
+        passBtn.classList.remove('selected');
+        failBtn.classList.remove('selected');
+        btn.classList.add('selected');
+        hiddenInput.value = outcome;
+      }
+    }
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Render the coaching result page (POST /coach response).
+ * Shows the AI-generated narrative, identified strengths/weaknesses,
+ * and confirmation of write-back operations.
+ */
+export function renderCoachResult(
+  sessionId: string,
+  _plan: SessionPlan,
+  result: CoachResult,
+): string {
+  const narrative =
+    result.summary.narrative ?? 'No coaching narrative generated.';
+  const strengths = result.summary.strengths ?? [];
+  const weaknesses = result.summary.weaknesses ?? [];
+
+  const strengthsHtml =
+    strengths.length > 0
+      ? `<ul class="sw-list">${strengths.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
+      : '<p class="empty-state">None identified this session.</p>';
+
+  const weaknessesHtml =
+    weaknesses.length > 0
+      ? `<ul class="sw-list">${weaknesses.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`
+      : '<p class="empty-state">None identified this session.</p>';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Coaching Feedback</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Coaching Feedback</p>
+    </header>
+    
+    <section class="dashboard-section">
+      <h2>Session Complete: ${escapeHtml(sessionId)}</h2>
+      <div class="topics-tracked">Topics practiced: <strong>${result.summary.topics?.length ?? 0}</strong></div>
+      
+      <div class="subsection">
+        <h3>Coaching Narrative</h3>
+        <div class="coach-narrative">${escapeHtml(narrative)}</div>
+      </div>
+      
+      <div class="subsection">
+        <h3>Session Analysis</h3>
+        <div class="strength-weakness-grid">
+          <div class="sw-section strengths">
+            <h4>Strengths</h4>
+            ${strengthsHtml}
+          </div>
+          <div class="sw-section weaknesses">
+            <h4>Areas for Improvement</h4>
+            ${weaknessesHtml}
+          </div>
+        </div>
+      </div>
+      
+      <div class="coach-confirmation">
+        <h4>Progress Saved</h4>
+        <ul>
+          <li>Session summary written</li>
+          <li>Competency map updated</li>
+          <li>Weakness register updated</li>
+        </ul>
+      </div>
+    </section>
+    
+    <footer>
+      <p><a href="/">← Back to Dashboard</a> &bull; <a href="/coach">Start New Session</a></p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render CoachResult as JSON string.
+ */
+export function renderCoachJson(result: CoachResult): string {
+  return JSON.stringify(result, null, 2);
 }
