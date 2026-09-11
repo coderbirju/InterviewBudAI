@@ -17,6 +17,7 @@
     "clean": "tsc --build --clean"
   },
   "dependencies": {
-    "@ibai/storage": "*"
+    "@ibai/storage": "*",
+    "@ibai/providers": "*"
   }
 }

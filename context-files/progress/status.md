@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-08 (Plan PR #12 merged to main; Ollama provider PR #13 open; CLI assess PR #9 merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-08 (Coach PR open on implement/coach — closes the growth loop; Plan PR #12 merged; Ollama provider PR #13 open; CLI assess PR #9 merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -49,6 +49,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 |---|---|---|
 | Assess engine job | ✅ merged | `implement/assess` → PR merged. Pure read-and-derive from StorageAdapter. |
 | Plan engine job | ✅ merged | `implement/plan` → PR #12 merged. Pure sync derivation from AssessmentView. |
+| Coach engine job | 🟡 PR open | `implement/coach` — closes the growth loop: read progress → session → structured summary → competency/weakness updates. |
 
 ## Next up (Architect dispatches these skills)
 
