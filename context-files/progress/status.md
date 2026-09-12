@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-10 (Web Coach wiring PR open on frontend/web-coach — wires coach into web with assess→plan→coach loop + write-back; CLI Coach wiring PR open on frontend/cli-coach — wires coach into CLI; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-12 (Web Coach wiring PR open on frontend/web-coach — wires coach into web with assess→plan→coach loop + write-back; CLI Coach wiring PR open on frontend/cli-coach — wires coach into CLI; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -66,6 +66,12 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | CLI plan command | ✅ merged | `frontend/cli-plan` → PR merged. |
 | CLI coach command | 🟡 PR open | `frontend/cli-coach` — wires coach into CLI as thin composition root; OllamaProvider config; --outcome flag. |
 | Web assess slice | 🟡 PR open | `frontend/web-assess` → PR #10 open. localhost HTTP server, HTML/JSON render. |
+
+## Milestone: Curriculum
+
+| Item | Status | Notes |
+|---|---|---|
+| ADR 0003 curriculum layer | 🟡 PR open | `architect/curriculum-adr` — decides @ibai/curriculum location, Problem schema (links+difficulty only), read-only CurriculumSource contract. Types-only skeleton; real catalog + loader is follow-up. |
 
 ## Next up (Architect dispatches these skills)
 
