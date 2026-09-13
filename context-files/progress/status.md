@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-12 (Web Coach wiring PR open on frontend/web-coach — wires coach into web with assess→plan→coach loop + write-back; CLI Coach wiring PR open on frontend/cli-coach — wires coach into CLI; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11; interface skeletons PR #4 open; scaffold PR #2 and two-tier restructure PR #3 merged to main)_
+_Last updated: 2026-09-13 (Demo provider PR open on feature/demo-provider — EchoDemoProvider + ADR 0004 for zero-config demo; Web Coach wiring PR open on frontend/web-coach; CLI Coach wiring PR open on frontend/cli-coach; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -57,6 +57,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 |---|---|---|
 | LocalFileStorageAdapter | ✅ merged | `integrate/storage-git` → PR merged. Git/local file storage adapter. |
 | OllamaProvider | ✅ merged | `integrate/provider-ollama` → PR #13 merged. First concrete LLM provider. |
+| Demo provider (zero-config) | 🟡 | `feature/demo-provider` → PR open. EchoDemoProvider + ADR 0004; unblocks zero-config interview demo. |
 
 ## Milestone: Front-ends (current)
 
