@@ -14,6 +14,35 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 - **JSON APIs** — Machine-readable endpoints for integration with other tools
 - **Dark theme** — Modern, accessible UI with dark color scheme
 - **Local-first** — All data stays on your machine; the only outbound call is to your configured Ollama endpoint
+- **Zero-config demo** — Try the interactive interview with no LLM install required
+
+## Quick Start (Demo Mode)
+
+Try the interactive interview demo with NO LLM install:
+
+```bash
+# Build and start
+npm run build
+npm --workspace @ibai/web run start
+```
+
+Open http://127.0.0.1:4173/coach and start an interview!
+
+The demo mode uses a built-in EchoDemoProvider that simulates an interviewer by reflecting your answers into follow-up questions. It's deterministic and offline — perfect for exploring the UI.
+
+### With Ollama (AI-Powered)
+
+For AI-powered interviews with real language model responses:
+
+```bash
+# Install and start Ollama
+ollama serve
+ollama pull llama2
+
+# Configure and start
+export IBAI_OLLAMA_MODEL=llama2
+npm --workspace @ibai/web run start
+```
 
 ## Building
 
