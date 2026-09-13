@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-13 (Demo provider PR open on feature/demo-provider — EchoDemoProvider + ADR 0004 for zero-config demo; Web Coach wiring PR open on frontend/web-coach; CLI Coach wiring PR open on frontend/cli-coach; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11)_
+_Last updated: 2026-09-13 (Interactive interview UI on feature/interview-ui — zero-config turn-by-turn interview with EchoDemoProvider default; Demo provider PR open on feature/demo-provider; Web Coach wiring PR open on frontend/web-coach; CLI Coach wiring PR open on frontend/cli-coach; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -67,6 +67,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | CLI plan command | ✅ merged | `frontend/cli-plan` → PR merged. |
 | CLI coach command | 🟡 PR open | `frontend/cli-coach` — wires coach into CLI as thin composition root; OllamaProvider config; --outcome flag. |
 | Web assess slice | 🟡 PR open | `frontend/web-assess` → PR #10 open. localhost HTTP server, HTML/JSON render. |
+| Interactive interview UI | 🟡 in progress | `feature/interview-ui` — zero-config turn-by-turn interview; EchoDemoProvider default; stateless carry-forward; chat transcript UI. |
 
 ## Milestone: Curriculum
 

@@ -1,6 +1,7 @@
 import * as http from 'node:http';
 import { LocalFileStorageAdapter } from '@ibai/storage';
-import { OllamaProvider } from '@ibai/providers';
+import { EchoDemoProvider, OllamaProvider } from '@ibai/providers';
+import type { LlmProvider } from '@ibai/providers';
 import {
   resolveDataDir,
   resolvePort,
@@ -58,13 +59,17 @@ export async function startServer(
   // Create storage adapter
   const storage = new LocalFileStorageAdapter(dataDir);
 
-  // Create provider only if model is configured
-  const provider = ollamaModel
+  // Create provider: OllamaProvider if model configured, EchoDemoProvider otherwise
+  const provider: LlmProvider = ollamaModel
     ? new OllamaProvider({ endpoint: ollamaUrl, model: ollamaModel })
-    : undefined;
+    : new EchoDemoProvider();
 
-  // Create handler with both storage and optional provider
-  const handler = createCoachHandler({ storage, provider });
+  const providerLabel = ollamaModel
+    ? `Using Ollama: ${ollamaModel}`
+    : 'Demo interviewer (no LLM configured)';
+
+  // Create handler with storage, provider, and label
+  const handler = createCoachHandler({ storage, provider, providerLabel });
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -95,13 +100,7 @@ export async function startServer(
     server.listen(port, host, () => {
       const url = `http://${host}:${port}`;
       console.log(`InterviewBudAI web server running at ${url}`);
-      if (provider) {
-        console.log(
-          `Coach enabled with Ollama at ${ollamaUrl} (model: ${ollamaModel})`,
-        );
-      } else {
-        console.log('Coach disabled (set IBAI_OLLAMA_MODEL to enable)');
-      }
+      console.log(`Provider: ${providerLabel}`);
 
       resolve({
         url,

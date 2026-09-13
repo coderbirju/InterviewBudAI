@@ -657,6 +657,317 @@ function getCommonStyles(): string {
       padding: 0.25rem 0;
       color: var(--text-secondary);
     }
+
+    /* Interview UI styles */
+    .provider-banner {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .provider-banner .provider-icon {
+      color: var(--accent-blue);
+    }
+    
+    .provider-banner .provider-label {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+    
+    .progress-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      padding: 0.75rem 1rem;
+      background-color: var(--bg-card);
+      border-radius: 8px;
+    }
+    
+    .progress-step {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+    
+    .progress-step.completed {
+      color: var(--accent-green);
+    }
+    
+    .progress-step.current {
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+    
+    .progress-arrow {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+    
+    .progress-counter {
+      margin-left: auto;
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+    
+    .transcript {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .transcript-turn {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    
+    .transcript-question {
+      background-color: var(--bg-card);
+      border-radius: 8px;
+      padding: 1rem;
+      border-left: 3px solid var(--accent-purple);
+    }
+    
+    .transcript-question-label {
+      font-size: 0.75rem;
+      color: var(--accent-purple);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    
+    .transcript-answer {
+      background-color: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-left: 1rem;
+      border-left: 3px solid var(--accent-blue);
+    }
+    
+    .transcript-answer-label {
+      font-size: 0.75rem;
+      color: var(--accent-blue);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    
+    .transcript-outcome {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.125rem 0.5rem;
+      border-radius: 9999px;
+      margin-left: 0.5rem;
+    }
+    
+    .transcript-outcome.pass {
+      background-color: var(--accent-green);
+      color: white;
+    }
+    
+    .transcript-outcome.fail {
+      background-color: var(--accent-red);
+      color: white;
+    }
+    
+    .current-question {
+      background-color: var(--bg-card);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border-left: 3px solid var(--accent-purple);
+    }
+    
+    .current-question-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    
+    .current-question-label {
+      font-size: 0.75rem;
+      color: var(--accent-purple);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .current-topic-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .current-question-text {
+      font-size: 1.1rem;
+      line-height: 1.6;
+    }
+    
+    .answer-section {
+      margin-bottom: 1.5rem;
+    }
+    
+    .answer-textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 1rem;
+      background-color: var(--bg-card);
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 1rem;
+      font-family: inherit;
+      line-height: 1.6;
+      resize: vertical;
+      transition: border-color 0.15s ease;
+    }
+    
+    .answer-textarea:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    
+    .answer-textarea::placeholder {
+      color: var(--text-muted);
+    }
+    
+    .outcome-section {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .outcome-label {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+    
+    .outcome-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .outcome-btn-interview {
+      padding: 0.5rem 1.25rem;
+      border: 2px solid var(--border-color);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    
+    .outcome-btn-interview:hover {
+      border-color: var(--text-secondary);
+    }
+    
+    .outcome-btn-interview.pass-btn {
+      border-color: var(--accent-green);
+      color: var(--accent-green);
+    }
+    
+    .outcome-btn-interview.pass-btn:hover,
+    .outcome-btn-interview.pass-btn.selected {
+      background-color: var(--accent-green);
+      color: white;
+    }
+    
+    .outcome-btn-interview.fail-btn {
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+    
+    .outcome-btn-interview.fail-btn:hover,
+    .outcome-btn-interview.fail-btn.selected {
+      background-color: var(--accent-red);
+      color: white;
+    }
+    
+    .interview-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .back-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.95rem;
+    }
+    
+    .back-link:hover {
+      color: var(--text-primary);
+    }
+    
+    .next-btn {
+      padding: 0.875rem 2rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+    
+    .next-btn:hover {
+      opacity: 0.9;
+    }
+    
+    .next-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .no-topics-state {
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+    
+    .no-topics-state .icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    
+    .no-topics-state h2 {
+      color: var(--text-primary);
+      margin-bottom: 0.75rem;
+    }
+    
+    .no-topics-state p {
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    
+    .no-topics-state .dashboard-link {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border-radius: 8px;
+      color: white;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    
+    .no-topics-state .dashboard-link:hover {
+      opacity: 0.9;
+    }
   `;
 }
 
@@ -900,4 +1211,249 @@ export function renderCoachResult(
  */
 export function renderCoachJson(result: CoachResult): string {
   return JSON.stringify(result, null, 2);
+}
+
+/**
+ * Transcript entry for prior interview turns.
+ */
+export interface TranscriptEntry {
+  topicId: string;
+  question: string;
+  answer: string;
+  succeeded: boolean;
+}
+
+/**
+ * Render a provider banner showing which LLM/demo provider is active.
+ */
+function renderProviderBanner(providerLabel?: string): string {
+  if (!providerLabel) return '';
+  return `
+    <div class="provider-banner">
+      <span class="provider-icon">🤖</span>
+      <span class="provider-label">${escapeHtml(providerLabel)}</span>
+    </div>`;
+}
+
+/**
+ * Render the progress indicator for interview steps.
+ */
+function renderProgressIndicator(
+  step: number,
+  totalSteps: number,
+  currentRole: string,
+): string {
+  const roles = ['warmup', 'focus', 'twist'];
+  const roleIndex = roles.indexOf(currentRole);
+
+  return `
+    <div class="progress-indicator">
+      ${roles
+        .map((role, idx) => {
+          let className = 'progress-step';
+          if (
+            idx < roleIndex ||
+            (idx === roleIndex && step === totalSteps - 1)
+          ) {
+            className += ' completed';
+          } else if (role === currentRole) {
+            className += ' current';
+          }
+          return `<span class="${className}">${escapeHtml(role)}</span>`;
+        })
+        .join('<span class="progress-arrow">→</span>')}
+      <span class="progress-counter">Step ${step + 1} of ${totalSteps}</span>
+    </div>`;
+}
+
+/**
+ * Render the transcript of prior interview turns.
+ */
+function renderTranscript(transcript: TranscriptEntry[]): string {
+  if (transcript.length === 0) return '';
+
+  return `
+    <div class="transcript">
+      ${transcript
+        .map(
+          (entry) => `
+        <div class="transcript-turn">
+          <div class="transcript-question">
+            <div class="transcript-question-label">Interviewer (${escapeHtml(entry.topicId)})</div>
+            ${escapeHtml(entry.question)}
+          </div>
+          <div class="transcript-answer">
+            <div class="transcript-answer-label">
+              Your Answer
+              <span class="transcript-outcome ${entry.succeeded ? 'pass' : 'fail'}">${entry.succeeded ? 'Pass' : 'Fail'}</span>
+            </div>
+            ${escapeHtml(entry.answer)}
+          </div>
+        </div>`,
+        )
+        .join('')}
+    </div>`;
+}
+
+/**
+ * Render hidden fields carrying interview state forward.
+ */
+function renderHiddenStateFields(
+  sessionId: string,
+  step: number,
+  transcript: TranscriptEntry[],
+  currentQuestion: string,
+): string {
+  const fields = [
+    `<input type="hidden" name="sessionId" value="${escapeHtml(sessionId)}">`,
+    `<input type="hidden" name="step" value="${step}">`,
+    `<input type="hidden" name="current_question" value="${escapeHtml(currentQuestion)}">`,
+  ];
+
+  // Carry forward all prior answers and outcomes
+  for (const entry of transcript) {
+    fields.push(
+      `<input type="hidden" name="answer_${escapeHtml(entry.topicId)}" value="${escapeHtml(entry.answer)}">`,
+    );
+    fields.push(
+      `<input type="hidden" name="outcome_${escapeHtml(entry.topicId)}" value="${entry.succeeded ? 'pass' : 'fail'}">`,
+    );
+    fields.push(
+      `<input type="hidden" name="question_${escapeHtml(entry.topicId)}" value="${escapeHtml(entry.question)}">`,
+    );
+  }
+
+  return fields.join('\n        ');
+}
+
+/**
+ * Render a single interview step with question, answer input, and outcome buttons.
+ */
+export function renderInterviewStep(
+  step: number,
+  totalSteps: number,
+  topic: PlanTopic,
+  questionText: string,
+  priorTranscript: TranscriptEntry[],
+  sessionId: string,
+  providerLabel?: string,
+): string {
+  const isLastStep = step === totalSteps - 1;
+  const buttonText = isLastStep ? 'Finish Interview' : 'Next Question';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Interview Session</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Interview Session</p>
+    </header>
+    
+    ${renderProviderBanner(providerLabel)}
+    ${renderProgressIndicator(step, totalSteps, topic.role)}
+    
+    <section class="dashboard-section">
+      ${renderTranscript(priorTranscript)}
+      
+      <div class="current-question">
+        <div class="current-question-header">
+          <span class="current-question-label">Interviewer</span>
+          <div class="current-topic-badge">
+            <span class="topic-name">${escapeHtml(topic.topicId)}</span>
+            <span class="role-badge" style="background-color: ${roleBadgeColor(topic.role)}">${escapeHtml(topic.role)}</span>
+          </div>
+        </div>
+        <div class="current-question-text">${escapeHtml(questionText)}</div>
+      </div>
+      
+      <form method="POST" action="/coach">
+        ${renderHiddenStateFields(sessionId, step, priorTranscript, questionText)}
+        
+        <div class="answer-section">
+          <textarea 
+            class="answer-textarea" 
+            name="current_answer" 
+            placeholder="Type your answer here..."
+            required
+          ></textarea>
+        </div>
+        
+        <div class="outcome-section">
+          <span class="outcome-label">How did you do?</span>
+          <div class="outcome-buttons">
+            <button type="button" class="outcome-btn-interview pass-btn" onclick="selectOutcomeInterview(this, 'pass')">Pass</button>
+            <button type="button" class="outcome-btn-interview fail-btn" onclick="selectOutcomeInterview(this, 'fail')">Fail</button>
+          </div>
+          <input type="hidden" name="current_outcome" id="currentOutcome" value="">
+        </div>
+        
+        <div class="interview-nav">
+          <a href="/" class="back-link">← Exit Interview</a>
+          <button type="submit" class="next-btn">${buttonText}</button>
+        </div>
+      </form>
+    </section>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+  
+  <script>
+    function selectOutcomeInterview(btn, outcome) {
+      const hiddenInput = document.getElementById('currentOutcome');
+      const passBtn = document.querySelector('.pass-btn');
+      const failBtn = document.querySelector('.fail-btn');
+      
+      passBtn.classList.remove('selected');
+      failBtn.classList.remove('selected');
+      btn.classList.add('selected');
+      hiddenInput.value = outcome;
+    }
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Render a friendly state when there are no topics in the plan.
+ */
+export function renderNoTopicsState(providerLabel?: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - No Topics Yet</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Interview Session</p>
+    </header>
+    
+    ${renderProviderBanner(providerLabel)}
+    
+    <section class="dashboard-section no-topics-state">
+      <div class="icon">📚</div>
+      <h2>No Topics Yet</h2>
+      <p>Build up your practice history first to get personalized interview questions. Start by using the dashboard to track your progress.</p>
+      <a href="/" class="dashboard-link">Go to Dashboard</a>
+    </section>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
 }
