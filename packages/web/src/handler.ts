@@ -1,9 +1,10 @@
 import type { StorageAdapter, SessionId, IsoTimestamp } from '@ibai/storage';
-import type { LlmProvider } from '@ibai/providers';
+import type { LlmProvider, CompletionRequest } from '@ibai/providers';
 import { assess, plan, coach } from '@ibai/core';
 import type {
   AssessmentView,
   SessionPlan,
+  PlanTopic,
   CoachResult,
   TopicOutcome,
 } from '@ibai/core';
@@ -11,9 +12,10 @@ import {
   renderAssessmentJson,
   renderPlanJson,
   renderDashboardHtml,
-  renderCoachForm,
   renderCoachResult,
   renderCoachJson,
+  renderInterviewStep,
+  renderNoTopicsState,
   escapeHtml,
 } from './render.js';
 
@@ -35,6 +37,8 @@ export interface AssessHandlerDeps {
  */
 export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly provider?: LlmProvider;
+  /** Human-readable label for the active provider (shown in UI). */
+  readonly providerLabel?: string;
 }
 
 /**
@@ -51,32 +55,24 @@ export interface HandlerRequest {
 }
 
 /**
- * Parse form-encoded outcomes from POST body.
- * Form field naming: outcome_<topicId>=pass|fail, note_<topicId>=...
- * Only topics with submitted outcomes are included (no fabrication).
+ * A single entry in the interview transcript.
+ * Tracks the interviewer question, user answer, and outcome for each topic.
  */
-function parseFormOutcomes(body: string): TopicOutcome[] {
-  const params = new URLSearchParams(body);
-  const outcomes: TopicOutcome[] = [];
-  const seenTopics = new Set<string>();
+export interface InterviewTranscriptEntry {
+  readonly topicId: string;
+  readonly question: string;
+  readonly answer: string;
+  readonly succeeded: boolean;
+}
 
-  // Find all outcome_* fields
-  for (const [key, value] of params.entries()) {
-    if (key.startsWith('outcome_')) {
-      const topicId = key.slice('outcome_'.length);
-      if (!seenTopics.has(topicId) && (value === 'pass' || value === 'fail')) {
-        seenTopics.add(topicId);
-        const note = params.get(`note_${topicId}`) || undefined;
-        outcomes.push({
-          topicId,
-          succeeded: value === 'pass',
-          note: note && note.trim() ? note.trim() : undefined,
-        });
-      }
-    }
-  }
-
-  return outcomes;
+/**
+ * Parsed state from an interview POST form.
+ * State is carried forward in hidden fields to maintain statelessness.
+ */
+interface InterviewState {
+  readonly sessionId: string;
+  readonly step: number;
+  readonly transcript: InterviewTranscriptEntry[];
 }
 
 /**
@@ -126,6 +122,73 @@ function isConnectionError(error: unknown): boolean {
     );
   }
   return false;
+}
+
+/**
+ * Parse interview state from POST form body.
+ * Hidden fields carry: sessionId, step, question_<topicId>, answer_<topicId>, outcome_<topicId>
+ */
+function parseInterviewState(body: string): InterviewState {
+  const params = new URLSearchParams(body);
+  const sessionId = params.get('sessionId') ?? generateSessionId();
+  const step = parseInt(params.get('step') ?? '0', 10);
+
+  const transcript: InterviewTranscriptEntry[] = [];
+
+  // Collect all completed topic entries (have question, answer, and outcome)
+  for (const [key, value] of params.entries()) {
+    if (key.startsWith('question_')) {
+      const topicId = key.slice('question_'.length);
+      const answer = params.get(`answer_${topicId}`);
+      const outcomeVal = params.get(`outcome_${topicId}`);
+
+      // Only include if we have all required fields
+      if (answer !== null && (outcomeVal === 'pass' || outcomeVal === 'fail')) {
+        transcript.push({
+          topicId,
+          question: value,
+          answer,
+          succeeded: outcomeVal === 'pass',
+        });
+      }
+    }
+  }
+
+  return { sessionId, step, transcript };
+}
+
+/**
+ * Build a CompletionRequest for the interviewer to ask a question about a topic.
+ * The provider ONLY asks probing questions — NEVER provides answers or solutions.
+ */
+function buildInterviewQuestion(topic: PlanTopic): CompletionRequest {
+  const roleDescription =
+    topic.role === 'warmup'
+      ? 'warm-up (confidence builder)'
+      : topic.role === 'twist'
+        ? 'stretch/challenge'
+        : 'focus area';
+
+  return {
+    messages: [
+      {
+        role: 'system',
+        content: `You are a technical interviewer conducting a practice interview session. Your role is to ask ONE clear, focused question about the topic "${topic.topicId}" (this is a ${roleDescription} topic). 
+
+RULES:
+- Ask ONE question only
+- Be conversational but professional
+- Do NOT provide answers, hints, or solutions
+- Do NOT explain what a good answer would be
+- Keep the question concise (1-3 sentences)
+- Match difficulty to the role: ${topic.role === 'warmup' ? 'easier, confidence-building' : topic.role === 'twist' ? 'challenging, edge cases' : 'moderate, core concepts'}`,
+      },
+      {
+        role: 'user',
+        content: 'Please ask me an interview question.',
+      },
+    ],
+  };
 }
 
 /**
@@ -253,33 +316,90 @@ export function createCoachHandler(
       }
 
       if (isCoachForm) {
-        // GET /coach - render the coaching session form (read-only, no write-back)
-        return {
-          status: 200,
-          contentType: 'text/html; charset=utf-8',
-          body: renderCoachForm(sessionPlan, view),
-        };
-      }
-
-      // Handle POST routes (coach with write-back)
-      if (isCoachPost || isCoachJsonPost) {
-        const isJson = isCoachJsonPost;
+        // GET /coach - start interactive interview at step 0
+        // Handle zero topics case
+        if (sessionPlan.topics.length === 0) {
+          return {
+            status: 200,
+            contentType: 'text/html; charset=utf-8',
+            body: renderNoTopicsState(deps.providerLabel),
+          };
+        }
 
         // Check if provider is configured
         if (!deps.provider) {
-          const errorMsg =
-            'Coach requires IBAI_OLLAMA_MODEL to be set. Please configure the model environment variable.';
-          if (isJson) {
-            return {
-              status: 400,
-              contentType: 'application/json; charset=utf-8',
-              body: JSON.stringify({ error: errorMsg }),
-            };
-          }
           return {
             status: 400,
             contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml('Configuration Error', errorMsg),
+            body: renderErrorHtml(
+              'Configuration Error',
+              'Interview requires a provider. Please configure IBAI_OLLAMA_MODEL.',
+            ),
+          };
+        }
+
+        // Start at step 0 with a new session
+        const newSessionId = sessionId ?? generateSessionId();
+        const firstTopic = sessionPlan.topics[0];
+
+        // TypeScript narrowing: we already checked topics.length > 0 above
+        if (!firstTopic) {
+          return {
+            status: 500,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Error',
+              'No topics available for interview.',
+            ),
+          };
+        }
+
+        // Get interviewer question for first topic
+        let questionText: string;
+        try {
+          const questionRequest = buildInterviewQuestion(firstTopic);
+          const response = await deps.provider.complete(questionRequest);
+          questionText = response.content;
+        } catch (providerError) {
+          if (isConnectionError(providerError)) {
+            return {
+              status: 502,
+              contentType: 'text/html; charset=utf-8',
+              body: renderErrorHtml(
+                'Connection Error',
+                "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+              ),
+            };
+          }
+          throw providerError;
+        }
+
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderInterviewStep(
+            0,
+            sessionPlan.topics.length,
+            firstTopic,
+            questionText,
+            [],
+            newSessionId,
+            deps.providerLabel,
+          ),
+        };
+      }
+
+      // Handle POST /coach.json (unchanged - receives outcomes, runs coach)
+      if (isCoachJsonPost) {
+        // Check if provider is configured
+        if (!deps.provider) {
+          return {
+            status: 400,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              error:
+                'Coach requires IBAI_OLLAMA_MODEL to be set. Please configure the model environment variable.',
+            }),
           };
         }
 
@@ -288,40 +408,25 @@ export function createCoachHandler(
         let bodySessionId: string | undefined;
 
         try {
-          if (isJson) {
-            const parsed = parseJsonOutcomes(req.body ?? '');
-            outcomes = parsed.outcomes;
-            bodySessionId = parsed.sessionId;
-          } else {
-            outcomes = parseFormOutcomes(req.body ?? '');
-            // Form may also include sessionId
-            const formParams = new URLSearchParams(req.body ?? '');
-            bodySessionId = formParams.get('sessionId') ?? undefined;
-          }
+          const parsed = parseJsonOutcomes(req.body ?? '');
+          outcomes = parsed.outcomes;
+          bodySessionId = parsed.sessionId;
         } catch (parseError) {
-          const errorMsg =
-            parseError instanceof Error
-              ? parseError.message
-              : 'Invalid request body';
-          if (isJson) {
-            return {
-              status: 400,
-              contentType: 'application/json; charset=utf-8',
-              body: JSON.stringify({ error: errorMsg }),
-            };
-          }
           return {
             status: 400,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml('Parse Error', errorMsg),
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              error:
+                parseError instanceof Error
+                  ? parseError.message
+                  : 'Invalid request body',
+            }),
           };
         }
 
-        // Use sessionId from body if provided, otherwise from query, otherwise generate
         const coachSessionId =
           bodySessionId ?? sessionId ?? generateSessionId();
 
-        // Build CoachInput
         const input = {
           sessionId: coachSessionId,
           plan: sessionPlan,
@@ -330,7 +435,6 @@ export function createCoachHandler(
           completedAt: new Date().toISOString() as IsoTimestamp,
         };
 
-        // Execute coach (with write-back)
         let result: CoachResult;
         try {
           result = await coach(
@@ -338,39 +442,206 @@ export function createCoachHandler(
             input,
           );
         } catch (coachError) {
-          // Check for connection errors
           if (isConnectionError(coachError)) {
-            const errorMsg =
-              "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.";
-            if (isJson) {
-              return {
-                status: 502,
-                contentType: 'application/json; charset=utf-8',
-                body: JSON.stringify({ error: errorMsg }),
-              };
-            }
             return {
               status: 502,
-              contentType: 'text/html; charset=utf-8',
-              body: renderErrorHtml('Connection Error', errorMsg),
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                error:
+                  "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+              }),
             };
           }
           throw coachError;
         }
 
-        // Return result
-        if (isJson) {
+        return {
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: renderCoachJson(result),
+        };
+      }
+
+      // Handle POST /coach (interactive interview step progression)
+      if (isCoachPost) {
+        // Check if provider is configured
+        if (!deps.provider) {
+          return {
+            status: 400,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Configuration Error',
+              'Interview requires a provider. Please configure IBAI_OLLAMA_MODEL.',
+            ),
+          };
+        }
+
+        // Parse interview state from form
+        let interviewState: InterviewState;
+        try {
+          interviewState = parseInterviewState(req.body ?? '');
+        } catch (parseError) {
+          return {
+            status: 400,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Parse Error',
+              parseError instanceof Error
+                ? parseError.message
+                : 'Invalid form data',
+            ),
+          };
+        }
+
+        // Get current answer from form (for the topic that was just answered)
+        const formParams = new URLSearchParams(req.body ?? '');
+        const currentAnswer = formParams.get('current_answer') ?? '';
+        const currentOutcome = formParams.get('current_outcome');
+        const currentQuestion = formParams.get('current_question') ?? '';
+
+        // Validate current answer (must have answer and outcome)
+        if (
+          !currentAnswer.trim() ||
+          (currentOutcome !== 'pass' && currentOutcome !== 'fail')
+        ) {
+          return {
+            status: 400,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Incomplete Response',
+              'Please provide an answer and select Pass or Fail before continuing.',
+            ),
+          };
+        }
+
+        // Get the current topic
+        const currentStep = interviewState.step;
+        if (currentStep >= sessionPlan.topics.length) {
+          return {
+            status: 400,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Invalid Step',
+              'Interview step out of range.',
+            ),
+          };
+        }
+
+        const currentTopic = sessionPlan.topics[currentStep];
+
+        // TypeScript narrowing: step is validated above but array access still returns T | undefined
+        if (!currentTopic) {
+          return {
+            status: 400,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml('Invalid Step', 'Current topic not found.'),
+          };
+        }
+
+        // Build updated transcript with current answer
+        const updatedTranscript: InterviewTranscriptEntry[] = [
+          ...interviewState.transcript,
+          {
+            topicId: currentTopic.topicId,
+            question: currentQuestion,
+            answer: currentAnswer.trim(),
+            succeeded: currentOutcome === 'pass',
+          },
+        ];
+
+        const nextStep = currentStep + 1;
+
+        // Check if interview is complete
+        if (nextStep >= sessionPlan.topics.length) {
+          // Interview complete - convert transcript to outcomes and run coach
+          const outcomes: TopicOutcome[] = updatedTranscript.map((entry) => ({
+            topicId: entry.topicId,
+            succeeded: entry.succeeded,
+            note: entry.answer, // Store the answer as the note
+          }));
+
+          const input = {
+            sessionId: interviewState.sessionId,
+            plan: sessionPlan,
+            outcomes,
+            assessment: view,
+            completedAt: new Date().toISOString() as IsoTimestamp,
+          };
+
+          let result: CoachResult;
+          try {
+            result = await coach(
+              { storage: deps.storage, provider: deps.provider },
+              input,
+            );
+          } catch (coachError) {
+            if (isConnectionError(coachError)) {
+              return {
+                status: 502,
+                contentType: 'text/html; charset=utf-8',
+                body: renderErrorHtml(
+                  'Connection Error',
+                  "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+                ),
+              };
+            }
+            throw coachError;
+          }
+
           return {
             status: 200,
-            contentType: 'application/json; charset=utf-8',
-            body: renderCoachJson(result),
+            contentType: 'text/html; charset=utf-8',
+            body: renderCoachResult(
+              interviewState.sessionId,
+              sessionPlan,
+              result,
+            ),
           };
+        }
+
+        // More topics remain - get next question
+        const nextTopic = sessionPlan.topics[nextStep];
+
+        // TypeScript narrowing: nextStep is validated above but array access still returns T | undefined
+        if (!nextTopic) {
+          return {
+            status: 500,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml('Error', 'Next topic not found.'),
+          };
+        }
+
+        let questionText: string;
+        try {
+          const questionRequest = buildInterviewQuestion(nextTopic);
+          const response = await deps.provider.complete(questionRequest);
+          questionText = response.content;
+        } catch (providerError) {
+          if (isConnectionError(providerError)) {
+            return {
+              status: 502,
+              contentType: 'text/html; charset=utf-8',
+              body: renderErrorHtml(
+                'Connection Error',
+                "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+              ),
+            };
+          }
+          throw providerError;
         }
 
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderCoachResult(coachSessionId, sessionPlan, result),
+          body: renderInterviewStep(
+            nextStep,
+            sessionPlan.topics.length,
+            nextTopic,
+            questionText,
+            updatedTranscript,
+            interviewState.sessionId,
+            deps.providerLabel,
+          ),
         };
       }
 
