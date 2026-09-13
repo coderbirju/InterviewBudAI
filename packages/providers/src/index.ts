@@ -112,3 +112,6 @@ export interface LlmProvider {
 
 export { OllamaProvider } from './ollama.js';
 export type { OllamaProviderConfig } from './ollama.js';
+
+export { EchoDemoProvider } from './demo-provider.js';
+export type { EchoDemoProviderConfig } from './demo-provider.js';
