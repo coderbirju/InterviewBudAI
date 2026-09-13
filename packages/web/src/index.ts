@@ -26,6 +26,8 @@ export {
   renderCoachForm,
   renderCoachResult,
   renderCoachJson,
+  renderInterviewStep,
+  renderNoTopicsState,
 } from './render.js';
 
 // Handler
