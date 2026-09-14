@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. Keep entries short and current.
 > Format per active item: **[agent] branch — what / status / PR link / next**.
 
-_Last updated: 2026-09-13 (ADR 0005 onboarding-catalog-first accepted; supersedes ADR 0004 demo-provider path; extends ADR 0003 curriculum usage; 6-step implementation roadmap recorded. Interactive interview UI on feature/interview-ui; Demo provider PR open on feature/demo-provider; Web Coach wiring PR open on frontend/web-coach; CLI Coach wiring PR open on frontend/cli-coach; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11)_
+_Last updated: 2026-09-13 (seed catalog PR open on implement/seed-catalog: 35 problems + createCatalogSource factory, roadmap step (2) complete. ADR 0005 onboarding-catalog-first accepted; supersedes ADR 0004 demo-provider path; extends ADR 0003 curriculum usage; 6-step implementation roadmap recorded. Interactive interview UI on feature/interview-ui; Demo provider PR open on feature/demo-provider; Web Coach wiring PR open on frontend/web-coach; CLI Coach wiring PR open on frontend/cli-coach; Coach engine PR merged; Plan PR #12 merged; Ollama provider PR #13 merged; CLI assess+plan merged; web Assess PR #10 open; UI/UX rework backlogged #11)_
 
 ## Legend
 - ✅ done & merged   🟡 in progress / PR open   ⛔ blocked   ⬜ not started
@@ -73,8 +73,9 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 
 | Item | Status | Notes |
 |---|---|---|
-| ADR 0003 curriculum layer | 🟡 PR open | `architect/curriculum-adr` — decides @ibai/curriculum location, Problem schema (links+difficulty only), read-only CurriculumSource contract. Types-only skeleton; real catalog + loader is follow-up. |
+| ADR 0003 curriculum layer | ✅ merged | `architect/curriculum-adr` — decides @ibai/curriculum location, Problem schema (links+difficulty only), read-only CurriculumSource contract. Types-only skeleton merged. |
 | ADR 0005 onboarding + intuition | ✅ | `architect/onboarding-adr` — catalog-first onboarding, intuition capture (IntuitionNote type + optional StorageAdapter methods), AI-evaluation interview model. Supersedes ADR 0004 demo-provider path; extends ADR 0003 curriculum usage. 6-step roadmap: (1) ADR → (2) seed catalog → (3) web catalog landing → (4) notes/intuition impl → (5) Anthropic provider → (6) remove demo + AI-eval interview. |
+| Seed catalog + CurriculumSource | 🟡 PR open | `implement/seed-catalog` — 35 problems (33 LeetCode + 2 system design) across 13 topics + createCatalogSource factory. Roadmap step (2) done. |
 
 ## Next up (Architect dispatches these skills)
 
