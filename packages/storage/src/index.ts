@@ -110,6 +110,31 @@ export interface WeaknessRegister {
 }
 
 // ---------------------------------------------------------------------------
+// Intuition Note Types (ADR 0005)
+// ---------------------------------------------------------------------------
+
+/**
+ * A user's intuition/notes for a single curriculum problem.
+ *
+ * Part of the PROGRESS layer (user-owned, never committed to the repo).
+ * Stored as one markdown file per problem ID in the user's data directory,
+ * with frontmatter (id, lastUpdated, optional attempts) above free-text content.
+ *
+ * @see ADR 0005 D3 (intuition/notes storage format)
+ * @see ADR 0005 D4 (problem ID scheme)
+ */
+export interface IntuitionNote {
+  /** Curriculum problem ID, e.g. 'lc-1' or 'sysd-url-shortener'. */
+  readonly problemId: string;
+  /** Markdown body containing the user's free-text intuition. */
+  readonly content: string;
+  /** When this note was last updated. */
+  readonly lastUpdated: IsoTimestamp;
+  /** Optional count of attempts/practice sessions for this problem. */
+  readonly attempts?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Storage Adapter Contract
 // ---------------------------------------------------------------------------
 
