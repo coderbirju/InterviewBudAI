@@ -9,3 +9,6 @@ coverage/
 context-files/
 .github/
 LICENSE
+
+# Development-only scripts (not shipped)
+**/scripts/
