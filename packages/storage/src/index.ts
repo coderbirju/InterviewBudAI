@@ -110,6 +110,31 @@ export interface WeaknessRegister {
 }
 
 // ---------------------------------------------------------------------------
+// Intuition Note Types (ADR 0005)
+// ---------------------------------------------------------------------------
+
+/**
+ * A user's intuition/notes for a single curriculum problem.
+ *
+ * Part of the PROGRESS layer (user-owned, never committed to the repo).
+ * Stored as one markdown file per problem ID in the user's data directory,
+ * with frontmatter (id, lastUpdated, optional attempts) above free-text content.
+ *
+ * @see ADR 0005 D3 (intuition/notes storage format)
+ * @see ADR 0005 D4 (problem ID scheme)
+ */
+export interface IntuitionNote {
+  /** Curriculum problem ID, e.g. 'lc-1' or 'sysd-url-shortener'. */
+  readonly problemId: string;
+  /** Markdown body containing the user's free-text intuition. */
+  readonly content: string;
+  /** When this note was last updated. */
+  readonly lastUpdated: IsoTimestamp;
+  /** Optional count of attempts/practice sessions for this problem. */
+  readonly attempts?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Storage Adapter Contract
 // ---------------------------------------------------------------------------
 
@@ -147,6 +172,42 @@ export interface StorageAdapter {
 
   /** Persist an updated weakness register. */
   updateWeaknessRegister(register: WeaknessRegister): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Intuition Note Methods (ADR 0005)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read a user's intuition note for a specific curriculum problem.
+   *
+   * Part of the progress-layer per-problem intuition storage (ADR 0005 D3/D4).
+   * Returns the note if it exists, or `null` if no note has been saved for
+   * the given problem ID.
+   *
+   * @remarks
+   * This method is currently OPTIONAL to maintain backward compatibility with
+   * existing StorageAdapter implementations. It becomes REQUIRED in the
+   * follow-up implementation PR (ADR 0005 roadmap step 4).
+   *
+   * @param problemId - Curriculum problem ID (e.g. 'lc-1', 'sysd-url-shortener')
+   * @returns The intuition note if found, or `null` if none exists
+   */
+  readIntuitionNote?(problemId: string): Promise<IntuitionNote | null>;
+
+  /**
+   * Persist a user's intuition note for a curriculum problem.
+   *
+   * Part of the progress-layer per-problem intuition storage (ADR 0005 D3/D4).
+   * Creates or overwrites the note for the given problem ID.
+   *
+   * @remarks
+   * This method is currently OPTIONAL to maintain backward compatibility with
+   * existing StorageAdapter implementations. It becomes REQUIRED in the
+   * follow-up implementation PR (ADR 0005 roadmap step 4).
+   *
+   * @param note - The intuition note to persist, including problemId and content
+   */
+  writeIntuitionNote?(note: IntuitionNote): Promise<void>;
 }
 
 export * from './local-file-adapter.js';
