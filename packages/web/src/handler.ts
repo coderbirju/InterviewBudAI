@@ -372,7 +372,8 @@ export function createCoachHandler(
       // Check if database exists (same detection used elsewhere)
       // Cookie dir takes precedence if it exists
       const defaultDir = resolveDataDir(deps.env, deps.argv);
-      const hasCookieDir = cookieDataDir && directoryExists(expandTilde(cookieDataDir));
+      const hasCookieDir =
+        cookieDataDir && directoryExists(expandTilde(cookieDataDir));
       const hasDefaultDir = directoryExists(defaultDir);
       const hasDatabaseDir = hasCookieDir || hasDefaultDir;
 
@@ -386,7 +387,11 @@ export function createCoachHandler(
       }
 
       // Database exists - resolve the data dir and create storage
-      const notesDataDir = resolveDataDirWithCookie(cookieDataDir, deps.env, deps.argv);
+      const notesDataDir = resolveDataDirWithCookie(
+        cookieDataDir,
+        deps.env,
+        deps.argv,
+      );
       const notesStorage = deps.createStorage
         ? deps.createStorage(notesDataDir)
         : deps.storage;

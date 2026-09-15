@@ -318,9 +318,13 @@ export class LocalFileStorageAdapter implements StorageAdapter {
    * Parse an intuition note from file content.
    * Hand-rolled parser for YAML-style frontmatter (no external deps).
    */
-  private parseIntuitionNote(content: string, requestedId: string): IntuitionNote {
+  private parseIntuitionNote(
+    content: string,
+    requestedId: string,
+  ): IntuitionNote {
     let body = content;
-    let parsedLastUpdated: IsoTimestamp = new Date().toISOString() as IsoTimestamp;
+    let parsedLastUpdated: IsoTimestamp =
+      new Date().toISOString() as IsoTimestamp;
     let parsedAttempts: number | undefined;
 
     // Check for frontmatter
@@ -340,6 +344,7 @@ export class LocalFileStorageAdapter implements StorageAdapter {
         // Parse frontmatter key: value pairs
         for (let i = 1; i < frontmatterEndIndex; i++) {
           const line = lines[i];
+          if (line === undefined) continue;
           const colonIndex = line.indexOf(':');
           if (colonIndex > 0) {
             const key = line.slice(0, colonIndex).trim();
