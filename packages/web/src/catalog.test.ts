@@ -132,10 +132,12 @@ describe('catalog route', () => {
 });
 
 describe('notes route', () => {
-  it('GET /notes/<known-id> returns 200 placeholder page', async () => {
+  it('GET /notes/<known-id> without DB shows create database CTA', async () => {
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
       catalog: createCatalogSource(),
+      // No cookie and default dir doesn't exist = no DB
+      env: { IBAI_DATA_DIR: '/nonexistent/path/that/does/not/exist' },
     };
     const handler = createCoachHandler(deps);
 
@@ -148,7 +150,9 @@ describe('notes route', () => {
     expect(res.body).toContain(
       'Longest Substring Without Repeating Characters',
     );
-    expect(res.body).toContain('coming soon');
+    // Should show setup CTA, not 'coming soon'
+    expect(res.body).toContain('/setup');
+    expect(res.body).toContain('Create Database');
     expect(res.body).toContain('/catalog');
   });
 
