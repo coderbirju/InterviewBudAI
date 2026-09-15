@@ -28,7 +28,8 @@ describe('LocalFileStorageAdapter - IntuitionNote methods', () => {
     it('preserves content body and frontmatter exactly', async () => {
       const note: IntuitionNote = {
         problemId: 'lc-1',
-        content: 'Use a hash map to find complement in O(1).\n\nMulti-line content here.',
+        content:
+          'Use a hash map to find complement in O(1).\n\nMulti-line content here.',
         lastUpdated: '2026-09-13T10:00:00.000Z',
         attempts: 3,
       };

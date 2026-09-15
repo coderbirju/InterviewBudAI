@@ -37,7 +37,8 @@ describe('notes editor routes', () => {
 
   it('GET /notes/<known-id> with existing DB and NO note renders empty editor', async () => {
     // Create storage factory that uses temp dir
-    const createStorage = (dataDir: string) => new LocalFileStorageAdapter(dataDir);
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
 
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
@@ -59,7 +60,9 @@ describe('notes editor routes', () => {
     expect(res.status).toBe(200);
     expect(res.contentType).toBe('text/html; charset=utf-8');
     // Should contain problem title (escaped)
-    expect(res.body).toContain('Longest Substring Without Repeating Characters');
+    expect(res.body).toContain(
+      'Longest Substring Without Repeating Characters',
+    );
     // Should have LeetCode link
     expect(res.body).toContain('leetcode.com');
     expect(res.body).toContain('target="_blank"');
@@ -86,7 +89,8 @@ describe('notes editor routes', () => {
       lastUpdated: new Date().toISOString(),
     });
 
-    const createStorage = (dataDir: string) => new LocalFileStorageAdapter(dataDir);
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
 
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
@@ -132,7 +136,8 @@ describe('notes editor routes', () => {
   });
 
   it('POST /notes/<id> saves content and shows Saved banner, GET shows saved content (round-trip)', async () => {
-    const createStorage = (dataDir: string) => new LocalFileStorageAdapter(dataDir);
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
 
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
@@ -192,7 +197,9 @@ describe('notes editor routes', () => {
     expect(res.contentType).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('/setup');
     expect(res.body).toContain('Create Database');
-    expect(res.body).toContain('Longest Substring Without Repeating Characters');
+    expect(res.body).toContain(
+      'Longest Substring Without Repeating Characters',
+    );
   });
 
   it('no-database state: POST renders create database CTA and never throws', async () => {
@@ -229,7 +236,8 @@ describe('notes editor routes', () => {
       },
     ]);
 
-    const createStorage = (dataDir: string) => new LocalFileStorageAdapter(dataDir);
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
 
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
@@ -271,7 +279,8 @@ describe('notes editor routes', () => {
   });
 
   it('POST /notes/<unknown-id> returns 404', async () => {
-    const createStorage = (dataDir: string) => new LocalFileStorageAdapter(dataDir);
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
 
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
