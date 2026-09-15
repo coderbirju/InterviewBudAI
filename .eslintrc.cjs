@@ -19,7 +19,13 @@ module.exports = {
     'plugin:@typescript-eslint/recommended',
     'prettier',
   ],
-  ignorePatterns: ['dist/', 'node_modules/', 'coverage/', '*.config.*'],
+  ignorePatterns: [
+    'dist/',
+    'node_modules/',
+    'coverage/',
+    '*.config.*',
+    '**/scripts/',
+  ],
   rules: {
     '@typescript-eslint/no-unused-vars': [
       'error',

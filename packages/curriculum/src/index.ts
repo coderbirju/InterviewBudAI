@@ -54,9 +54,45 @@ export interface CurriculumSource {
   filterByTopic(topic: CurriculumTopicId): readonly Problem[];
 }
 
+// Re-export the curated catalog from catalog.ts
+export { CATALOG } from './catalog.js';
+
+import { CATALOG } from './catalog.js';
+
 /**
- * Placeholder shipped dataset. INTENTIONALLY EMPTY — real catalog entries and a
- * concrete CurriculumSource implementation/loader arrive in a follow-up
- * implement PR. This reserves the exported shape only.
+ * Factory function to create a CurriculumSource implementation.
+ * Provides read-only access to the problem catalog with filtering capabilities.
+ *
+ * @param catalog - Optional custom catalog array. Defaults to the shipped CATALOG.
+ * @returns A CurriculumSource implementation over the provided catalog.
  */
-export const CATALOG: readonly Problem[] = [];
+export function createCatalogSource(
+  catalog: readonly Problem[] = CATALOG,
+): CurriculumSource {
+  // Build lookup maps for efficient access
+  const byId = new Map<string, Problem>();
+  const byDifficulty = new Map<Difficulty, Problem[]>();
+  const byTopic = new Map<string, Problem[]>();
+
+  for (const problem of catalog) {
+    byId.set(problem.id, problem);
+
+    const diffList = byDifficulty.get(problem.difficulty) ?? [];
+    diffList.push(problem);
+    byDifficulty.set(problem.difficulty, diffList);
+
+    for (const topic of problem.topics) {
+      const topicList = byTopic.get(topic) ?? [];
+      topicList.push(problem);
+      byTopic.set(topic, topicList);
+    }
+  }
+
+  return {
+    list: () => catalog,
+    getById: (id: string) => byId.get(id),
+    filterByDifficulty: (difficulty: Difficulty) =>
+      byDifficulty.get(difficulty) ?? [],
+    filterByTopic: (topic: CurriculumTopicId) => byTopic.get(topic) ?? [],
+  };
+}
