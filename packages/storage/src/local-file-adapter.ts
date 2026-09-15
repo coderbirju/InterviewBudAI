@@ -9,6 +9,7 @@
  *   ${basePath}/summaries/${sessionId}.json -> SessionSummary
  *   ${basePath}/competency.json             -> CompetencyMap
  *   ${basePath}/weaknesses.json             -> WeaknessRegister
+ *   ${basePath}/notes/${problemId}.md       -> IntuitionNote (ADR 0005)
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -23,6 +24,8 @@ import type {
   SessionHistoryEntry,
   CompetencyEntry,
   WeaknessEntry,
+  IntuitionNote,
+  IsoTimestamp,
 } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -110,6 +113,14 @@ function sanitizeSessionId(sessionId: string): string {
   }
 
   return sanitized;
+}
+
+/**
+ * Sanitize a problemId for use in filenames.
+ * Uses the same logic as sanitizeSessionId to prevent path traversal.
+ */
+function sanitizeProblemId(problemId: string): string {
+  return sanitizeSessionId(problemId);
 }
 
 /**
@@ -240,4 +251,144 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       'utf-8',
     );
   }
+
+  // -------------------------------------------------------------------------
+  // Intuition Note Methods (ADR 0005)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Read a user's intuition note for a specific curriculum problem.
+   *
+   * Stored at `${basePath}/notes/<problemId>.md` as markdown with YAML-style
+   * frontmatter (id, lastUpdated, optional attempts) followed by free-text body.
+   *
+   * @param problemId - Curriculum problem ID (e.g. 'lc-1', 'sysd-url-shortener')
+   * @returns The intuition note if found, or `null` if none exists
+   */
+  async readIntuitionNote(problemId: string): Promise<IntuitionNote | null> {
+    const safeId = sanitizeProblemId(problemId);
+    const filePath = safeJoin(this.basePath, 'notes', `${safeId}.md`);
+
+    try {
+      const content = await readFile(filePath, 'utf-8');
+
+      // Empty file -> return null
+      if (content.trim().length === 0) {
+        return null;
+      }
+
+      return this.parseIntuitionNote(content, safeId);
+    } catch (err: unknown) {
+      // ENOENT = file not found -> return null
+      if (isNodeError(err) && err.code === 'ENOENT') {
+        return null;
+      }
+      // Other errors -> return null (never throw)
+      return null;
+    }
+  }
+
+  /**
+   * Persist a user's intuition note for a curriculum problem.
+   *
+   * Stored at `${basePath}/notes/<problemId>.md` as markdown with YAML-style
+   * frontmatter (id, lastUpdated, optional attempts) followed by free-text body.
+   *
+   * @param note - The intuition note to persist, including problemId and content
+   */
+  async writeIntuitionNote(note: IntuitionNote): Promise<void> {
+    const safeId = sanitizeProblemId(note.problemId);
+    const filePath = safeJoin(this.basePath, 'notes', `${safeId}.md`);
+
+    // Build frontmatter
+    let frontmatter = `---\nid: ${safeId}\nlastUpdated: ${note.lastUpdated}`;
+    if (note.attempts !== undefined) {
+      frontmatter += `\nattempts: ${note.attempts}`;
+    }
+    frontmatter += '\n---\n';
+
+    // Combine frontmatter + body + trailing newline
+    const fileContent = frontmatter + note.content + '\n';
+
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, fileContent, 'utf-8');
+  }
+
+  /**
+   * Parse an intuition note from file content.
+   * Hand-rolled parser for YAML-style frontmatter (no external deps).
+   */
+  private parseIntuitionNote(content: string, requestedId: string): IntuitionNote {
+    let body = content;
+    let parsedLastUpdated: IsoTimestamp = new Date().toISOString() as IsoTimestamp;
+    let parsedAttempts: number | undefined;
+
+    // Check for frontmatter
+    if (content.startsWith('---\n')) {
+      const lines = content.split('\n');
+      let frontmatterEndIndex = -1;
+
+      // Find closing ---
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i] === '---') {
+          frontmatterEndIndex = i;
+          break;
+        }
+      }
+
+      if (frontmatterEndIndex > 0) {
+        // Parse frontmatter key: value pairs
+        for (let i = 1; i < frontmatterEndIndex; i++) {
+          const line = lines[i];
+          const colonIndex = line.indexOf(':');
+          if (colonIndex > 0) {
+            const key = line.slice(0, colonIndex).trim();
+            const value = line.slice(colonIndex + 1).trim();
+
+            if (key === 'lastUpdated' && value) {
+              parsedLastUpdated = value as IsoTimestamp;
+            } else if (key === 'attempts' && value) {
+              const num = Number(value);
+              if (!Number.isNaN(num)) {
+                parsedAttempts = num;
+              }
+            }
+            // Note: we ignore 'id' from file, always use requestedId
+          }
+        }
+
+        // Body is everything after the closing ---
+        body = lines.slice(frontmatterEndIndex + 1).join('\n');
+        // Trim a single leading newline if present
+        if (body.startsWith('\n')) {
+          body = body.slice(1);
+        }
+      }
+    }
+
+    // Trim trailing newline that we add on write
+    if (body.endsWith('\n')) {
+      body = body.slice(0, -1);
+    }
+
+    const note: IntuitionNote = {
+      problemId: requestedId,
+      content: body,
+      lastUpdated: parsedLastUpdated,
+    };
+
+    if (parsedAttempts !== undefined) {
+      return { ...note, attempts: parsedAttempts };
+    }
+
+    return note;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Utility type guard for Node.js errors
+// ---------------------------------------------------------------------------
+
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
 }
