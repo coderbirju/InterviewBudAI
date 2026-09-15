@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@ibai/core": "0.0.0",
+    "@ibai/curriculum": "0.0.0",
     "@ibai/providers": "0.0.0",
     "@ibai/storage": "0.0.0"
   }

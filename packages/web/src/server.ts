@@ -84,9 +84,14 @@ export async function startServer(
         url: req.url ?? '/',
         body,
         contentType: req.headers['content-type'],
+        headers: req.headers as Record<string, string | string[] | undefined>,
       });
 
-      res.writeHead(result.status, { 'Content-Type': result.contentType });
+      const responseHeaders: Record<string, string> = {
+        'Content-Type': result.contentType,
+        ...result.headers,
+      };
+      res.writeHead(result.status, responseHeaders);
       res.end(result.body);
     } catch (error) {
       const message =

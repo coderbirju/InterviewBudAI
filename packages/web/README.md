@@ -8,12 +8,16 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 
 ## Features
 
+- **Problem Catalog** — Browse 175 curated problems grouped by topic with difficulty badges, LeetCode links, and Notes links
+- **Catalog-first onboarding** — New users start by exploring the catalog, then create their database to start tracking progress
+- **Create database** — Simple setup flow to create and remember your data directory via browser cookie
 - **Where You Stand** — View your current proficiency across topics, top strengths, focus areas, and recurring weaknesses
 - **Your Next Session** — AI-derived session plan with warmup, focus, and twist topics displayed as cards with role badges and proficiency bars
 - **Coaching Sessions** — Run full coaching sessions from the browser with outcome tracking and AI-generated feedback
 - **JSON APIs** — Machine-readable endpoints for integration with other tools
 - **Dark theme** — Modern, accessible UI with dark color scheme
 - **Local-first** — All data stays on your machine; the only outbound call is to your configured Ollama endpoint
+- **Cookie-based directory persistence** — Browser remembers your data directory across visits (no login required)
 - **Zero-config demo** — Try the interactive interview with no LLM install required
 
 ## Quick Start (Demo Mode)
@@ -96,8 +100,12 @@ If `IBAI_OLLAMA_MODEL` is not set, the coach form (GET /coach) will still displa
 
 | Path | Method | Format | Description |
 |------|--------|--------|-------------|
-| `/` | GET | HTML | Full dashboard with Where You Stand + Your Next Session |
+| `/` | GET | HTML | Full dashboard (requires cookie) or redirects to /catalog (no cookie) |
 | `/assess` | GET | HTML | Same as `/` |
+| `/catalog` | GET | HTML | Browse all 175 problems grouped by topic with LeetCode and Notes links |
+| `/notes/<id>` | GET | HTML | Placeholder page for problem notes (intuition capture coming next PR) |
+| `/setup` | GET | HTML | Form to create/select data directory |
+| `/setup` | POST | HTML | Create data directory and set cookie |
 | `/assess.json` | GET | JSON | AssessmentView as JSON |
 | `/plan.json` | GET | JSON | SessionPlan as JSON |
 | `/coach` | GET | HTML | Coaching session form (read-only, no write-back) |
@@ -195,6 +203,46 @@ AI-derived recommendations for your next practice session:
   - Role badge (warmup/focus/twist)
   - Proficiency bar with color coding
   - Rationale explaining why this topic was selected
+
+## Onboarding Flow
+
+New users (no `ibai_data_dir` cookie) experience a catalog-first onboarding:
+
+1. **`GET /`** redirects to `/catalog` (no cookie set)
+2. **`/catalog`** shows the full problem catalog with a prominent "Create your database" CTA
+3. **`/setup`** presents a form to create/select a data directory
+4. **`POST /setup`** creates the directory and sets a first-party cookie
+5. **`GET /`** now shows the dashboard (cookie is set)
+
+This removes the cold-start dead-end where users had no data to track.
+
+## Cookie Behavior
+
+The `ibai_data_dir` cookie stores the path to the user's data directory:
+
+| Attribute | Value |
+|-----------|-------|
+| Name | `ibai_data_dir` |
+| Path | `/` |
+| HttpOnly | Yes |
+| SameSite | Strict |
+| Secure | No (localhost http) |
+
+**Data directory precedence** (per-request):
+1. Cookie value (if set AND directory exists)
+2. CLI flag `--data-dir=<path>`
+3. Environment variable `IBAI_DATA_DIR`
+4. Default `~/.interviewbudai/data`
+
+The cookie enables session persistence across browser restarts without requiring login.
+
+## Notes Placeholder
+
+`GET /notes/<id>` currently shows a placeholder page. **Intuition capture is coming in the next PR** (ADR 0005 roadmap step 4). The placeholder shows:
+- Problem title and difficulty
+- Link to LeetCode
+- "Coming soon" message
+- Back link to catalog
 
 ## Security
 

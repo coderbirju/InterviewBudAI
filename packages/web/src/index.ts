@@ -10,15 +10,20 @@ export const PACKAGE_NAME = '@ibai/web';
 // Config
 export {
   resolveDataDir,
+  resolveDataDirWithCookie,
   resolvePort,
   resolveHost,
   resolveOllamaUrl,
   resolveOllamaModel,
+  parseCookies,
+  expandTilde,
+  directoryExists,
 } from './config.js';
 
 // Render
 export {
   escapeHtml,
+  getCommonStyles,
   renderAssessmentHtml,
   renderAssessmentJson,
   renderPlanJson,
@@ -28,6 +33,12 @@ export {
   renderCoachJson,
   renderInterviewStep,
   renderNoTopicsState,
+  renderCatalogHtml,
+  renderNotesPlaceholderHtml,
+  renderSetupHtml,
+  renderSetupSuccessHtml,
+  renderSetupErrorHtml,
+  render404Html,
 } from './render.js';
 
 // Handler

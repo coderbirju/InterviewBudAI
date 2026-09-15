@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type {
   StorageAdapter,
   SessionId,
@@ -7,7 +10,8 @@ import type {
   CompetencyMap,
   WeaknessRegister,
 } from '@ibai/storage';
-import { createAssessHandler } from './handler.js';
+import { createCoachHandler } from './handler.js';
+import type { HandlerRequest } from './handler.js';
 
 /**
  * In-memory fake storage adapter for testing.
@@ -65,66 +69,108 @@ class FakeStorageAdapter implements StorageAdapter {
 }
 
 describe('createAssessHandler', () => {
+  // Temp directory for tests that need a cookie
+  let testDataDir: string | null = null;
+
+  beforeEach(() => {
+    testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-test-'));
+  });
+
+  afterEach(() => {
+    if (testDataDir && fs.existsSync(testDataDir)) {
+      fs.rmSync(testDataDir, { recursive: true, force: true });
+      testDataDir = null;
+    }
+  });
+
   const createFakeHandler = () => {
     const storage = new FakeStorageAdapter();
-    const handler = createAssessHandler({ storage });
+    // Use createCoachHandler with createStorage factory to support per-request storage
+    const handler = createCoachHandler({
+      storage,
+      createStorage: () => storage, // Always return the same storage for testing
+    });
     return { storage, handler };
   };
 
+  // Helper to create a request with cookie
+  const withCookie = (req: HandlerRequest): HandlerRequest => ({
+    ...req,
+    headers: { cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}` },
+  });
+
   describe('GET / (HTML)', () => {
-    it('returns 200 with HTML content type', async () => {
+    it('returns 200 with HTML content type when cookie is set', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('text/html; charset=utf-8');
     });
 
-    it('body contains page title', async () => {
+    it('redirects to /catalog when no cookie', async () => {
       const { handler } = createFakeHandler();
       const res = await handler({ method: 'GET', url: '/' });
+      expect(res.status).toBe(302);
+      expect(res.headers?.['Location']).toBe('/catalog');
+    });
+
+    it('body contains page title', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.body).toContain('InterviewBudAI');
     });
 
     it('shows Where You Stand section', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.body).toContain('Where You Stand');
     });
 
     it('shows Your Next Session section', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.body).toContain('Your Next Session');
     });
 
     it('shows friendly placeholder for empty state', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.body).toContain('No strengths identified yet');
     });
   });
 
   describe('GET /assess (HTML)', () => {
-    it('returns 200 with HTML', async () => {
+    it('returns 200 with HTML when cookie is set', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/assess' });
+      const res = await handler(withCookie({ method: 'GET', url: '/assess' }));
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('text/html; charset=utf-8');
       expect(res.body).toContain('Where You Stand');
+    });
+
+    it('redirects to /catalog when no cookie', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler({ method: 'GET', url: '/assess' });
+      expect(res.status).toBe(302);
+      expect(res.headers?.['Location']).toBe('/catalog');
     });
   });
 
   describe('GET /assess.json (JSON)', () => {
     it('returns 200 with JSON content type', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/assess.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/assess.json' }),
+      );
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('application/json; charset=utf-8');
     });
 
     it('body parses to AssessmentView shape', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/assess.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/assess.json' }),
+      );
       const view = JSON.parse(res.body);
       expect(view).toHaveProperty('topicsTracked');
       expect(view).toHaveProperty('topStrengths');
@@ -137,14 +183,18 @@ describe('createAssessHandler', () => {
   describe('GET /plan.json (JSON)', () => {
     it('returns 200 with JSON content type', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/plan.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/plan.json' }),
+      );
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('application/json; charset=utf-8');
     });
 
     it('body parses to SessionPlan shape', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/plan.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/plan.json' }),
+      );
       const plan = JSON.parse(res.body);
       expect(plan).toHaveProperty('topics');
       expect(plan).toHaveProperty('summary');
@@ -153,7 +203,9 @@ describe('createAssessHandler', () => {
 
     it('returns empty plan for new user', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/plan.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/plan.json' }),
+      );
       const plan = JSON.parse(res.body);
       expect(plan.topics).toEqual([]);
       expect(plan.summary).toContain('No history yet');
@@ -181,7 +233,9 @@ describe('createAssessHandler', () => {
         },
       });
 
-      const res = await handler({ method: 'GET', url: '/plan.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/plan.json' }),
+      );
       const plan = JSON.parse(res.body);
       expect(plan.topics.length).toBeGreaterThan(0);
       // Should have focus topics from low proficiency areas
@@ -220,7 +274,7 @@ describe('createAssessHandler', () => {
         ],
       });
 
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.body).toContain('arrays');
     });
 
@@ -241,7 +295,7 @@ describe('createAssessHandler', () => {
         },
       });
 
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       // Should show topic cards with roles
       expect(res.body).toContain('topic-card');
       expect(res.body).toContain('role-badge');
@@ -258,10 +312,12 @@ describe('createAssessHandler', () => {
         ],
       });
 
-      const res = await handler({
-        method: 'GET',
-        url: '/assess?sessionId=test-session',
-      });
+      const res = await handler(
+        withCookie({
+          method: 'GET',
+          url: '/assess?sessionId=test-session',
+        }),
+      );
       expect(res.status).toBe(200);
     });
 
@@ -274,10 +330,12 @@ describe('createAssessHandler', () => {
         ],
       });
 
-      const res = await handler({
-        method: 'GET',
-        url: '/plan.json?sessionId=test-session',
-      });
+      const res = await handler(
+        withCookie({
+          method: 'GET',
+          url: '/plan.json?sessionId=test-session',
+        }),
+      );
       expect(res.status).toBe(200);
     });
   });
@@ -287,7 +345,8 @@ describe('createAssessHandler', () => {
       const { handler } = createFakeHandler();
       const res = await handler({ method: 'GET', url: '/unknown' });
       expect(res.status).toBe(404);
-      expect(res.body).toContain('Not found');
+      // 404 page is HTML, contains 404 code
+      expect(res.body).toContain('404');
     });
   });
 
@@ -312,7 +371,7 @@ describe('createAssessHandler', () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
-      const res = await handler({ method: 'GET', url: '/' });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.status).toBe(500);
       expect(res.body).toContain('Storage error');
     });
@@ -321,7 +380,9 @@ describe('createAssessHandler', () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
-      const res = await handler({ method: 'GET', url: '/assess.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/assess.json' }),
+      );
       expect(res.status).toBe(500);
       expect(res.contentType).toBe('application/json; charset=utf-8');
       const body = JSON.parse(res.body);
@@ -332,7 +393,9 @@ describe('createAssessHandler', () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
-      const res = await handler({ method: 'GET', url: '/plan.json' });
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/plan.json' }),
+      );
       expect(res.status).toBe(500);
       expect(res.contentType).toBe('application/json; charset=utf-8');
       const body = JSON.parse(res.body);
