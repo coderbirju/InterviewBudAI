@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -107,4 +108,67 @@ export function resolveOllamaModel(
     return env.IBAI_OLLAMA_MODEL;
   }
   return undefined;
+}
+
+/**
+ * Parse a Cookie header string into a map of key-value pairs.
+ * Node built-ins only, no external dependencies.
+ */
+export function parseCookies(
+  cookieHeader: string | undefined,
+): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieHeader) return cookies;
+
+  for (const pair of cookieHeader.split(';')) {
+    const [key, ...rest] = pair.trim().split('=');
+    if (key) {
+      // URL decode the value and rejoin any '=' that were in the value
+      cookies[key] = decodeURIComponent(rest.join('='));
+    }
+  }
+  return cookies;
+}
+
+/**
+ * Expand ~ to home directory in a path.
+ */
+export function expandTilde(p: string): string {
+  if (p.startsWith('~/') || p === '~') {
+    return path.join(os.homedir(), p.slice(1));
+  }
+  return p;
+}
+
+/**
+ * Check if a directory exists.
+ */
+export function directoryExists(dirPath: string): boolean {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve data directory with cookie support.
+ * Precedence: cookie ibai_data_dir (if set AND exists) > CLI flag > env > default
+ */
+export function resolveDataDirWithCookie(
+  cookieDataDir: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+  argv?: string[],
+): string {
+  // Cookie takes highest precedence IF the directory exists
+  if (cookieDataDir) {
+    const expanded = expandTilde(cookieDataDir);
+    const resolved = path.resolve(expanded);
+    if (directoryExists(resolved)) {
+      return resolved;
+    }
+  }
+
+  // Fall back to standard resolution
+  return resolveDataDir(env, argv);
 }

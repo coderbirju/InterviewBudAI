@@ -16,14 +16,32 @@ import {
   renderCoachJson,
   renderInterviewStep,
   renderNoTopicsState,
+  renderCatalogHtml,
+  renderNotesPlaceholderHtml,
+  renderSetupHtml,
+  renderSetupSuccessHtml,
+  renderSetupErrorHtml,
+  render404Html,
   escapeHtml,
 } from './render.js';
+import { createCatalogSource } from '@ibai/curriculum';
+import type { CurriculumSource } from '@ibai/curriculum';
+import {
+  parseCookies,
+  expandTilde,
+  resolveDataDir,
+  resolveDataDirWithCookie,
+} from './config.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /** Minimal response shape, decoupled from Node http types. */
 export interface HandlerResponse {
   readonly status: number;
   readonly contentType: string;
   readonly body: string;
+  /** Optional headers to include in response (e.g., Set-Cookie, Location). */
+  readonly headers?: Record<string, string>;
 }
 
 /** Dependencies for the assess handler (DI). */
@@ -39,11 +57,21 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly provider?: LlmProvider;
   /** Human-readable label for the active provider (shown in UI). */
   readonly providerLabel?: string;
+  /** Curriculum catalog source for problem lookup. */
+  readonly catalog?: CurriculumSource;
+  /** Factory to create storage adapter for a given data directory. */
+  readonly createStorage?: (dataDir: string) => StorageAdapter;
+  /** Default data directory (from config). */
+  readonly defaultDataDir?: string;
+  /** Environment variables for config resolution. */
+  readonly env?: NodeJS.ProcessEnv;
+  /** CLI argv for config resolution. */
+  readonly argv?: string[];
 }
 
 /**
  * Minimal request shape for the handler.
- * Extended to support POST bodies for coach operations.
+ * Extended to support POST bodies and headers for cookie-based routing.
  */
 export interface HandlerRequest {
   readonly method: string;
@@ -52,6 +80,8 @@ export interface HandlerRequest {
   readonly body?: string;
   /** Optional content-type header. */
   readonly contentType?: string;
+  /** Optional headers map for cookie parsing and other header access. */
+  readonly headers?: Record<string, string | string[] | undefined>;
 }
 
 /**
@@ -223,10 +253,14 @@ export function createCoachHandler(
     const isPlanJson = isGet && pathname === '/plan.json';
     const isHtml = isGet && (pathname === '/' || pathname === '/assess');
     const isCoachForm = isGet && pathname === '/coach';
+    const isCatalog = isGet && pathname === '/catalog';
+    const isNotesRoute = isGet && pathname.startsWith('/notes/');
+    const isSetupForm = isGet && pathname === '/setup';
 
     // POST routes
     const isCoachPost = isPost && pathname === '/coach';
     const isCoachJsonPost = isPost && pathname === '/coach.json';
+    const isSetupPost = isPost && pathname === '/setup';
 
     // Known paths (for 405 vs 404 distinction)
     const knownPaths = [
@@ -236,8 +270,12 @@ export function createCoachHandler(
       '/plan.json',
       '/coach',
       '/coach.json',
+      '/catalog',
+      '/setup',
     ];
-    const isKnownPath = knownPaths.includes(pathname);
+    // Also handle /notes/<id> routes
+    const isKnownPath =
+      knownPaths.includes(pathname) || pathname.startsWith('/notes/');
 
     // 405 for unsupported methods on known paths
     if (isKnownPath && !isGet && !isPost) {
@@ -270,12 +308,130 @@ export function createCoachHandler(
       !isHtml &&
       !isCoachForm &&
       !isCoachPost &&
-      !isCoachJsonPost
+      !isCoachJsonPost &&
+      !isCatalog &&
+      !isNotesRoute &&
+      !isSetupForm &&
+      !isSetupPost
     ) {
       return {
         status: 404,
-        contentType: 'application/json; charset=utf-8',
-        body: JSON.stringify({ error: 'Not found' }),
+        contentType: 'text/html; charset=utf-8',
+        body: render404Html(),
+      };
+    }
+
+    // Get catalog source (default to static catalog)
+    const catalog = deps.catalog ?? createCatalogSource();
+
+    // Parse cookies for dataDir resolution
+    const cookieHeader =
+      typeof req.headers?.cookie === 'string' ? req.headers.cookie : undefined;
+    const cookies = parseCookies(cookieHeader);
+    const cookieDataDir = cookies['ibai_data_dir'];
+    const hasCookie = !!cookieDataDir;
+
+    // Resolve default data directory (for display in forms)
+    const defaultDataDir =
+      deps.defaultDataDir ?? resolveDataDir(deps.env, deps.argv);
+
+    // Handle /catalog (GET) - no storage needed
+    if (isCatalog) {
+      const problems = catalog.list();
+      return {
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: renderCatalogHtml(problems, hasCookie, defaultDataDir),
+      };
+    }
+
+    // Handle /notes/<id> (GET) - no storage needed (placeholder)
+    if (isNotesRoute) {
+      const problemId = pathname.slice('/notes/'.length);
+      const problem = catalog.getById(problemId);
+
+      if (!problem) {
+        return {
+          status: 404,
+          contentType: 'text/html; charset=utf-8',
+          body: render404Html(`Problem "${problemId}" not found in catalog.`),
+        };
+      }
+
+      return {
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: renderNotesPlaceholderHtml(problem),
+      };
+    }
+
+    // Handle /setup (GET) - show form
+    if (isSetupForm) {
+      return {
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: renderSetupHtml(defaultDataDir),
+      };
+    }
+
+    // Handle /setup (POST) - create database directory
+    if (isSetupPost) {
+      const formParams = new URLSearchParams(req.body ?? '');
+      let rawPath = formParams.get('dataDir') ?? defaultDataDir;
+
+      // Normalize path: expand ~, resolve to absolute
+      rawPath = expandTilde(rawPath);
+      const resolvedPath = path.resolve(rawPath);
+
+      try {
+        // Create directory (recursive, like mkdir -p)
+        fs.mkdirSync(resolvedPath, { recursive: true });
+
+        // Set cookie and return success
+        const cookieValue = encodeURIComponent(resolvedPath);
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderSetupSuccessHtml(resolvedPath),
+          headers: {
+            'Set-Cookie': `ibai_data_dir=${cookieValue}; Path=/; HttpOnly; SameSite=Strict`,
+          },
+        };
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : 'Unknown error creating directory';
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderSetupErrorHtml(message),
+        };
+      }
+    }
+
+    // For routes that need storage, resolve dataDir with cookie precedence
+    const resolvedDataDir = resolveDataDirWithCookie(
+      cookieDataDir,
+      deps.env,
+      deps.argv,
+    );
+
+    // Create storage adapter for resolved directory
+    // Use createStorage factory if provided, otherwise use deps.storage
+    const storage = deps.createStorage
+      ? deps.createStorage(resolvedDataDir)
+      : deps.storage;
+
+    // Onboarding routing: redirect new users (no cookie) to /catalog from dashboard
+    if (isHtml && !hasCookie) {
+      return {
+        status: 302,
+        contentType: 'text/html; charset=utf-8',
+        body: '',
+        headers: {
+          Location: '/catalog',
+        },
       };
     }
 
@@ -285,7 +441,7 @@ export function createCoachHandler(
 
     try {
       // Get assessment view (reads storage once)
-      const view: AssessmentView = await assess(deps.storage, sessionId);
+      const view: AssessmentView = await assess(storage, sessionId);
 
       // Derive session plan (pure, sync - no storage read)
       const sessionPlan: SessionPlan = plan(view);
@@ -437,10 +593,7 @@ export function createCoachHandler(
 
         let result: CoachResult;
         try {
-          result = await coach(
-            { storage: deps.storage, provider: deps.provider },
-            input,
-          );
+          result = await coach({ storage, provider: deps.provider }, input);
         } catch (coachError) {
           if (isConnectionError(coachError)) {
             return {
@@ -570,10 +723,7 @@ export function createCoachHandler(
 
           let result: CoachResult;
           try {
-            result = await coach(
-              { storage: deps.storage, provider: deps.provider },
-              input,
-            );
+            result = await coach({ storage, provider: deps.provider }, input);
           } catch (coachError) {
             if (isConnectionError(coachError)) {
               return {
