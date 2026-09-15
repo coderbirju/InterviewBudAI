@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { Problem, Difficulty, CurriculumSource } from './index.js';
-import { CATALOG } from './index.js';
+import { CATALOG, createCatalogSource } from './index.js';
 
-describe('@ibai/curriculum skeleton', () => {
-  it('ships an empty placeholder catalog', () => {
-    expect(CATALOG).toEqual([]);
+describe('@ibai/curriculum exports', () => {
+  it('exports a non-empty CATALOG', () => {
+    expect(CATALOG.length).toBeGreaterThan(0);
   });
 
   it('exposes the Problem shape (types-only compile check)', () => {
@@ -19,14 +19,11 @@ describe('@ibai/curriculum skeleton', () => {
     expect(sample.difficulty === 'easy' || d === 'medium').toBe(true);
   });
 
-  it('CurriculumSource is read-only (structural smoke)', () => {
-    const src: CurriculumSource = {
-      list: () => CATALOG,
-      getById: () => undefined,
-      filterByDifficulty: () => [],
-      filterByTopic: () => [],
-    };
-    expect(src.list()).toEqual([]);
-    expect(src.getById('nope')).toBeUndefined();
+  it('CurriculumSource interface is implemented by createCatalogSource', () => {
+    const src: CurriculumSource = createCatalogSource();
+    expect(src.list().length).toBe(CATALOG.length);
+    expect(typeof src.getById).toBe('function');
+    expect(typeof src.filterByDifficulty).toBe('function');
+    expect(typeof src.filterByTopic).toBe('function');
   });
 });
