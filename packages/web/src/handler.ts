@@ -18,7 +18,8 @@ import {
   renderInterviewStep,
   renderNoTopicsState,
   renderCatalogHtml,
-  renderNotesPlaceholderHtml,
+  renderNotesEditorHtml,
+  renderNotesNoDatabaseHtml,
   renderSetupHtml,
   renderSetupSuccessHtml,
   renderSetupErrorHtml,
@@ -30,6 +31,7 @@ import type { CurriculumSource } from '@ibai/curriculum';
 import {
   parseCookies,
   expandTilde,
+  directoryExists,
   resolveDataDir,
   resolveDataDirWithCookie,
 } from './config.js';
@@ -257,7 +259,8 @@ export function createCoachHandler(
     const isHtml = isGet && pathname === '/assess';
     const isCoachForm = isGet && pathname === '/coach';
     const isCatalog = isGet && pathname === '/catalog';
-    const isNotesRoute = isGet && pathname.startsWith('/notes/');
+    const isNotesGet = isGet && pathname.startsWith('/notes/');
+    const isNotesPost = isPost && pathname.startsWith('/notes/');
     const isSetupForm = isGet && pathname === '/setup';
 
     // POST routes
@@ -317,7 +320,8 @@ export function createCoachHandler(
       !isCoachPost &&
       !isCoachJsonPost &&
       !isCatalog &&
-      !isNotesRoute &&
+      !isNotesGet &&
+      !isNotesPost &&
       !isSetupForm &&
       !isSetupPost
     ) {
@@ -352,8 +356,8 @@ export function createCoachHandler(
       };
     }
 
-    // Handle /notes/<id> (GET) - no storage needed (placeholder)
-    if (isNotesRoute) {
+    // Handle /notes/<id> (GET and POST)
+    if (isNotesGet || isNotesPost) {
       const problemId = pathname.slice('/notes/'.length);
       const problem = catalog.getById(problemId);
 
@@ -365,10 +369,59 @@ export function createCoachHandler(
         };
       }
 
+      // Check if database exists (same detection used elsewhere)
+      // Cookie dir takes precedence if it exists
+      const defaultDir = resolveDataDir(deps.env, deps.argv);
+      const hasCookieDir =
+        cookieDataDir && directoryExists(expandTilde(cookieDataDir));
+      const hasDefaultDir = directoryExists(defaultDir);
+      const hasDatabaseDir = hasCookieDir || hasDefaultDir;
+
+      if (!hasDatabaseDir) {
+        // No database exists - render friendly CTA page
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderNotesNoDatabaseHtml(problem),
+        };
+      }
+
+      // Database exists - resolve the data dir and create storage
+      const notesDataDir = resolveDataDirWithCookie(
+        cookieDataDir,
+        deps.env,
+        deps.argv,
+      );
+      const notesStorage = deps.createStorage
+        ? deps.createStorage(notesDataDir)
+        : deps.storage;
+
+      if (isNotesPost) {
+        // POST: Save the note content
+        const formParams = new URLSearchParams(req.body ?? '');
+        const content = formParams.get('content') ?? '';
+
+        // Write the note
+        await notesStorage.writeIntuitionNote?.({
+          problemId,
+          content,
+          lastUpdated: new Date().toISOString() as IsoTimestamp,
+        });
+
+        // Re-render the editor with 'Saved' banner
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderNotesEditorHtml(problem, content, { saved: true }),
+        };
+      }
+
+      // GET: Read the note and render editor
+      const note = await notesStorage.readIntuitionNote?.(problemId);
       return {
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: renderNotesPlaceholderHtml(problem),
+        body: renderNotesEditorHtml(problem, note?.content ?? ''),
       };
     }
 
