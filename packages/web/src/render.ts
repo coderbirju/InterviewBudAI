@@ -1972,9 +1972,171 @@ export function renderCatalogHtml(
 }
 
 /**
- * Render a placeholder page for notes (intuition capture coming in next PR).
+ * Options for rendering the notes editor.
  */
-export function renderNotesPlaceholderHtml(problem: Problem): string {
+export interface NotesEditorOptions {
+  /** If true, show a 'Saved' confirmation banner. */
+  readonly saved?: boolean;
+}
+
+/**
+ * Render the notes/intuition editor page for a curriculum problem.
+ * Full page with nav, styles, title, LeetCode link, prefilled+escaped textarea, Save button.
+ */
+export function renderNotesEditorHtml(
+  problem: Problem,
+  existingContent: string,
+  opts?: NotesEditorOptions,
+): string {
+  const badgeColor = difficultyColor(problem.difficulty);
+  const savedBanner = opts?.saved
+    ? `<div class="saved-banner">✓ Saved successfully</div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Notes: ${escapeHtml(problem.title)}</title>
+  <style>
+    ${getCommonStyles()}
+
+    .notes-header {
+      margin-bottom: 2rem;
+    }
+    
+    .problem-title {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .problem-meta {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      color: var(--text-secondary);
+    }
+    
+    .difficulty-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: white;
+      text-transform: capitalize;
+    }
+    
+    .notes-form {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+    }
+    
+    .notes-textarea {
+      width: 100%;
+      min-height: 300px;
+      padding: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 1rem;
+      line-height: 1.6;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    
+    .notes-textarea:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    
+    .form-actions {
+      margin-top: 1rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    
+    .save-button {
+      padding: 0.75rem 1.5rem;
+      background-color: var(--accent-blue);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .save-button:hover {
+      background-color: #2563eb;
+    }
+    
+    .back-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+    }
+    
+    .back-link:hover {
+      text-decoration: underline;
+    }
+    
+    .saved-banner {
+      background-color: #22c55e;
+      color: white;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      text-align: center;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    ${renderNav('/catalog')}
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Your Intuition Notes</p>
+    </header>
+    
+    ${savedBanner}
+    
+    <div class="notes-header">
+      <h2 class="problem-title">${escapeHtml(problem.title)}</h2>
+      <div class="problem-meta">
+        <span class="difficulty-badge" style="background-color: ${badgeColor}">${escapeHtml(problem.difficulty)}</span>
+        <a href="${escapeHtml(problem.url)}" target="_blank" rel="noopener">View on LeetCode</a>
+      </div>
+    </div>
+    
+    <div class="notes-form">
+      <form method="POST" action="/notes/${encodeURIComponent(problem.id)}">
+        <textarea name="content" class="notes-textarea" placeholder="Write your intuition, approach, and notes for this problem...">${escapeHtml(existingContent)}</textarea>
+        <div class="form-actions">
+          <button type="submit" class="save-button">Save</button>
+          <a href="/catalog" class="back-link">&larr; Back to Catalog</a>
+        </div>
+      </form>
+    </div>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render a page indicating the user needs to create a database first.
+ * Friendly page with nav, dark theme, and a link/button to /setup.
+ */
+export function renderNotesNoDatabaseHtml(problem: Problem): string {
   const badgeColor = difficultyColor(problem.difficulty);
 
   return `<!DOCTYPE html>
@@ -2012,25 +2174,40 @@ export function renderNotesPlaceholderHtml(problem: Problem): string {
       text-transform: capitalize;
     }
     
-    .placeholder-box {
+    .setup-cta {
       background-color: var(--bg-secondary);
       border-radius: 12px;
       padding: 2rem;
       text-align: center;
     }
     
-    .placeholder-icon {
+    .setup-icon {
       font-size: 3rem;
       margin-bottom: 1rem;
     }
     
-    .placeholder-text {
+    .setup-text {
       color: var(--text-secondary);
       margin-bottom: 1rem;
     }
     
-    .back-link {
+    .setup-button {
       display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background-color: var(--accent-blue);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: background-color 0.2s;
+    }
+    
+    .setup-button:hover {
+      background-color: #2563eb;
+    }
+    
+    .back-link {
+      display: block;
       color: var(--accent-blue);
       text-decoration: none;
       margin-top: 1rem;
@@ -2057,10 +2234,11 @@ export function renderNotesPlaceholderHtml(problem: Problem): string {
       </div>
     </div>
     
-    <div class="placeholder-box">
-      <div class="placeholder-icon">📝</div>
-      <p class="placeholder-text">Intuition capture is coming soon!</p>
-      <p class="placeholder-text">This is where you'll be able to write your own intuition and notes for this problem.</p>
+    <div class="setup-cta">
+      <div class="setup-icon">🗄️</div>
+      <p class="setup-text">To save your intuition notes, you need to create a database first.</p>
+      <p class="setup-text">Your notes are stored locally on your machine — never uploaded anywhere.</p>
+      <a href="/setup" class="setup-button">Create Database</a>
       <a href="/catalog" class="back-link">&larr; Back to Catalog</a>
     </div>
     
