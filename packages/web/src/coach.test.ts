@@ -565,19 +565,20 @@ describe('existing routes still work', () => {
     headers: { cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}` },
   });
 
-  it('GET / returns dashboard HTML when cookie is set', async () => {
+  it('GET / returns home page HTML when cookie is set', async () => {
     const { handler } = createFakeHandler();
     const res = await handler(withCookie({ method: 'GET', url: '/' }));
     expect(res.status).toBe(200);
     expect(res.contentType).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('Where You Stand');
+    expect(res.body).toContain('Continue practicing');
+    expect(res.body).toContain('Interview with AI');
   });
 
-  it('GET / redirects to /catalog when no cookie', async () => {
+  it('GET / returns 200 with home page when no cookie (empty state)', async () => {
     const { handler } = createFakeHandler();
     const res = await handler({ method: 'GET', url: '/' });
-    expect(res.status).toBe(302);
-    expect(res.headers?.['Location']).toBe('/catalog');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('Create your database');
   });
 
   it('GET /assess returns dashboard HTML when cookie is set', async () => {

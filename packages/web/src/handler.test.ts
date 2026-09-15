@@ -99,19 +99,19 @@ describe('createAssessHandler', () => {
     headers: { cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}` },
   });
 
-  describe('GET / (HTML)', () => {
-    it('returns 200 with HTML content type when cookie is set', async () => {
+  describe('GET / (Home)', () => {
+    it('returns 200 with HTML content type', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('text/html; charset=utf-8');
     });
 
-    it('redirects to /catalog when no cookie', async () => {
+    it('returns 200 even without cookie (empty state)', async () => {
       const { handler } = createFakeHandler();
       const res = await handler({ method: 'GET', url: '/' });
-      expect(res.status).toBe(302);
-      expect(res.headers?.['Location']).toBe('/catalog');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('InterviewBudAI');
     });
 
     it('body contains page title', async () => {
@@ -120,22 +120,95 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('InterviewBudAI');
     });
 
-    it('shows Where You Stand section', async () => {
+    it('shows action buttons for catalog and interview', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).toContain('Continue practicing');
+      expect(res.body).toContain('href="/catalog"');
+      expect(res.body).toContain('Interview with AI');
+      expect(res.body).toContain('href="/coach"');
+    });
+
+    it('does NOT show dashboard sections on home page', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).not.toContain('Where You Stand');
+      expect(res.body).not.toContain('Your Next Session');
+    });
+
+    it('shows empty state CTA when no data', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler({ method: 'GET', url: '/' });
+      expect(res.body).toContain('Create your database');
+      expect(res.body).toContain('href="/setup"');
+    });
+
+    it('shows progress when data exists', async () => {
+      const { storage, handler } = createFakeHandler();
+      storage.setCompetencyMap({
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.9,
+            lastUpdated: '2026-09-06T12:00:00Z',
+          },
+        },
+      });
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).toContain('Topics tracked');
+      expect(res.body).toContain('arrays');
+    });
+
+    it('includes navigation with Home active', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).toContain('class="main-nav"');
+      expect(res.body).toContain('href="/"');
+      expect(res.body).toContain('aria-current="page"');
+    });
+  });
+
+  describe('GET /dashboard', () => {
+    it('returns 200 with HTML content type when cookie is set', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.contentType).toBe('text/html; charset=utf-8');
+    });
+
+    it('shows Where You Stand section', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
       expect(res.body).toContain('Where You Stand');
     });
 
     it('shows Your Next Session section', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
       expect(res.body).toContain('Your Next Session');
     });
 
     it('shows friendly placeholder for empty state', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
       expect(res.body).toContain('No strengths identified yet');
+    });
+
+    it('includes navigation with Dashboard active', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
+      expect(res.body).toContain('class="main-nav"');
+      expect(res.body).toContain('href="/dashboard"');
     });
   });
 
@@ -148,11 +221,10 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('Where You Stand');
     });
 
-    it('redirects to /catalog when no cookie', async () => {
+    it('returns 200 with dashboard content (same as /dashboard)', async () => {
       const { handler } = createFakeHandler();
-      const res = await handler({ method: 'GET', url: '/assess' });
-      expect(res.status).toBe(302);
-      expect(res.headers?.['Location']).toBe('/catalog');
+      const res = await handler(withCookie({ method: 'GET', url: '/assess' }));
+      expect(res.body).toContain('Your Next Session');
     });
   });
 
@@ -351,7 +423,7 @@ describe('createAssessHandler', () => {
   });
 
   describe('405 for non-GET methods', () => {
-    it('returns 405 for POST', async () => {
+    it('returns 405 for POST to /', async () => {
       const { handler } = createFakeHandler();
       const res = await handler({ method: 'POST', url: '/' });
       expect(res.status).toBe(405);
@@ -364,14 +436,32 @@ describe('createAssessHandler', () => {
       expect(res.status).toBe(405);
       expect(res.body).toContain('Method not allowed');
     });
+
+    it('returns 405 for POST to /dashboard', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler({ method: 'POST', url: '/dashboard' });
+      expect(res.status).toBe(405);
+      expect(res.body).toContain('Method not allowed');
+    });
   });
 
   describe('error handling', () => {
-    it('returns 500 with readable message on storage error for HTML', async () => {
+    it('returns 200 with empty state on home page when storage errors', async () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Create your database');
+    });
+
+    it('returns 500 with readable message on storage error for dashboard', async () => {
+      const { storage, handler } = createFakeHandler();
+      storage.setShouldThrow(true);
+
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
       expect(res.status).toBe(500);
       expect(res.body).toContain('Storage error');
     });
