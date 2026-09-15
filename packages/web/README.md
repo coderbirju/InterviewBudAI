@@ -106,7 +106,8 @@ If `IBAI_OLLAMA_MODEL` is not set, the coach form (GET /coach) will still displa
 | `/dashboard` | GET | HTML | Full dashboard with Where You Stand and Your Next Session sections |
 | `/assess` | GET | HTML | Alias for `/dashboard` |
 | `/catalog` | GET | HTML | Browse all 175 problems grouped by topic with LeetCode and Notes links |
-| `/notes/<id>` | GET | HTML | Placeholder page for problem notes (intuition capture coming next PR) |
+| `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. |
+| `/notes/<id>` | POST | HTML | Save notes content. Shows 'Saved' banner on success. |
 | `/setup` | GET | HTML | Form to create/select data directory |
 | `/setup` | POST | HTML | Create data directory and set cookie |
 | `/assess.json` | GET | JSON | AssessmentView as JSON |
@@ -240,13 +241,37 @@ The `ibai_data_dir` cookie stores the path to the user's data directory:
 
 The cookie enables session persistence across browser restarts without requiring login.
 
-## Notes Placeholder
+## Notes / Intuition Editor
 
-`GET /notes/<id>` currently shows a placeholder page. **Intuition capture is coming in the next PR** (ADR 0005 roadmap step 4). The placeholder shows:
-- Problem title and difficulty
-- Link to LeetCode
-- "Coming soon" message
-- Back link to catalog
+The notes editor lets you capture your intuition and approach for each problem in the catalog. Access it via `/notes/<id>` (e.g., `/notes/lc-3`).
+
+### Getting Started
+
+1. **Create a database first** — Notes are stored in your local data directory. Visit `/setup` to create one if you haven't already.
+2. **Open a problem's notes** — From the catalog (`/catalog`), click the "Notes" link for any problem.
+3. **Write your intuition** — The editor provides a textarea for free-form markdown notes.
+4. **Save** — Click the Save button. Your notes are persisted locally.
+
+### Routes
+
+| Path | Method | Description |
+|------|--------|-------------|
+| `/notes/<id>` | GET | View/edit notes for a problem. Shows setup CTA if no database exists. |
+| `/notes/<id>` | POST | Save notes content. Requires database. |
+
+### Storage
+
+- Notes are stored as markdown files in `<data-dir>/notes/<id>.md`
+- Each file has YAML frontmatter (id, lastUpdated) and a markdown body
+- Notes are part of your **local progress data** — never committed to the repo, never uploaded
+- The data directory is resolved via cookie > CLI flag > env var > default (`~/.interviewbudai/data`)
+
+### No Database State
+
+If you access `/notes/<id>` without having created a database:
+- A friendly page is shown with a link to `/setup`
+- No errors are thrown
+- POST requests also show the same CTA (content is not lost — just not saved)
 
 ## Security
 
