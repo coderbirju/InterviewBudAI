@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type {
   StorageAdapter,
   SessionId,
@@ -13,6 +16,7 @@ import type {
   CompletionResponse,
 } from '@ibai/providers';
 import { createCoachHandler } from './handler.js';
+import type { HandlerRequest } from './handler.js';
 import { resolveOllamaUrl, resolveOllamaModel } from './config.js';
 import {
   renderCoachForm,
@@ -534,23 +538,51 @@ describe('XSS escaping in coach output', () => {
 });
 
 describe('existing routes still work', () => {
+  let testDataDir: string | null = null;
+
+  beforeEach(() => {
+    testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-coach-test-'));
+  });
+
+  afterEach(() => {
+    if (testDataDir && fs.existsSync(testDataDir)) {
+      fs.rmSync(testDataDir, { recursive: true, force: true });
+      testDataDir = null;
+    }
+  });
+
   const createFakeHandler = () => {
     const storage = new FakeStorageAdapter();
-    const handler = createCoachHandler({ storage });
+    const handler = createCoachHandler({
+      storage,
+      createStorage: () => storage,
+    });
     return { storage, handler };
   };
 
-  it('GET / returns dashboard HTML', async () => {
+  const withCookie = (req: HandlerRequest): HandlerRequest => ({
+    ...req,
+    headers: { cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}` },
+  });
+
+  it('GET / returns dashboard HTML when cookie is set', async () => {
     const { handler } = createFakeHandler();
-    const res = await handler({ method: 'GET', url: '/' });
+    const res = await handler(withCookie({ method: 'GET', url: '/' }));
     expect(res.status).toBe(200);
     expect(res.contentType).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('Where You Stand');
   });
 
-  it('GET /assess returns dashboard HTML', async () => {
+  it('GET / redirects to /catalog when no cookie', async () => {
     const { handler } = createFakeHandler();
-    const res = await handler({ method: 'GET', url: '/assess' });
+    const res = await handler({ method: 'GET', url: '/' });
+    expect(res.status).toBe(302);
+    expect(res.headers?.['Location']).toBe('/catalog');
+  });
+
+  it('GET /assess returns dashboard HTML when cookie is set', async () => {
+    const { handler } = createFakeHandler();
+    const res = await handler(withCookie({ method: 'GET', url: '/assess' }));
     expect(res.status).toBe(200);
     expect(res.body).toContain('Where You Stand');
   });
