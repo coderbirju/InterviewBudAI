@@ -12,6 +12,7 @@ import {
   renderAssessmentJson,
   renderPlanJson,
   renderDashboardHtml,
+  renderHomeHtml,
   renderCoachResult,
   renderCoachJson,
   renderInterviewStep,
@@ -251,7 +252,9 @@ export function createCoachHandler(
     // GET routes
     const isAssessJson = isGet && pathname === '/assess.json';
     const isPlanJson = isGet && pathname === '/plan.json';
-    const isHtml = isGet && (pathname === '/' || pathname === '/assess');
+    const isHome = isGet && pathname === '/';
+    const isDashboard = isGet && pathname === '/dashboard';
+    const isHtml = isGet && pathname === '/assess';
     const isCoachForm = isGet && pathname === '/coach';
     const isCatalog = isGet && pathname === '/catalog';
     const isNotesRoute = isGet && pathname.startsWith('/notes/');
@@ -272,6 +275,7 @@ export function createCoachHandler(
       '/coach.json',
       '/catalog',
       '/setup',
+      '/dashboard',
     ];
     // Also handle /notes/<id> routes
     const isKnownPath =
@@ -292,7 +296,8 @@ export function createCoachHandler(
       (pathname === '/' ||
         pathname === '/assess' ||
         pathname === '/assess.json' ||
-        pathname === '/plan.json')
+        pathname === '/plan.json' ||
+        pathname === '/dashboard')
     ) {
       return {
         status: 405,
@@ -305,6 +310,8 @@ export function createCoachHandler(
     if (
       !isAssessJson &&
       !isPlanJson &&
+      !isHome &&
+      !isDashboard &&
       !isHtml &&
       !isCoachForm &&
       !isCoachPost &&
@@ -423,16 +430,23 @@ export function createCoachHandler(
       ? deps.createStorage(resolvedDataDir)
       : deps.storage;
 
-    // Onboarding routing: redirect new users (no cookie) to /catalog from dashboard
-    if (isHtml && !hasCookie) {
-      return {
-        status: 302,
-        contentType: 'text/html; charset=utf-8',
-        body: '',
-        headers: {
-          Location: '/catalog',
-        },
-      };
+    // Handle / (home page) - works for all users, shows empty state if no data
+    if (isHome) {
+      try {
+        const view = await assess(storage);
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderHomeHtml(view),
+        };
+      } catch {
+        // On any error (no data, missing dir, etc), show empty state
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderHomeHtml(null),
+        };
+      }
     }
 
     // Extract optional sessionId from query
@@ -464,6 +478,14 @@ export function createCoachHandler(
       }
 
       if (isHtml) {
+        return {
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: renderDashboardHtml(view, sessionPlan),
+        };
+      }
+
+      if (isDashboard) {
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',

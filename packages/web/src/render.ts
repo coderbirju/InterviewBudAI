@@ -969,7 +969,265 @@ export function getCommonStyles(): string {
     .no-topics-state .dashboard-link:hover {
       opacity: 0.9;
     }
+
+    /* Navigation styles */
+    .main-nav {
+      background-color: var(--bg-secondary);
+      padding: 0.75rem 1rem;
+      margin-bottom: 2rem;
+      border-radius: 8px;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+    }
+
+    .main-nav a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      transition: color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .main-nav a:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-card);
+    }
+
+    .main-nav a.active {
+      color: var(--accent-blue);
+      background-color: var(--bg-card);
+    }
+
+    /* Home page styles */
+    .hero {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .hero h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+
+    .hero .tagline {
+      color: var(--text-secondary);
+      font-size: 1.25rem;
+    }
+
+    .action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      max-width: 400px;
+      margin: 0 auto 3rem auto;
+    }
+
+    @media (min-width: 640px) {
+      .action-buttons {
+        flex-direction: row;
+        max-width: 500px;
+      }
+    }
+
+    .action-btn {
+      display: block;
+      flex: 1;
+      padding: 1rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-decoration: none;
+      text-align: center;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+
+    .action-btn:hover {
+      opacity: 0.9;
+    }
+
+    .action-btn.secondary {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+    }
+
+    .progress-summary {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .progress-summary h2 {
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+    }
+
+    .progress-cards {
+      display: grid;
+      gap: 1rem;
+    }
+
+    @media (min-width: 640px) {
+      .progress-cards {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    .progress-card {
+      background-color: var(--bg-card);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+
+    .progress-card .label {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .progress-card .value {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+
+    .empty-state-cta {
+      text-align: center;
+      padding: 2rem;
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      margin-bottom: 2rem;
+    }
+
+    .empty-state-cta p {
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+
+    .empty-state-cta .setup-link {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border-radius: 8px;
+      color: white;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .interview-note {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      text-align: center;
+      margin-top: 0.5rem;
+    }
   `;
+}
+
+/**
+ * Render the main navigation bar.
+ * @param activeRoute The current route path to mark as active
+ */
+export function renderNav(activeRoute: string): string {
+  const links = [
+    { href: '/', label: 'Home' },
+    { href: '/catalog', label: 'Catalog' },
+    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/coach', label: 'Interview' },
+  ];
+
+  return `<nav class="main-nav" role="navigation" aria-label="Main navigation">
+    ${links
+      .map((link) => {
+        const isActive = link.href === activeRoute;
+        return `<a href="${link.href}"${isActive ? ' class="active" aria-current="page"' : ''}>${escapeHtml(link.label)}</a>`;
+      })
+      .join('')}
+  </nav>`;
+}
+
+/**
+ * Render the home/landing page HTML.
+ * @param view AssessmentView or null for empty/error state
+ */
+export function renderHomeHtml(view: AssessmentView | null): string {
+  const hasData = view !== null && view.topicsTracked > 0;
+
+  const progressSection = hasData
+    ? `<div class="progress-summary">
+        <h2>Your Progress</h2>
+        <div class="progress-cards">
+          <div class="progress-card">
+            <div class="label">Topics tracked</div>
+            <div class="value">${view.topicsTracked}</div>
+          </div>
+          ${
+            view.topStrengths.length > 0
+              ? `
+          <div class="progress-card">
+            <div class="label">Top strength</div>
+            <div class="value">${escapeHtml(view.topStrengths[0]?.topicId ?? '')}</div>
+          </div>`
+              : ''
+          }
+          ${
+            view.focusAreas.length > 0
+              ? `
+          <div class="progress-card">
+            <div class="label">Focus area</div>
+            <div class="value">${escapeHtml(view.focusAreas[0]?.topicId ?? '')}</div>
+          </div>`
+              : ''
+          }
+        </div>
+      </div>`
+    : `<div class="empty-state-cta">
+        <p>Create your database to start tracking progress</p>
+        <a href="/setup" class="setup-link">Create your database</a>
+      </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    ${renderNav('/')}
+
+    <div class="hero">
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Your AI-powered interview preparation companion</p>
+    </div>
+
+    <div class="action-buttons">
+      <a href="/catalog" class="action-btn">Continue practicing</a>
+      <a href="/coach" class="action-btn secondary">Interview with AI</a>
+    </div>
+    <p class="interview-note">AI interview requires a configured model</p>
+
+    ${progressSection}
+
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
 }
 
 /**
@@ -989,6 +1247,7 @@ export function renderDashboardHtml(
 </head>
 <body>
   <div class="container">
+    ${renderNav('/dashboard')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Your AI-powered interview preparation companion</p>
@@ -1161,6 +1420,7 @@ export function renderCoachResult(
 </head>
 <body>
   <div class="container">
+    ${renderNav('/coach')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Coaching Feedback</p>
@@ -1352,6 +1612,7 @@ export function renderInterviewStep(
 </head>
 <body>
   <div class="container">
+    ${renderNav('/coach')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Interview Session</p>
@@ -1437,6 +1698,7 @@ export function renderNoTopicsState(providerLabel?: string): string {
 </head>
 <body>
   <div class="container">
+    ${renderNav('/coach')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Interview Session</p>
@@ -1448,7 +1710,7 @@ export function renderNoTopicsState(providerLabel?: string): string {
       <div class="icon">📚</div>
       <h2>No Topics Yet</h2>
       <p>Build up your practice history first to get personalized interview questions. Start by using the dashboard to track your progress.</p>
-      <a href="/" class="dashboard-link">Go to Dashboard</a>
+      <a href="/dashboard" class="dashboard-link">Go to Dashboard</a>
     </section>
     
     <footer>
@@ -1555,7 +1817,7 @@ export function renderCatalogHtml(
 
   // Build CTA for new users
   const ctaHtml = hasCookie
-    ? `<div class="cta-banner"><a href="/" class="cta-link">Go to Dashboard</a></div>`
+    ? `<div class="cta-banner"><a href="/dashboard" class="cta-link">Go to Dashboard</a></div>`
     : `<div class="cta-banner highlight">
         <strong>New here?</strong> 
         <a href="/setup" class="cta-link">Create your database</a> to start tracking your progress!
@@ -1570,7 +1832,8 @@ export function renderCatalogHtml(
   <title>InterviewBudAI - Problem Catalog</title>
   <style>
     ${getCommonStyles()}
-    
+
+    /* Hide main-nav .catalog-link underline - topic-nav is different */
     .topic-nav {
       background-color: var(--bg-secondary);
       padding: 1rem;
@@ -1686,6 +1949,7 @@ export function renderCatalogHtml(
 </head>
 <body>
   <div class="container">
+    ${renderNav('/catalog')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Problem Catalog - ${problems.length} curated problems</p>
@@ -1721,7 +1985,7 @@ export function renderNotesPlaceholderHtml(problem: Problem): string {
   <title>InterviewBudAI - Notes: ${escapeHtml(problem.title)}</title>
   <style>
     ${getCommonStyles()}
-    
+
     .notes-header {
       margin-bottom: 2rem;
     }
@@ -1779,6 +2043,7 @@ export function renderNotesPlaceholderHtml(problem: Problem): string {
 </head>
 <body>
   <div class="container">
+    ${renderNav('/catalog')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Your Intuition Notes</p>
@@ -1819,7 +2084,7 @@ export function renderSetupHtml(defaultPath: string): string {
   <title>InterviewBudAI - Setup</title>
   <style>
     ${getCommonStyles()}
-    
+
     .setup-form {
       background-color: var(--bg-secondary);
       border-radius: 12px;
@@ -1895,6 +2160,7 @@ export function renderSetupHtml(defaultPath: string): string {
 </head>
 <body>
   <div class="container">
+    ${renderNav('/setup')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Setup Your Progress Database</p>
@@ -1983,6 +2249,7 @@ export function renderSetupSuccessHtml(dataDir: string): string {
 </head>
 <body>
   <div class="container">
+    ${renderNav('/setup')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Setup Complete!</p>
@@ -1994,7 +2261,7 @@ export function renderSetupSuccessHtml(dataDir: string): string {
       <p>Your progress data will be stored at:</p>
       <div class="path-display">${escapeHtml(dataDir)}</div>
       <p>This path has been saved in a browser cookie and will be remembered for future visits.</p>
-      <a href="/" class="continue-link">Go to Dashboard</a>
+      <a href="/dashboard" class="continue-link">Go to Dashboard</a>
     </div>
     
     <footer>
@@ -2059,6 +2326,7 @@ export function renderSetupErrorHtml(message: string): string {
 </head>
 <body>
   <div class="container">
+    ${renderNav('/setup')}
     <header>
       <h1>InterviewBudAI</h1>
       <p class="tagline">Setup Error</p>
@@ -2124,6 +2392,7 @@ export function render404Html(message?: string): string {
 </head>
 <body>
   <div class="container">
+    ${renderNav('')}
     <header>
       <h1>InterviewBudAI</h1>
     </header>

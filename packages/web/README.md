@@ -8,6 +8,8 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 
 ## Features
 
+- **Navigation bar** — Shared top nav on all pages with links to Home, Catalog, Dashboard, and Interview
+- **Home page** — Landing page at `/` with action buttons and progress summary (works for new users too)
 - **Problem Catalog** — Browse 175 curated problems grouped by topic with difficulty badges, LeetCode links, and Notes links
 - **Catalog-first onboarding** — New users start by exploring the catalog, then create their database to start tracking progress
 - **Create database** — Simple setup flow to create and remember your data directory via browser cookie
@@ -100,8 +102,9 @@ If `IBAI_OLLAMA_MODEL` is not set, the coach form (GET /coach) will still displa
 
 | Path | Method | Format | Description |
 |------|--------|--------|-------------|
-| `/` | GET | HTML | Full dashboard (requires cookie) or redirects to /catalog (no cookie) |
-| `/assess` | GET | HTML | Same as `/` |
+| `/` | GET | HTML | Home/landing page with action buttons (Catalog, Interview) and progress summary |
+| `/dashboard` | GET | HTML | Full dashboard with Where You Stand and Your Next Session sections |
+| `/assess` | GET | HTML | Alias for `/dashboard` |
 | `/catalog` | GET | HTML | Browse all 175 problems grouped by topic with LeetCode and Notes links |
 | `/notes/<id>` | GET | HTML | Placeholder page for problem notes (intuition capture coming next PR) |
 | `/setup` | GET | HTML | Form to create/select data directory |
@@ -206,15 +209,16 @@ AI-derived recommendations for your next practice session:
 
 ## Onboarding Flow
 
-New users (no `ibai_data_dir` cookie) experience a catalog-first onboarding:
+New users (no `ibai_data_dir` cookie) experience a welcoming onboarding:
 
-1. **`GET /`** redirects to `/catalog` (no cookie set)
+1. **`GET /`** shows the home page with action buttons and a "Create your database" CTA (no redirect)
 2. **`/catalog`** shows the full problem catalog with a prominent "Create your database" CTA
 3. **`/setup`** presents a form to create/select a data directory
 4. **`POST /setup`** creates the directory and sets a first-party cookie
-5. **`GET /`** now shows the dashboard (cookie is set)
+5. **`GET /`** now shows progress summary along with action buttons (cookie is set)
+6. **`GET /dashboard`** shows the full dashboard with Where You Stand and Your Next Session
 
-This removes the cold-start dead-end where users had no data to track.
+The home page works for everyone—new users see the setup CTA, returning users see their progress.
 
 ## Cookie Behavior
 

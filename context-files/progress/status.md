@@ -90,6 +90,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 |-------|------|--------|
 | onboarding-adr | 2026-09-13 | ADR 0005 accepted: catalog-first onboarding, intuition capture (IntuitionNote + optional StorageAdapter methods), AI-evaluation interview. Supersedes ADR 0004 demo-provider fallback; extends ADR 0003 curriculum usage. 6-step impl roadmap recorded. |
 | web-catalog-landing | 2026-09-14 | Catalog-first landing + create-database + cookie dataDir; Notes placeholder, intuition capture next PR. |
+| app-shell-nav | 2026-09-14 | Added shared nav bar on all pages (Home, Catalog, Dashboard, Interview). Home landing at `/` with action buttons and progress summary. Dashboard moved to `/dashboard`. Nav includes active state and aria-current for a11y. |
 
 ## Backlog / future
 
