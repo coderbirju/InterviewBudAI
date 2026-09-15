@@ -4,6 +4,7 @@ import type {
   PlanTopic,
   CoachResult,
 } from '@ibai/core';
+import type { Problem } from '@ibai/curriculum';
 
 /**
  * Escape HTML special characters to prevent XSS.
@@ -207,7 +208,7 @@ function renderYourNextSession(plan: SessionPlan): string {
 /**
  * Common CSS styles shared across all HTML pages.
  */
-function getCommonStyles(): string {
+export function getCommonStyles(): string {
   return `
     :root {
       --bg-primary: #0f172a;
@@ -1449,6 +1450,689 @@ export function renderNoTopicsState(providerLabel?: string): string {
       <p>Build up your practice history first to get personalized interview questions. Start by using the dashboard to track your progress.</p>
       <a href="/" class="dashboard-link">Go to Dashboard</a>
     </section>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Convert a topic string to a URL-safe anchor slug.
+ */
+function topicToSlug(topic: string): string {
+  return topic
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+/**
+ * Get color for difficulty badge.
+ */
+function difficultyColor(difficulty: string): string {
+  switch (difficulty) {
+    case 'easy':
+      return '#22c55e'; // green
+    case 'medium':
+      return '#eab308'; // amber/yellow
+    case 'hard':
+      return '#ef4444'; // red
+    default:
+      return '#6b7280'; // gray
+  }
+}
+
+/**
+ * Render the catalog page grouped by topic.
+ */
+export function renderCatalogHtml(
+  problems: readonly Problem[],
+  hasCookie: boolean,
+  defaultDataDir: string,
+): string {
+  // Group problems by topic
+  const byTopic = new Map<string, Problem[]>();
+  for (const problem of problems) {
+    for (const topic of problem.topics) {
+      const list = byTopic.get(topic) ?? [];
+      list.push(problem);
+      byTopic.set(topic, list);
+    }
+  }
+
+  // Sort topics alphabetically
+  const sortedTopics = Array.from(byTopic.keys()).sort();
+
+  // Build navigation links
+  const navLinks = sortedTopics
+    .map(
+      (topic) =>
+        `<a href="#topic-${escapeHtml(topicToSlug(topic))}">${escapeHtml(topic)}</a>`,
+    )
+    .join(' | ');
+
+  // Build topic sections
+  const topicSections = sortedTopics
+    .map((topic) => {
+      const topicProblems = byTopic.get(topic) ?? [];
+      const slug = topicToSlug(topic);
+
+      const rows = topicProblems
+        .map((p) => {
+          const badgeColor = difficultyColor(p.difficulty);
+          return `
+        <tr>
+          <td>${escapeHtml(p.title)}</td>
+          <td><span class="difficulty-badge" style="background-color: ${badgeColor}">${escapeHtml(p.difficulty)}</span></td>
+          <td><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">LeetCode</a></td>
+          <td><a href="/notes/${escapeHtml(p.id)}">Notes</a></td>
+        </tr>`;
+        })
+        .join('');
+
+      return `
+      <section class="topic-section" id="topic-${escapeHtml(slug)}">
+        <h3>${escapeHtml(topic)} <span class="problem-count">(${topicProblems.length})</span></h3>
+        <table class="catalog-table">
+          <thead>
+            <tr>
+              <th>Problem</th>
+              <th>Difficulty</th>
+              <th>Link</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </section>`;
+    })
+    .join('');
+
+  // Build CTA for new users
+  const ctaHtml = hasCookie
+    ? `<div class="cta-banner"><a href="/" class="cta-link">Go to Dashboard</a></div>`
+    : `<div class="cta-banner highlight">
+        <strong>New here?</strong> 
+        <a href="/setup" class="cta-link">Create your database</a> to start tracking your progress!
+        <p class="cta-note">Your data will be stored at: <code>${escapeHtml(defaultDataDir)}</code></p>
+       </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Problem Catalog</title>
+  <style>
+    ${getCommonStyles()}
+    
+    .topic-nav {
+      background-color: var(--bg-secondary);
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 2rem;
+      line-height: 1.8;
+    }
+    
+    .topic-nav a {
+      color: var(--accent-blue);
+      text-decoration: none;
+      margin: 0 0.25rem;
+    }
+    
+    .topic-nav a:hover {
+      text-decoration: underline;
+    }
+    
+    .topic-section {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .topic-section h3 {
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+    }
+    
+    .problem-count {
+      color: var(--text-muted);
+      font-weight: normal;
+      font-size: 0.9rem;
+    }
+    
+    .catalog-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .catalog-table th,
+    .catalog-table td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .catalog-table th {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    
+    .catalog-table a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+    
+    .catalog-table a:hover {
+      text-decoration: underline;
+    }
+    
+    .difficulty-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: white;
+      text-transform: capitalize;
+    }
+    
+    .cta-banner {
+      background-color: var(--bg-secondary);
+      padding: 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+    
+    .cta-banner.highlight {
+      border: 2px solid var(--accent-blue);
+      background-color: rgba(59, 130, 246, 0.1);
+    }
+    
+    .cta-link {
+      display: inline-block;
+      background-color: var(--accent-blue);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+      margin: 0.5rem;
+    }
+    
+    .cta-link:hover {
+      opacity: 0.9;
+    }
+    
+    .cta-note {
+      margin-top: 0.75rem;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+    
+    .cta-note code {
+      background-color: var(--bg-card);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Problem Catalog - ${problems.length} curated problems</p>
+    </header>
+    
+    ${ctaHtml}
+    
+    <nav class="topic-nav">
+      <strong>Topics:</strong> ${navLinks}
+    </nav>
+    
+    ${topicSections}
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render a placeholder page for notes (intuition capture coming in next PR).
+ */
+export function renderNotesPlaceholderHtml(problem: Problem): string {
+  const badgeColor = difficultyColor(problem.difficulty);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Notes: ${escapeHtml(problem.title)}</title>
+  <style>
+    ${getCommonStyles()}
+    
+    .notes-header {
+      margin-bottom: 2rem;
+    }
+    
+    .problem-title {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .problem-meta {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      color: var(--text-secondary);
+    }
+    
+    .difficulty-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: white;
+      text-transform: capitalize;
+    }
+    
+    .placeholder-box {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+    }
+    
+    .placeholder-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    
+    .placeholder-text {
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+    
+    .back-link {
+      display: inline-block;
+      color: var(--accent-blue);
+      text-decoration: none;
+      margin-top: 1rem;
+    }
+    
+    .back-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Your Intuition Notes</p>
+    </header>
+    
+    <div class="notes-header">
+      <h2 class="problem-title">${escapeHtml(problem.title)}</h2>
+      <div class="problem-meta">
+        <span class="difficulty-badge" style="background-color: ${badgeColor}">${escapeHtml(problem.difficulty)}</span>
+        <a href="${escapeHtml(problem.url)}" target="_blank" rel="noopener">View on LeetCode</a>
+      </div>
+    </div>
+    
+    <div class="placeholder-box">
+      <div class="placeholder-icon">📝</div>
+      <p class="placeholder-text">Intuition capture is coming soon!</p>
+      <p class="placeholder-text">This is where you'll be able to write your own intuition and notes for this problem.</p>
+      <a href="/catalog" class="back-link">&larr; Back to Catalog</a>
+    </div>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render the setup page for creating/selecting a data directory.
+ */
+export function renderSetupHtml(defaultPath: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Setup</title>
+  <style>
+    ${getCommonStyles()}
+    
+    .setup-form {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+    }
+    
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+    
+    .form-group input[type="text"] {
+      width: 100%;
+      padding: 0.75rem;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 1rem;
+    }
+    
+    .form-group input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    
+    .form-help {
+      margin-top: 0.5rem;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+    
+    .submit-btn {
+      background-color: var(--accent-blue);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    
+    .submit-btn:hover {
+      opacity: 0.9;
+    }
+    
+    .info-box {
+      background-color: rgba(59, 130, 246, 0.1);
+      border: 1px solid var(--accent-blue);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .info-box h4 {
+      margin-bottom: 0.5rem;
+      color: var(--accent-blue);
+    }
+    
+    .info-box p {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Setup Your Progress Database</p>
+    </header>
+    
+    <div class="setup-form">
+      <div class="info-box">
+        <h4>Local-First Storage</h4>
+        <p>Your progress data stays on your machine. The server will create the directory if it doesn't exist and remember your choice via a browser cookie.</p>
+      </div>
+      
+      <form method="POST" action="/setup">
+        <div class="form-group">
+          <label for="dataDir">Data Directory Path</label>
+          <input type="text" id="dataDir" name="dataDir" value="${escapeHtml(defaultPath)}" required>
+          <p class="form-help">Use ~ for your home directory (e.g., ~/.interviewbudai/data)</p>
+        </div>
+        
+        <button type="submit" class="submit-btn">Create Database</button>
+      </form>
+    </div>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render a success page after creating the database.
+ */
+export function renderSetupSuccessHtml(dataDir: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Setup Complete</title>
+  <style>
+    ${getCommonStyles()}
+    
+    .success-box {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+    }
+    
+    .success-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    
+    .success-text {
+      color: var(--accent-green);
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+    }
+    
+    .path-display {
+      background-color: var(--bg-card);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      margin: 1rem 0;
+      font-family: monospace;
+      color: var(--text-secondary);
+    }
+    
+    .continue-link {
+      display: inline-block;
+      background-color: var(--accent-blue);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+      margin-top: 1rem;
+    }
+    
+    .continue-link:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Setup Complete!</p>
+    </header>
+    
+    <div class="success-box">
+      <div class="success-icon">✅</div>
+      <p class="success-text">Your database has been created successfully!</p>
+      <p>Your progress data will be stored at:</p>
+      <div class="path-display">${escapeHtml(dataDir)}</div>
+      <p>This path has been saved in a browser cookie and will be remembered for future visits.</p>
+      <a href="/" class="continue-link">Go to Dashboard</a>
+    </div>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render an error page for setup failures.
+ */
+export function renderSetupErrorHtml(message: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Setup Error</title>
+  <style>
+    ${getCommonStyles()}
+    
+    .error-box {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+      border: 2px solid var(--accent-red);
+    }
+    
+    .error-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    
+    .error-text {
+      color: var(--accent-red);
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+    
+    .error-details {
+      background-color: var(--bg-card);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      margin: 1rem 0;
+      color: var(--text-secondary);
+    }
+    
+    .back-link {
+      display: inline-block;
+      color: var(--accent-blue);
+      text-decoration: none;
+      margin-top: 1rem;
+    }
+    
+    .back-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Setup Error</p>
+    </header>
+    
+    <div class="error-box">
+      <div class="error-icon">❌</div>
+      <p class="error-text">Could not create the database directory</p>
+      <div class="error-details">${escapeHtml(message)}</div>
+      <a href="/setup" class="back-link">&larr; Try Again</a>
+    </div>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render a 404 Not Found page.
+ */
+export function render404Html(message?: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Not Found</title>
+  <style>
+    ${getCommonStyles()}
+    
+    .error-box {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+    }
+    
+    .error-code {
+      font-size: 4rem;
+      font-weight: bold;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+    
+    .error-text {
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+    
+    .home-link {
+      display: inline-block;
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+    
+    .home-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>InterviewBudAI</h1>
+    </header>
+    
+    <div class="error-box">
+      <div class="error-code">404</div>
+      <p class="error-text">${message ? escapeHtml(message) : 'The page you are looking for does not exist.'}</p>
+      <a href="/catalog" class="home-link">Go to Catalog</a>
+    </div>
     
     <footer>
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
