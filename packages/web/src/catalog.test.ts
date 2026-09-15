@@ -297,7 +297,7 @@ describe('expandTilde', () => {
 });
 
 describe('onboarding routing', () => {
-  it('GET / without cookie redirects to /catalog', async () => {
+  it('GET / without cookie returns home page with empty state', async () => {
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
     };
@@ -306,11 +306,12 @@ describe('onboarding routing', () => {
     const req: HandlerRequest = { method: 'GET', url: '/' };
     const res = await handler(req);
 
-    expect(res.status).toBe(302);
-    expect(res.headers?.['Location']).toBe('/catalog');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('InterviewBudAI');
+    expect(res.body).toContain('Create your database');
   });
 
-  it('GET / with cookie returns dashboard', async () => {
+  it('GET / with cookie returns home page with action buttons', async () => {
     // Create a temp dir for the cookie to point to
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-cookie-'));
 
@@ -332,7 +333,8 @@ describe('onboarding routing', () => {
 
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('text/html; charset=utf-8');
-      expect(res.body).toContain('Dashboard');
+      expect(res.body).toContain('Continue practicing');
+      expect(res.body).toContain('Interview with AI');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
