@@ -21,6 +21,9 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 - **Local-first** — All data stays on your machine; the only outbound call is to your configured Ollama endpoint
 - **Cookie-based directory persistence** — Browser remembers your data directory across visits (no login required)
 - **Zero-config demo** — Try the interactive interview with no LLM install required
+- **Notes editor** — Capture your intuition, solution approach, time/space complexity, and mark problems as complete
+- **Completion tracking** — Dashboard shows completed problems count and list; catalog shows ✓ done markers
+- **Per-request data resolution** — Home and dashboard honor the cookie-specified data directory (not stale boot-time dir)
 
 ## Quick Start (Demo Mode)
 
