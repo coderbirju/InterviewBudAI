@@ -318,4 +318,212 @@ describe('notes editor routes', () => {
 
     expect(res.status).toBe(405);
   });
+
+  it('GET /notes/<id> with empty note renders unchecked checkbox and empty complexity inputs', async () => {
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    const req: HandlerRequest = {
+      method: 'GET',
+      url: '/notes/lc-3',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    // Should have checkbox input (unchecked - no 'checked' attribute)
+    expect(res.body).toContain('name="completed"');
+    expect(res.body).toContain('type="checkbox"');
+    // Should have complexity inputs with empty values
+    expect(res.body).toContain('name="timeComplexity"');
+    expect(res.body).toContain('name="spaceComplexity"');
+    expect(res.body).toContain('value=""');
+  });
+
+  it('GET /notes/<id> with completed note shows checked checkbox', async () => {
+    const adapter = new LocalFileStorageAdapter(tempDir);
+    await adapter.writeIntuitionNote({
+      problemId: 'lc-3',
+      content: 'Completed solution',
+      lastUpdated: new Date().toISOString(),
+      completed: true,
+      timeComplexity: 'O(n)',
+      spaceComplexity: 'O(1)',
+    });
+
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    const req: HandlerRequest = {
+      method: 'GET',
+      url: '/notes/lc-3',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    // Checkbox should be checked
+    expect(res.body).toMatch(/name="completed"[^>]*checked/);
+    // Complexity inputs should have values
+    expect(res.body).toContain('value="O(n)"');
+    expect(res.body).toContain('value="O(1)"');
+  });
+
+  it('POST /notes/<id> saves completed + complexity and round-trips via GET', async () => {
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    // POST with completed checkbox and complexity values
+    const postBody = new URLSearchParams({
+      content: 'My solution notes',
+      completed: 'on',
+      timeComplexity: 'O(n log n)',
+      spaceComplexity: 'O(n)',
+    }).toString();
+
+    const postReq: HandlerRequest = {
+      method: 'POST',
+      url: '/notes/lc-3',
+      body: postBody,
+      contentType: 'application/x-www-form-urlencoded',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const postRes = await handler(postReq);
+
+    expect(postRes.status).toBe(200);
+    expect(postRes.body).toContain('Saved successfully');
+    // POST response should show the values
+    expect(postRes.body).toMatch(/name="completed"[^>]*checked/);
+    expect(postRes.body).toContain('value="O(n log n)"');
+    expect(postRes.body).toContain('value="O(n)"');
+
+    // GET to verify values were persisted
+    const getReq: HandlerRequest = {
+      method: 'GET',
+      url: '/notes/lc-3',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const getRes = await handler(getReq);
+
+    expect(getRes.status).toBe(200);
+    expect(getRes.body).toContain('My solution notes');
+    expect(getRes.body).toMatch(/name="completed"[^>]*checked/);
+    expect(getRes.body).toContain('value="O(n log n)"');
+    expect(getRes.body).toContain('value="O(n)"');
+
+    // Also verify via adapter directly
+    const adapter = new LocalFileStorageAdapter(tempDir);
+    const note = await adapter.readIntuitionNote('lc-3');
+    expect(note).not.toBeNull();
+    expect(note!.completed).toBe(true);
+    expect(note!.timeComplexity).toBe('O(n log n)');
+    expect(note!.spaceComplexity).toBe('O(n)');
+  });
+
+  it('POST /notes/<id> without checkbox unchecks completed', async () => {
+    // First write a completed note
+    const adapter = new LocalFileStorageAdapter(tempDir);
+    await adapter.writeIntuitionNote({
+      problemId: 'lc-3',
+      content: 'Was completed',
+      lastUpdated: new Date().toISOString(),
+      completed: true,
+    });
+
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    // POST without completed checkbox (simulating unchecked)
+    const postReq: HandlerRequest = {
+      method: 'POST',
+      url: '/notes/lc-3',
+      body: 'content=' + encodeURIComponent('Not completed anymore'),
+      contentType: 'application/x-www-form-urlencoded',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    await handler(postReq);
+
+    // Verify note now has completed=false
+    const note = await adapter.readIntuitionNote('lc-3');
+    expect(note!.completed).toBe(false);
+  });
+
+  it('XSS: escapes script tags in complexity fields', async () => {
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    // POST with XSS in complexity fields
+    const postBody = new URLSearchParams({
+      content: 'Normal content',
+      timeComplexity: '<script>alert(1)</script>',
+      spaceComplexity: '" onmouseover="alert(2)"',
+    }).toString();
+
+    const postReq: HandlerRequest = {
+      method: 'POST',
+      url: '/notes/lc-3',
+      body: postBody,
+      contentType: 'application/x-www-form-urlencoded',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const postRes = await handler(postReq);
+
+    expect(postRes.status).toBe(200);
+    // Script tags should be escaped (no raw <script> tags)
+    expect(postRes.body).toContain('&lt;script&gt;');
+    expect(postRes.body).not.toContain('<script>alert');
+    // Quote should be escaped to prevent attribute breakout
+    // The &quot; prevents the value from breaking out of the value attribute
+    expect(postRes.body).toContain('&quot;');
+    // Verify the dangerous pattern " onmouseover=" is escaped - the leading quote is escaped
+    // so it can't break out of the value attribute context
+    expect(postRes.body).not.toContain('" onmouseover="');
+  });
 });

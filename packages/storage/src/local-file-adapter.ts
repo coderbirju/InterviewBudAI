@@ -305,6 +305,23 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     if (note.attempts !== undefined) {
       frontmatter += `\nattempts: ${note.attempts}`;
     }
+    if (note.completed !== undefined) {
+      frontmatter += `\ncompleted: ${note.completed}`;
+    }
+    if (note.timeComplexity !== undefined) {
+      // Quote the value and escape embedded quotes/newlines
+      const escaped = note.timeComplexity
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, ' ');
+      frontmatter += `\ntimeComplexity: "${escaped}"`;
+    }
+    if (note.spaceComplexity !== undefined) {
+      // Quote the value and escape embedded quotes/newlines
+      const escaped = note.spaceComplexity
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, ' ');
+      frontmatter += `\nspaceComplexity: "${escaped}"`;
+    }
     frontmatter += '\n---\n';
 
     // Combine frontmatter + body + trailing newline
@@ -326,6 +343,9 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     let parsedLastUpdated: IsoTimestamp =
       new Date().toISOString() as IsoTimestamp;
     let parsedAttempts: number | undefined;
+    let parsedCompleted: boolean | undefined;
+    let parsedTimeComplexity: string | undefined;
+    let parsedSpaceComplexity: string | undefined;
 
     // Check for frontmatter
     if (content.startsWith('---\n')) {
@@ -357,6 +377,19 @@ export class LocalFileStorageAdapter implements StorageAdapter {
               if (!Number.isNaN(num)) {
                 parsedAttempts = num;
               }
+            } else if (key === 'completed') {
+              // Parse boolean: 'true' -> true, 'false' -> false, else undefined
+              if (value === 'true') {
+                parsedCompleted = true;
+              } else if (value === 'false') {
+                parsedCompleted = false;
+              }
+            } else if (key === 'timeComplexity' && value) {
+              // Strip surrounding quotes if present
+              parsedTimeComplexity = stripQuotes(value) || undefined;
+            } else if (key === 'spaceComplexity' && value) {
+              // Strip surrounding quotes if present
+              parsedSpaceComplexity = stripQuotes(value) || undefined;
             }
             // Note: we ignore 'id' from file, always use requestedId
           }
@@ -376,17 +409,22 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       body = body.slice(0, -1);
     }
 
-    const note: IntuitionNote = {
+    // Build result with all fields, only including optional fields when defined
+    const result: IntuitionNote = {
       problemId: requestedId,
       content: body,
       lastUpdated: parsedLastUpdated,
+      ...(parsedAttempts !== undefined && { attempts: parsedAttempts }),
+      ...(parsedCompleted !== undefined && { completed: parsedCompleted }),
+      ...(parsedTimeComplexity !== undefined && {
+        timeComplexity: parsedTimeComplexity,
+      }),
+      ...(parsedSpaceComplexity !== undefined && {
+        spaceComplexity: parsedSpaceComplexity,
+      }),
     };
 
-    if (parsedAttempts !== undefined) {
-      return { ...note, attempts: parsedAttempts };
-    }
-
-    return note;
+    return result;
   }
 }
 
@@ -396,4 +434,15 @@ export class LocalFileStorageAdapter implements StorageAdapter {
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
+}
+
+/**
+ * Strip surrounding double quotes from a string value if present.
+ * Returns the inner content, or the original value if not quoted.
+ */
+function stripQuotes(value: string): string {
+  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+    return value.slice(1, -1);
+  }
+  return value;
 }

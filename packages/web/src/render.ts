@@ -1232,18 +1232,52 @@ export function renderHomeHtml(view: AssessmentView | null): string {
 
 /**
  * Render the full dashboard HTML with both AssessmentView and SessionPlan.
+ * @param completedProblems - Optional list of completed problems to display (default empty).
  */
 export function renderDashboardHtml(
   view: AssessmentView,
   plan: SessionPlan,
+  completedProblems: readonly CompletedProblem[] = [],
 ): string {
+  // Render completed section
+  const completedSection =
+    completedProblems.length > 0
+      ? `<section class="dashboard-section">
+        <h2 class="section-title">Completed (${completedProblems.length})</h2>
+        <ul class="completed-list">
+          ${completedProblems.map((p) => `<li>${escapeHtml(p.title)}</li>`).join('')}
+        </ul>
+      </section>`
+      : `<section class="dashboard-section">
+        <h2 class="section-title">Completed (0)</h2>
+        <p class="empty-state">No problems marked as complete yet. Visit the <a href="/catalog">catalog</a> to track your progress.</p>
+      </section>`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>InterviewBudAI - Dashboard</title>
-  <style>${getCommonStyles()}</style>
+  <style>
+    ${getCommonStyles()}
+    
+    .completed-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    
+    .completed-list li {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-primary);
+    }
+    
+    .completed-list li:last-child {
+      border-bottom: none;
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -1255,6 +1289,7 @@ export function renderDashboardHtml(
     
     ${renderWhereYouStand(view)}
     ${renderYourNextSession(plan)}
+    ${completedSection}
     
     <footer>
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
@@ -1749,11 +1784,13 @@ function difficultyColor(difficulty: string): string {
 
 /**
  * Render the catalog page grouped by topic.
+ * @param completedIds - Optional set of completed problem IDs (default empty).
  */
 export function renderCatalogHtml(
   problems: readonly Problem[],
   hasCookie: boolean,
   defaultDataDir: string,
+  completedIds: ReadonlySet<string> = new Set(),
 ): string {
   // Group problems by topic
   const byTopic = new Map<string, Problem[]>();
@@ -1785,9 +1822,12 @@ export function renderCatalogHtml(
       const rows = topicProblems
         .map((p) => {
           const badgeColor = difficultyColor(p.difficulty);
+          const doneMarker = completedIds.has(p.id)
+            ? '<span class="done-marker" title="Completed">✓ done</span>'
+            : '';
           return `
         <tr>
-          <td>${escapeHtml(p.title)}</td>
+          <td>${escapeHtml(p.title)} ${doneMarker}</td>
           <td><span class="difficulty-badge" style="background-color: ${badgeColor}">${escapeHtml(p.difficulty)}</span></td>
           <td><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">LeetCode</a></td>
           <td><a href="/notes/${escapeHtml(p.id)}">Notes</a></td>
@@ -1906,6 +1946,17 @@ export function renderCatalogHtml(
       text-transform: capitalize;
     }
     
+    .done-marker {
+      display: inline-block;
+      margin-left: 0.5rem;
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #22c55e;
+      background-color: rgba(34, 197, 94, 0.1);
+    }
+    
     .cta-banner {
       background-color: var(--bg-secondary);
       padding: 1.5rem;
@@ -1972,11 +2023,27 @@ export function renderCatalogHtml(
 }
 
 /**
+ * A problem that has been marked as complete.
+ */
+export interface CompletedProblem {
+  /** Problem ID, e.g. 'lc-1'. */
+  readonly id: string;
+  /** Problem title for display. */
+  readonly title: string;
+}
+
+/**
  * Options for rendering the notes editor.
  */
 export interface NotesEditorOptions {
   /** If true, show a 'Saved' confirmation banner. */
   readonly saved?: boolean;
+  /** Whether the problem is marked as complete. */
+  readonly completed?: boolean;
+  /** Time complexity of the solution (e.g. 'O(n)'). */
+  readonly timeComplexity?: string;
+  /** Space complexity of the solution (e.g. 'O(1)'). */
+  readonly spaceComplexity?: string;
 }
 
 /**
@@ -1991,6 +2058,13 @@ export function renderNotesEditorHtml(
   const badgeColor = difficultyColor(problem.difficulty);
   const savedBanner = opts?.saved
     ? `<div class="saved-banner">✓ Saved successfully</div>`
+    : '';
+  const completedChecked = opts?.completed ? 'checked' : '';
+  const timeComplexityValue = opts?.timeComplexity
+    ? escapeHtml(opts.timeComplexity)
+    : '';
+  const spaceComplexityValue = opts?.spaceComplexity
+    ? escapeHtml(opts.spaceComplexity)
     : '';
 
   return `<!DOCTYPE html>
@@ -2094,6 +2168,68 @@ export function renderNotesEditorHtml(
       text-align: center;
       font-weight: 500;
     }
+    
+    .metadata-section {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .metadata-section h3 {
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      color: var(--text-secondary);
+    }
+    
+    .metadata-row {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    
+    .metadata-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    
+    .metadata-field label {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+    
+    .metadata-field input[type="text"] {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      width: 150px;
+    }
+    
+    .metadata-field input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    
+    .checkbox-field {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .checkbox-field input[type="checkbox"] {
+      width: 1.25rem;
+      height: 1.25rem;
+      accent-color: var(--accent-blue);
+    }
+    
+    .checkbox-field label {
+      font-size: 0.875rem;
+      color: var(--text-primary);
+    }
   </style>
 </head>
 <body>
@@ -2117,6 +2253,25 @@ export function renderNotesEditorHtml(
     <div class="notes-form">
       <form method="POST" action="/notes/${encodeURIComponent(problem.id)}">
         <textarea name="content" class="notes-textarea" placeholder="Write your intuition, approach, and notes for this problem...">${escapeHtml(existingContent)}</textarea>
+        
+        <div class="metadata-section">
+          <h3>Problem Metadata</h3>
+          <div class="metadata-row">
+            <div class="metadata-field">
+              <label for="timeComplexity">Time Complexity</label>
+              <input type="text" id="timeComplexity" name="timeComplexity" placeholder="e.g. O(n)" value="${timeComplexityValue}">
+            </div>
+            <div class="metadata-field">
+              <label for="spaceComplexity">Space Complexity</label>
+              <input type="text" id="spaceComplexity" name="spaceComplexity" placeholder="e.g. O(1)" value="${spaceComplexityValue}">
+            </div>
+          </div>
+          <div class="checkbox-field">
+            <input type="checkbox" id="completed" name="completed" ${completedChecked}>
+            <label for="completed">Mark as complete</label>
+          </div>
+        </div>
+        
         <div class="form-actions">
           <button type="submit" class="save-button">Save</button>
           <a href="/catalog" class="back-link">&larr; Back to Catalog</a>

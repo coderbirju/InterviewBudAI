@@ -56,8 +56,11 @@ export async function startServer(
   const ollamaUrl = resolveOllamaUrl(env);
   const ollamaModel = resolveOllamaModel(env);
 
-  // Create storage adapter
+  // Create storage adapter (default for routes that don't use cookie)
   const storage = new LocalFileStorageAdapter(dataDir);
+
+  // Create storage factory for per-request cookie-aware storage resolution
+  const createStorage = (dir: string) => new LocalFileStorageAdapter(dir);
 
   // Create provider: OllamaProvider if model configured, EchoDemoProvider otherwise
   const provider: LlmProvider = ollamaModel
@@ -68,8 +71,16 @@ export async function startServer(
     ? `Using Ollama: ${ollamaModel}`
     : 'Demo interviewer (no LLM configured)';
 
-  // Create handler with storage, provider, and label
-  const handler = createCoachHandler({ storage, provider, providerLabel });
+  // Create handler with storage, provider, label, and per-request factory
+  const handler = createCoachHandler({
+    storage,
+    provider,
+    providerLabel,
+    createStorage,
+    defaultDataDir: dataDir,
+    env,
+    argv,
+  });
 
   const server = http.createServer(async (req, res) => {
     try {
