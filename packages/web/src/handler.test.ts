@@ -650,4 +650,82 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('Create your database');
     });
   });
+
+  describe('cookie persistence (regression tests)', () => {
+    it('POST /setup sets persistent cookie with Max-Age', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler({
+        method: 'POST',
+        url: '/setup',
+        body: `dataDir=${encodeURIComponent(testDataDir!)}`,
+        contentType: 'application/x-www-form-urlencoded',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers).toBeDefined();
+      const setCookie = res.headers!['Set-Cookie'];
+      expect(setCookie).toBeDefined();
+      expect(setCookie).toContain('ibai_data_dir=');
+      expect(setCookie).toContain('Max-Age=31536000');
+      expect(setCookie).toContain('Path=/');
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie).toContain('SameSite=Strict');
+      // Should NOT have Secure (localhost http)
+      expect(setCookie).not.toContain('Secure');
+    });
+
+    it('GET / with cookie shows progress state (not empty state)', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      // Create storage with data in temp dir
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      await adapter.updateCompetencyMap({
+        entries: {
+          'linked-lists': {
+            topicId: 'linked-lists',
+            proficiency: 0.75,
+            lastUpdated: new Date().toISOString(),
+          },
+        },
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      // Should show progress data, not empty state CTA
+      expect(res.body).toContain('linked-lists');
+      expect(res.body).not.toContain('Create your database');
+    });
+
+    it('GET / without cookie shows empty state', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      const handler = createCoachHandler({
+        storage: new LocalFileStorageAdapter('/nonexistent/path'),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+        defaultDataDir: '/nonexistent/default',
+        env: {},
+        argv: [],
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Create your database');
+    });
+  });
 });
