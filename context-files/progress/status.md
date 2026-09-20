@@ -112,3 +112,11 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 - **Deferred (follow-up):** dev-only audit warnings from `eslint@8.57.0`
   transitive deps (`glob@7`). Upgrading to ESLint 9 (flat config) is a separate
   scoped change, not pulled into the scaffold PR. Not shipped (devDependency).
+
+
+## 2026-09-20: Cookie Persistence Fix
+
+- **Issue**: `ibai_data_dir` cookie was a session cookie, lost on browser restart
+- **Fix**: Added `Max-Age=31536000` (~1 year) to make cookie persistent
+- **Status**: PR open on `fix/cookie-persistence` branch
+- **Tests**: Added regression tests for cookie persistence and round-trip verification
