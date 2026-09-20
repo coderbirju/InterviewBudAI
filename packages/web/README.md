@@ -226,12 +226,13 @@ The home page works for everyone—new users see the setup CTA, returning users 
 
 ## Cookie Behavior
 
-The `ibai_data_dir` cookie stores the path to the user's data directory:
+The `ibai_data_dir` cookie stores the path to the user's data directory as a **persistent cookie** (Max-Age=31536000, ~1 year). This ensures your chosen database path survives browser restarts without requiring login. Multi-database selection is planned for a future release; currently a single path is stored.
 
 | Attribute | Value |
 |-----------|-------|
 | Name | `ibai_data_dir` |
 | Path | `/` |
+| Max-Age | 31536000 (~1 year) |
 | HttpOnly | Yes |
 | SameSite | Strict |
 | Secure | No (localhost http) |

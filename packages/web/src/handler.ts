@@ -506,7 +506,7 @@ export function createCoachHandler(
           contentType: 'text/html; charset=utf-8',
           body: renderSetupSuccessHtml(resolvedPath),
           headers: {
-            'Set-Cookie': `ibai_data_dir=${cookieValue}; Path=/; HttpOnly; SameSite=Strict`,
+            'Set-Cookie': `ibai_data_dir=${cookieValue}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
           },
         };
       } catch (err) {
