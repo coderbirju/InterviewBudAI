@@ -492,4 +492,162 @@ describe('createAssessHandler', () => {
       expect(body.error).toBe('Storage error');
     });
   });
+
+  describe('dashboard completed problems', () => {
+    it('shows completed problems when notes marked complete', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+      const { createCatalogSource } = await import('@ibai/curriculum');
+
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      // Mark a problem as complete (lc-3 is the first problem in the catalog)
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-3',
+        content: 'My solution',
+        lastUpdated: new Date().toISOString(),
+        completed: true,
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        catalog: createCatalogSource(),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/dashboard',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Completed (1)');
+      expect(res.body).toContain(
+        'Longest Substring Without Repeating Characters',
+      ); // Problem title for lc-3
+    });
+
+    it('shows empty state when no problems completed', async () => {
+      const { handler } = createFakeHandler();
+
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/dashboard' }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Completed (0)');
+      expect(res.body).toContain('No problems marked as complete yet');
+    });
+  });
+
+  describe('catalog done marker', () => {
+    it('shows done marker for completed problems', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+      const { createCatalogSource } = await import('@ibai/curriculum');
+
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      // Mark a problem as complete (lc-3 is the first problem in the catalog)
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-3',
+        content: 'My solution',
+        lastUpdated: new Date().toISOString(),
+        completed: true,
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        catalog: createCatalogSource(),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/catalog',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('done-marker');
+      expect(res.body).toContain('\u2713 done');
+    });
+
+    it('does not show done marker when no notes', async () => {
+      const { handler } = createFakeHandler();
+
+      const res = await handler({ method: 'GET', url: '/catalog' });
+
+      expect(res.status).toBe(200);
+      // Check that no actual done marker spans are rendered (CSS class in styles is OK)
+      expect(res.body).not.toContain('\u2713 done');
+    });
+  });
+
+  describe('home route cookie resolution (CHANGE 4 regression)', () => {
+    it('home reflects cookie-specified data dir (not stale boot-time dir)', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      // Create a storage adapter for the temp dir
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+
+      // Write some competency data so assess() returns non-empty view
+      await adapter.updateCompetencyMap({
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.8,
+            lastUpdated: new Date().toISOString(),
+          },
+        },
+      });
+
+      // Create handler WITH createStorage factory (simulating boot fix)
+      const handler = createCoachHandler({
+        storage: adapter, // Default storage (like boot-time)
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+        defaultDataDir: '/some/other/default/path',
+        env: {},
+        argv: [],
+      });
+
+      // Request with cookie pointing to temp dir
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      // The view should reflect the data in the cookie dir, not empty
+      // Check for topicsTracked > 0 indicator or the topic name in strengths
+      expect(res.body).toContain('arrays');
+    });
+
+    it('home shows empty state when no cookie and default dir does not exist', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      // Create handler with factory but default dir that doesn't exist
+      const handler = createCoachHandler({
+        storage: new LocalFileStorageAdapter('/nonexistent/path'),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+        defaultDataDir: '/nonexistent/path/that/does/not/exist',
+        env: {},
+        argv: [],
+      });
+
+      // Request without cookie
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+      });
+
+      expect(res.status).toBe(200);
+      // Empty state should show the CTA
+      expect(res.body).toContain('Create your database');
+    });
+  });
 });

@@ -26,6 +26,7 @@ import {
   render404Html,
   escapeHtml,
 } from './render.js';
+import type { CompletedProblem } from './render.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
 import {
@@ -346,13 +347,44 @@ export function createCoachHandler(
     const defaultDataDir =
       deps.defaultDataDir ?? resolveDataDir(deps.env, deps.argv);
 
-    // Handle /catalog (GET) - no storage needed
+    // Handle /catalog (GET) - gather completed IDs from storage if available
     if (isCatalog) {
       const problems = catalog.list();
+
+      // Gather completed problem IDs (read-only, safe to fail)
+      const completedIds = new Set<string>();
+      const resolvedDir = resolveDataDirWithCookie(
+        cookieDataDir,
+        deps.env,
+        deps.argv,
+      );
+      const catalogStorage =
+        directoryExists(resolvedDir) && deps.createStorage
+          ? deps.createStorage(resolvedDir)
+          : null;
+
+      if (catalogStorage?.readIntuitionNote) {
+        for (const problem of problems) {
+          try {
+            const note = await catalogStorage.readIntuitionNote(problem.id);
+            if (note?.completed) {
+              completedIds.add(problem.id);
+            }
+          } catch {
+            // Ignore errors - safe empty state
+          }
+        }
+      }
+
       return {
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: renderCatalogHtml(problems, hasCookie, defaultDataDir),
+        body: renderCatalogHtml(
+          problems,
+          hasCookie,
+          defaultDataDir,
+          completedIds,
+        ),
       };
     }
 
@@ -400,19 +432,35 @@ export function createCoachHandler(
         // POST: Save the note content
         const formParams = new URLSearchParams(req.body ?? '');
         const content = formParams.get('content') ?? '';
+        // Checkbox: present in form data = true, absent = false
+        const completed = formParams.has('completed');
+        const timeComplexity = formParams.get('timeComplexity') || undefined;
+        const spaceComplexity = formParams.get('spaceComplexity') || undefined;
+
+        // Read existing note to preserve attempts
+        const existingNote = await notesStorage.readIntuitionNote?.(problemId);
 
         // Write the note
         await notesStorage.writeIntuitionNote?.({
           problemId,
           content,
           lastUpdated: new Date().toISOString() as IsoTimestamp,
+          attempts: existingNote?.attempts,
+          completed,
+          timeComplexity,
+          spaceComplexity,
         });
 
-        // Re-render the editor with 'Saved' banner
+        // Re-render the editor with 'Saved' banner and new values
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderNotesEditorHtml(problem, content, { saved: true }),
+          body: renderNotesEditorHtml(problem, content, {
+            saved: true,
+            completed,
+            timeComplexity,
+            spaceComplexity,
+          }),
         };
       }
 
@@ -421,7 +469,11 @@ export function createCoachHandler(
       return {
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: renderNotesEditorHtml(problem, note?.content ?? ''),
+        body: renderNotesEditorHtml(problem, note?.content ?? '', {
+          completed: note?.completed,
+          timeComplexity: note?.timeComplexity,
+          spaceComplexity: note?.spaceComplexity,
+        }),
       };
     }
 
@@ -530,19 +582,31 @@ export function createCoachHandler(
         };
       }
 
-      if (isHtml) {
-        return {
-          status: 200,
-          contentType: 'text/html; charset=utf-8',
-          body: renderDashboardHtml(view, sessionPlan),
-        };
-      }
+      if (isHtml || isDashboard) {
+        // Gather completed problems for display
+        const completedProblems: CompletedProblem[] = [];
+        const problems = catalog.list();
 
-      if (isDashboard) {
+        if (storage.readIntuitionNote) {
+          for (const problem of problems) {
+            try {
+              const note = await storage.readIntuitionNote(problem.id);
+              if (note?.completed) {
+                completedProblems.push({
+                  id: problem.id,
+                  title: problem.title,
+                });
+              }
+            } catch {
+              // Ignore errors - safe empty state
+            }
+          }
+        }
+
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderDashboardHtml(view, sessionPlan),
+          body: renderDashboardHtml(view, sessionPlan, completedProblems),
         };
       }
 

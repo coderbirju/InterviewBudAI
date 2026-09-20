@@ -93,6 +93,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | web-catalog-landing | 2026-09-14 | Catalog-first landing + create-database + cookie dataDir; Notes placeholder, intuition capture next PR. |
 | app-shell-nav | 2026-09-14 | Added shared nav bar on all pages (Home, Catalog, Dashboard, Interview). Home landing at `/` with action buttons and progress summary. Dashboard moved to `/dashboard`. Nav includes active state and aria-current for a11y. |
 | notes-capture | 2026-09-14 | IntuitionNote type + StorageAdapter methods (saveNote/listNotes/getNote) + web /notes routes with save/edit UI. Local-first note storage at dataDir/notes/<id>.json. No external deps added. |
+| ui-hardening | 2026-09-15 | IntuitionNote extended with completed/timeComplexity/spaceComplexity (additive, ADR 0005 amendment). Notes editor UI with checkbox + complexity inputs. Dashboard shows completed list. Catalog shows ✓ done marker. Home bug fixed: boot now injects createStorage factory + defaultDataDir so per-request cookie>env>default resolution works. |
 
 ## Backlog / future
 

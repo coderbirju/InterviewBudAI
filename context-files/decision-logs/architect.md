@@ -32,3 +32,24 @@
 2026-09-13  feature/demo-provider  — demo-provider: ship built-in deterministic EchoDemoProvider (opt-in default-for-demo, interviewer-style prompting only, NO answers/solutions) to enable a zero-config offline demo — rejected requiring Ollama for any demo & a random/LLM-ish fake — keeps bring-your-own-LLM (§6.3) + §6.2 intact, deterministic/testable, local-first.
 
 2026-09-13  feature/interview-ui  — interactive interview UI with EchoDemoProvider default: stateless turn-by-turn flow gathers answers then ONE coach() call; provider always present (demo fallback); chat-like transcript; XSS-escaped all dynamic content — rejected session storage in core/web — keeps web stateless and thin, all state in form hidden fields.
+
+### 2026-09-15: ui-hardening — IntuitionNote extension + home-bug fix
+
+**What:** Additive amendment to ADR 0005 IntuitionNote interface with three new
+optional fields (`completed`, `timeComplexity`, `spaceComplexity`) for tracking
+completion and solution complexity. Notes editor UI extended with checkbox and
+text inputs. Dashboard shows completed count/list. Catalog shows ✓ done marker.
+
+**Home bug root cause:** Boot file (server.ts) created `LocalFileStorageAdapter`
+at startup and passed it to `createCoachHandler` WITHOUT the `createStorage`
+factory or `defaultDataDir`. The handler's per-request resolution code
+(`deps.createStorage ? deps.createStorage(resolvedDataDir) : deps.storage`)
+always fell back to the stale boot-time storage. After `/setup` set the cookie
+and created the dir, home still read the OLD boot dir.
+
+**Fix:** Inject `createStorage` factory + `defaultDataDir` + `env` + `argv` at
+boot. Per-request resolution now honors cookie>env>default precedence.
+
+**Why not a new ADR:** This is an additive, backward-compatible extension within
+the existing IntuitionNote model (ADR 0005 D3). No new interfaces, no breaking
+changes. A decision-log entry is sufficient.

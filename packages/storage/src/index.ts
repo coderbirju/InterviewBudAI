@@ -132,6 +132,12 @@ export interface IntuitionNote {
   readonly lastUpdated: IsoTimestamp;
   /** Optional count of attempts/practice sessions for this problem. */
   readonly attempts?: number;
+  /** Whether the problem is marked as complete/solved. */
+  readonly completed?: boolean;
+  /** Time complexity of the solution, e.g. 'O(n)', 'O(n log n)'. */
+  readonly timeComplexity?: string;
+  /** Space complexity of the solution, e.g. 'O(1)', 'O(n)'. */
+  readonly spaceComplexity?: string;
 }
 
 // ---------------------------------------------------------------------------
