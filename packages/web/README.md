@@ -9,7 +9,10 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 ## Features
 
 - **Navigation bar** — Shared top nav on all pages with links to Home, Catalog, Dashboard, and Interview
-- **Home page** — Landing page at `/` with action buttons and progress summary (works for new users too)
+- **Home page** — Landing page at `/` with action buttons and three distinct states:
+  - **No database**: Shows "Create your database" CTA linking to `/setup`
+  - **Database ready but empty**: Shows "Your database is ready — start practicing" message with catalog link
+  - **Database with data**: Shows progress summary with topics tracked, top strengths, and focus areas
 - **Problem Catalog** — Browse 175 curated problems grouped by topic with difficulty badges, LeetCode links, and Notes links
 - **Catalog-first onboarding** — New users start by exploring the catalog, then create their database to start tracking progress
 - **Create database** — Simple setup flow to create and remember your data directory via browser cookie

@@ -556,6 +556,9 @@ describe('existing routes still work', () => {
     const handler = createCoachHandler({
       storage,
       createStorage: () => storage,
+      defaultDataDir: '/nonexistent/path/that/does/not/exist',
+      env: {},
+      argv: [],
     });
     return { storage, handler };
   };

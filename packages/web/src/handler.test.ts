@@ -89,6 +89,9 @@ describe('createAssessHandler', () => {
     const handler = createCoachHandler({
       storage,
       createStorage: () => storage, // Always return the same storage for testing
+      defaultDataDir: '/nonexistent/path/that/does/not/exist',
+      env: {},
+      argv: [],
     });
     return { storage, handler };
   };
@@ -446,13 +449,15 @@ describe('createAssessHandler', () => {
   });
 
   describe('error handling', () => {
-    it('returns 200 with empty state on home page when storage errors', async () => {
+    it('returns 200 with ready state on home page when storage errors and db exists', async () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
+      // withCookie points to testDataDir which exists, so dbExists=true
+      // On storage error with dbExists=true, should show "ready" state (State 2)
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.status).toBe(200);
-      expect(res.body).toContain('Create your database');
+      expect(res.body).toContain('Your database is ready');
     });
 
     it('returns 500 with readable message on storage error for dashboard', async () => {
@@ -726,6 +731,95 @@ describe('createAssessHandler', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toContain('Create your database');
+    });
+  });
+
+  describe('home three-state behavior (empty-vs-nodb regression)', () => {
+    it('STATE 1: no cookie AND default dir does not exist shows Create your database', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      // Handler with nonexistent default dir and no cookie
+      const handler = createCoachHandler({
+        storage: new LocalFileStorageAdapter('/nonexistent/path'),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+        defaultDataDir: '/nonexistent/path/that/does/not/exist',
+        env: {},
+        argv: [],
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Create your database');
+      expect(res.body).toContain('href="/setup"');
+    });
+
+    it('STATE 2: cookie set to existing but EMPTY dir shows ready state (REGRESSION TEST)', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      // testDataDir is created by beforeEach (exists but empty - no competency.json)
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+        defaultDataDir: '/some/other/default',
+        env: {},
+        argv: [],
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      // Should show the ready state message, NOT the create database prompt
+      expect(res.body).toContain('Your database is ready');
+      expect(res.body).toContain('Start practicing');
+      expect(res.body).toContain('href="/catalog"');
+      expect(res.body).not.toContain('Create your database');
+    });
+
+    it('STATE 3: cookie set to dir WITH data shows progress summary', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      // Seed with competency data so topicsTracked > 0
+      await adapter.updateCompetencyMap({
+        entries: {
+          'dynamic-programming': {
+            topicId: 'dynamic-programming',
+            proficiency: 0.65,
+            lastUpdated: new Date().toISOString(),
+          },
+        },
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Your Progress');
+      expect(res.body).toContain('Topics tracked');
+      expect(res.body).toContain('dynamic-programming');
+      expect(res.body).not.toContain('Create your database');
     });
   });
 });
