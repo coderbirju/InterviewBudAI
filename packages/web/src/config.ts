@@ -159,6 +159,7 @@ export function resolveDataDirWithCookie(
   cookieDataDir: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
   argv?: string[],
+  defaultDir?: string,
 ): string {
   // Cookie takes highest precedence IF the directory exists
   if (cookieDataDir) {
@@ -169,6 +170,23 @@ export function resolveDataDirWithCookie(
     }
   }
 
-  // Fall back to standard resolution
+  // Fall back to standard resolution, using explicit default if provided
+  if (defaultDir !== undefined) {
+    // Check CLI flag first
+    if (argv) {
+      for (const arg of argv) {
+        if (arg.startsWith('--data-dir=')) {
+          return path.resolve(arg.slice('--data-dir='.length));
+        }
+      }
+    }
+    // Check env var
+    if (env.IBAI_DATA_DIR) {
+      return path.resolve(env.IBAI_DATA_DIR);
+    }
+    // Use the explicitly provided default
+    return path.resolve(defaultDir);
+  }
+
   return resolveDataDir(env, argv);
 }

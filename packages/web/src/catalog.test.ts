@@ -304,6 +304,9 @@ describe('onboarding routing', () => {
   it('GET / without cookie returns home page with empty state', async () => {
     const deps: CoachHandlerDeps = {
       storage: createMockStorage(),
+      defaultDataDir: '/nonexistent/path/that/does/not/exist',
+      env: {},
+      argv: [],
     };
     const handler = createCoachHandler(deps);
 

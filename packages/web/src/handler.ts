@@ -527,6 +527,7 @@ export function createCoachHandler(
       cookieDataDir,
       deps.env,
       deps.argv,
+      deps.defaultDataDir,
     );
 
     // Create storage adapter for resolved directory
@@ -535,21 +536,22 @@ export function createCoachHandler(
       ? deps.createStorage(resolvedDataDir)
       : deps.storage;
 
-    // Handle / (home page) - works for all users, shows empty state if no data
+    // Handle / (home page) - three states: no-db, empty-db, has-data
     if (isHome) {
+      const dbExists = directoryExists(resolvedDataDir);
       try {
         const view = await assess(storage);
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderHomeHtml(view),
+          body: renderHomeHtml(view, dbExists),
         };
       } catch {
-        // On any error (no data, missing dir, etc), show empty state
+        // On error, pass null view but preserve dbExists signal
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderHomeHtml(null),
+          body: renderHomeHtml(null, dbExists),
         };
       }
     }
