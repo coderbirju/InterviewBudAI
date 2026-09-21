@@ -1159,13 +1159,35 @@ export function renderNav(activeRoute: string): string {
 
 /**
  * Render the home/landing page HTML.
+ * Three states:
+ * 1. !dbExists: No database - show "Create your database" CTA
+ * 2. dbExists && (view===null || view.topicsTracked===0): Database ready but empty - show "start practicing" message
+ * 3. dbExists && view.topicsTracked>0: Database with data - show progress summary
  * @param view AssessmentView or null for empty/error state
+ * @param dbExists Whether the data directory exists on disk
  */
-export function renderHomeHtml(view: AssessmentView | null): string {
-  const hasData = view !== null && view.topicsTracked > 0;
+export function renderHomeHtml(
+  view: AssessmentView | null,
+  dbExists: boolean,
+): string {
+  let progressSection: string;
 
-  const progressSection = hasData
-    ? `<div class="progress-summary">
+  if (!dbExists) {
+    // State 1: No database - show create prompt
+    progressSection = `<div class="empty-state-cta">
+        <p>Create your database to start tracking progress</p>
+        <a href="/setup" class="setup-link">Create your database</a>
+      </div>`;
+  } else if (view === null || view.topicsTracked === 0) {
+    // State 2: Database exists but empty - show ready message with catalog CTA
+    progressSection = `<div class="cta-banner">
+        <h2>Your database is ready</h2>
+        <p>Start practicing and your progress will appear here as you add intuitions.</p>
+        <a href="/catalog" class="cta-link">Continue practicing</a>
+      </div>`;
+  } else {
+    // State 3: Database with data - show progress summary
+    progressSection = `<div class="progress-summary">
         <h2>Your Progress</h2>
         <div class="progress-cards">
           <div class="progress-card">
@@ -1191,11 +1213,8 @@ export function renderHomeHtml(view: AssessmentView | null): string {
               : ''
           }
         </div>
-      </div>`
-    : `<div class="empty-state-cta">
-        <p>Create your database to start tracking progress</p>
-        <a href="/setup" class="setup-link">Create your database</a>
       </div>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="en">
