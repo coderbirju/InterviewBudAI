@@ -94,6 +94,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | app-shell-nav | 2026-09-14 | Added shared nav bar on all pages (Home, Catalog, Dashboard, Interview). Home landing at `/` with action buttons and progress summary. Dashboard moved to `/dashboard`. Nav includes active state and aria-current for a11y. |
 | notes-capture | 2026-09-14 | IntuitionNote type + StorageAdapter methods (saveNote/listNotes/getNote) + web /notes routes with save/edit UI. Local-first note storage at dataDir/notes/<id>.json. No external deps added. |
 | ui-hardening | 2026-09-15 | IntuitionNote extended with completed/timeComplexity/spaceComplexity (additive, ADR 0005 amendment). Notes editor UI with checkbox + complexity inputs. Dashboard shows completed list. Catalog shows ✓ done marker. Home bug fixed: boot now injects createStorage factory + defaultDataDir so per-request cookie>env>default resolution works. |
+| home-three-state | 2026-09-20 | Root cause: empty AssessmentView (topicsTracked=0) conflated with no-db state. Fix: renderHomeHtml now takes dbExists boolean to distinguish three states: (1) no-db → create prompt, (2) empty-db → ready message, (3) has-data → progress summary. |
 
 ## Backlog / future
 
@@ -120,3 +121,11 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 - **Fix**: Added `Max-Age=31536000` (~1 year) to make cookie persistent
 - **Status**: PR open on `fix/cookie-persistence` branch
 - **Tests**: Added regression tests for cookie persistence and round-trip verification
+
+## 2026-09-20: Home Three-State Fix
+
+- **Issue**: Home page conflated 'no database' with 'empty database' — existing but empty db showed "Create your database" forever
+- **Root cause**: renderHomeHtml only checked `view !== null && view.topicsTracked > 0` without knowing if the directory actually exists
+- **Fix**: Added `dbExists` boolean parameter to renderHomeHtml; three states: (1) !dbExists → create prompt, (2) dbExists && empty → ready message, (3) has data → progress summary
+- **Status**: PR open on `fix/home-empty-vs-nodb` branch
+- **Tests**: Added three-state regression tests including STATE 2 (existing empty dir via cookie)
