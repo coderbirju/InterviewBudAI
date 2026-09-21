@@ -115,3 +115,5 @@ export type { OllamaProviderConfig } from './ollama.js';
 
 export { EchoDemoProvider } from './demo-provider.js';
 export type { EchoDemoProviderConfig } from './demo-provider.js';
+export { AnthropicProvider } from './anthropic.js';
+export type { AnthropicProviderConfig } from './anthropic.js';
