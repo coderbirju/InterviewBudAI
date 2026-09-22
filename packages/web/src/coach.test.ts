@@ -186,7 +186,7 @@ describe('resolveOllamaModel', () => {
 });
 
 describe('createCoachHandler - GET /coach (interactive interview)', () => {
-  it('returns 400 when provider not configured', async () => {
+  it('returns 200 with provider-required page when provider not configured', async () => {
     const storage = new FakeStorageAdapter();
     storage.setCompetencyMap({
       entries: {
@@ -202,7 +202,10 @@ describe('createCoachHandler - GET /coach (interactive interview)', () => {
 
     const res = await handler({ method: 'GET', url: '/coach' });
 
-    expect(res.status).toBe(400);
+    // Provider-required is a configuration state (200), not an error (4xx)
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('Configure a model');
+    expect(res.body).toContain('ANTHROPIC_API_KEY');
     expect(res.body).toContain('IBAI_OLLAMA_MODEL');
   });
 
@@ -258,21 +261,23 @@ describe('createCoachHandler - GET /coach (interactive interview)', () => {
 });
 
 describe('createCoachHandler - POST /coach (interactive interview)', () => {
-  it('returns 400 when provider not configured', async () => {
+  it('returns 200 with provider-required page when provider not configured', async () => {
     const storage = new FakeStorageAdapter();
     const handler = createCoachHandler({ storage }); // no provider
 
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=test&current_outcome=pass&current_question=What%20is%20an%20array?',
+      body: 'sessionId=test-session&step=0&current_answer=test&current_question=What%20is%20an%20array?',
     });
 
-    expect(res.status).toBe(400);
+    // Provider-required is a configuration state (200), not an error (4xx)
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('Configure a model');
     expect(res.body).toContain('IBAI_OLLAMA_MODEL');
   });
 
-  it('returns 400 when answer or outcome missing', async () => {
+  it('returns 400 when answer is empty', async () => {
     const storage = new FakeStorageAdapter();
     storage.setCompetencyMap({
       entries: {
@@ -287,15 +292,15 @@ describe('createCoachHandler - POST /coach (interactive interview)', () => {
     const provider = new FakeLlmProvider();
     const handler = createCoachHandler({ storage, provider });
 
-    // Missing current_outcome
+    // Empty answer (model evaluates, no outcome needed)
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=my%20answer&current_question=What%20is%20an%20array?',
+      body: 'sessionId=test-session&step=0&current_answer=&current_question=What%20is%20an%20array?',
     });
 
     expect(res.status).toBe(400);
-    expect(res.body).toContain('Incomplete');
+    expect(res.body).toContain('Please provide an answer');
   });
 
   it('advances to next step when more topics remain', async () => {
@@ -412,8 +417,8 @@ describe('createCoachHandler - POST /coach (interactive interview)', () => {
   });
 });
 
-describe('createCoachHandler - POST /coach.json (JSON) - GATED FOR PR 5b', () => {
-  it('returns 400 with gated message (JSON API rework)', async () => {
+describe('createCoachHandler - POST /coach.json (JSON API)', () => {
+  it('returns 400 with provider-required message when no provider', async () => {
     const storage = new FakeStorageAdapter();
     const handler = createCoachHandler({ storage }); // no provider
 
@@ -421,19 +426,17 @@ describe('createCoachHandler - POST /coach.json (JSON) - GATED FOR PR 5b', () =>
       method: 'POST',
       url: '/coach.json',
       body: JSON.stringify({
-        outcomes: [{ topicId: 'arrays', succeeded: true }],
+        answers: [{ topicId: 'arrays', answer: 'test answer' }],
       }),
     });
 
-    // JSON API is gated - returns 400 with rework message
     expect(res.status).toBe(400);
     expect(res.contentType).toBe('application/json; charset=utf-8');
     const body = JSON.parse(res.body);
-    expect(body.error).toContain('reworked');
-    expect(body.error).toContain('PR 5b');
+    expect(body.error).toContain('No model configured');
   });
 
-  it('returns gated message even with provider (JSON API rework)', async () => {
+  it('returns 400 for missing answers array', async () => {
     const storage = new FakeStorageAdapter();
     storage.setCompetencyMap({
       entries: {
@@ -453,19 +456,17 @@ describe('createCoachHandler - POST /coach.json (JSON) - GATED FOR PR 5b', () =>
       url: '/coach.json',
       body: JSON.stringify({
         sessionId: 'test-session-123',
-        outcomes: [{ topicId: 'arrays', succeeded: true, note: 'Did great!' }],
+        // Missing answers array
       }),
     });
 
-    // JSON API is gated regardless of provider - returns 400 with rework message
     expect(res.status).toBe(400);
     expect(res.contentType).toBe('application/json; charset=utf-8');
-
     const result = JSON.parse(res.body);
-    expect(result.error).toContain('reworked');
+    expect(result.error).toContain('Missing or invalid answers array');
   });
 
-  it('returns gated message regardless of provider error (JSON API rework)', async () => {
+  it('returns 502 on provider connection error', async () => {
     const storage = new FakeStorageAdapter();
     storage.setCompetencyMap({
       entries: {
@@ -478,21 +479,22 @@ describe('createCoachHandler - POST /coach.json (JSON) - GATED FOR PR 5b', () =>
     });
 
     const provider = new FakeLlmProvider();
-    provider.setShouldThrow(true, 'ECONNREFUSED');
+    provider.setShouldThrow(true, 'ECONNREFUSED: connection refused');
 
     const handler = createCoachHandler({ storage, provider });
 
     const res = await handler({
       method: 'POST',
       url: '/coach.json',
-      body: JSON.stringify({ outcomes: [] }),
+      body: JSON.stringify({
+        answers: [{ topicId: 'arrays', answer: 'My answer here' }],
+      }),
     });
 
-    // JSON API is gated - returns 400 before any provider call
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(502);
     expect(res.contentType).toBe('application/json; charset=utf-8');
     const body = JSON.parse(res.body);
-    expect(body.error).toContain('reworked');
+    expect(body.error).toContain('Could not reach the model provider');
   });
 });
 
@@ -509,22 +511,33 @@ describe('empty/new-user coach', () => {
     expect(res.body).toContain('No Topics Yet');
   });
 
-  it('POST /coach.json returns gated message (JSON API rework)', async () => {
-    // Note: JSON API is gated for AI-evaluation rework (PR 5b)
+  it('POST /coach.json with empty answers and matching mock succeeds (evaluates topic from plan)', async () => {
     const storage = new FakeStorageAdapter();
+    storage.setCompetencyMap({
+      entries: {
+        arrays: {
+          topicId: 'arrays',
+          proficiency: 0.3,
+          lastUpdated: '2026-09-06T12:00:00Z',
+        },
+      },
+    });
     const provider = new FakeLlmProvider();
+    // Default FakeLlmProvider response includes valid evaluation for 'arrays'
     const handler = createCoachHandler({ storage, provider });
 
     const res = await handler({
       method: 'POST',
       url: '/coach.json',
-      body: JSON.stringify({ outcomes: [] }),
+      body: JSON.stringify({ answers: [] }),
     });
 
-    // JSON API is gated - returns 400 with rework message
-    expect(res.status).toBe(400);
+    // Empty answers still proceeds to coach() which succeeds if mock evaluation matches plan topics
+    // The default FakeLlmProvider response evaluates 'arrays', which matches the plan
+    expect(res.status).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.error).toContain('reworked');
+    expect(body.summary).toBeDefined();
+    expect(body.evaluations).toBeDefined();
   });
 });
 
