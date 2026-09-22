@@ -28,7 +28,6 @@ export {
   renderAssessmentJson,
   renderPlanJson,
   renderDashboardHtml,
-  renderCoachForm,
   renderCoachResult,
   renderCoachJson,
   renderInterviewStep,
