@@ -1350,7 +1350,6 @@ export function renderAssessmentHtml(view: AssessmentView): string {
 </html>`;
 }
 
-
 /**
  * Render the coaching result page (POST /coach response).
  * Shows the AI-generated narrative, identified strengths/weaknesses,
