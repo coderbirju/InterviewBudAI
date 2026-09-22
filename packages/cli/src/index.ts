@@ -1,15 +1,13 @@
 /**
- * @ibai/cli — thin CLI front-end.
+ * @ibai/cli public API.
  *
- * Front-ends are thin over the engine: capabilities live in @ibai/core and the
- * CLI exposes them (front-end parity principle). At startup a front-end wires
- * concrete provider/storage adapters into the engine (dependency injection).
+ * Exports types and the run function for programmatic use/testing.
  */
 
-export { run, type RunResult, type RunDeps } from './cli.js';
+export { run } from './cli.js';
+export type { RunResult, RunDeps } from './cli.js';
+
+export { resolveDataDir } from './config.js';
+export type { ResolveDataDirOptions } from './config.js';
+
 export { formatAssessment, formatPlan, formatCoach } from './format.js';
-export {
-  resolveDataDir,
-  parseOutcomes,
-  type ResolveDataDirOptions,
-} from './config.js';

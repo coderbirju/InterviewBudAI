@@ -1,6 +1,6 @@
 import * as http from 'node:http';
 import { LocalFileStorageAdapter } from '@ibai/storage';
-import { EchoDemoProvider, OllamaProvider } from '@ibai/providers';
+import { AnthropicProvider, OllamaProvider } from '@ibai/providers';
 import type { LlmProvider } from '@ibai/providers';
 import {
   resolveDataDir,
@@ -8,6 +8,8 @@ import {
   resolveHost,
   resolveOllamaUrl,
   resolveOllamaModel,
+  resolveAnthropicApiKey,
+  resolveAnthropicModel,
 } from './config.js';
 import { createCoachHandler } from './handler.js';
 
@@ -39,8 +41,10 @@ function readRequestBody(req: http.IncomingMessage): Promise<string> {
  *
  * The server binds to localhost (127.0.0.1) only. No external network access.
  *
- * For coach operations, the server requires IBAI_OLLAMA_MODEL to be set.
- * If not set, GET /coach will show the form but POST /coach will return an error.
+ * Provider is now REQUIRED for coach operations (ADR 0005 D6):
+ * - If Anthropic key AND model set → AnthropicProvider
+ * - Else if Ollama model set → OllamaProvider
+ * - Else provider = undefined (coach will return provider-required error)
  */
 export async function startServer(
   opts?: StartServerOptions,
@@ -52,7 +56,9 @@ export async function startServer(
   const port = resolvePort(env, argv);
   const host = resolveHost();
 
-  // Resolve Ollama config (provider is optional - only needed for coach)
+  // Resolve provider config (Anthropic first, then Ollama)
+  const anthropicApiKey = resolveAnthropicApiKey(env);
+  const anthropicModel = resolveAnthropicModel(env);
   const ollamaUrl = resolveOllamaUrl(env);
   const ollamaModel = resolveOllamaModel(env);
 
@@ -62,14 +68,23 @@ export async function startServer(
   // Create storage factory for per-request cookie-aware storage resolution
   const createStorage = (dir: string) => new LocalFileStorageAdapter(dir);
 
-  // Create provider: OllamaProvider if model configured, EchoDemoProvider otherwise
-  const provider: LlmProvider = ollamaModel
-    ? new OllamaProvider({ endpoint: ollamaUrl, model: ollamaModel })
-    : new EchoDemoProvider();
+  // Create provider: Anthropic if key+model, else Ollama if model, else undefined (NO demo fallback)
+  let provider: LlmProvider | undefined;
+  let providerLabel: string;
 
-  const providerLabel = ollamaModel
-    ? `Using Ollama: ${ollamaModel}`
-    : 'Demo interviewer (no LLM configured)';
+  if (anthropicApiKey && anthropicModel) {
+    provider = new AnthropicProvider({
+      apiKey: anthropicApiKey,
+      model: anthropicModel,
+    });
+    providerLabel = `Using Anthropic: ${anthropicModel}`;
+  } else if (ollamaModel) {
+    provider = new OllamaProvider({ endpoint: ollamaUrl, model: ollamaModel });
+    providerLabel = `Using Ollama: ${ollamaModel}`;
+  } else {
+    provider = undefined;
+    providerLabel = 'No model configured';
+  }
 
   // Create handler with storage, provider, label, and per-request factory
   const handler = createCoachHandler({

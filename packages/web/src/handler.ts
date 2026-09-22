@@ -6,7 +6,7 @@ import type {
   SessionPlan,
   PlanTopic,
   CoachResult,
-  TopicOutcome,
+  TopicAnswer,
 } from '@ibai/core';
 import {
   renderAssessmentJson,
@@ -14,7 +14,6 @@ import {
   renderDashboardHtml,
   renderHomeHtml,
   renderCoachResult,
-  renderCoachJson,
   renderInterviewStep,
   renderNoTopicsState,
   renderCatalogHtml,
@@ -108,40 +107,6 @@ interface InterviewState {
   readonly step: number;
   readonly transcript: InterviewTranscriptEntry[];
 }
-
-/**
- * Parse JSON outcomes from POST body.
- * Expected shape: { sessionId?: string, outcomes: Array<{ topicId, succeeded, note? }> }
- */
-function parseJsonOutcomes(body: string): {
-  sessionId?: string;
-  outcomes: TopicOutcome[];
-} {
-  const parsed = JSON.parse(body);
-  const outcomes: TopicOutcome[] = [];
-
-  if (Array.isArray(parsed.outcomes)) {
-    for (const o of parsed.outcomes) {
-      if (typeof o.topicId === 'string' && typeof o.succeeded === 'boolean') {
-        outcomes.push({
-          topicId: o.topicId,
-          succeeded: o.succeeded,
-          note:
-            typeof o.note === 'string' && o.note.trim()
-              ? o.note.trim()
-              : undefined,
-        });
-      }
-    }
-  }
-
-  return {
-    sessionId:
-      typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
-    outcomes,
-  };
-}
-
 /**
  * Check if an error looks like a connection refused error (Ollama not running).
  */
@@ -686,73 +651,17 @@ export function createCoachHandler(
         };
       }
 
-      // Handle POST /coach.json (unchanged - receives outcomes, runs coach)
+      // Handle POST /coach.json - GATED: API being reworked for AI-evaluation
       if (isCoachJsonPost) {
-        // Check if provider is configured
-        if (!deps.provider) {
-          return {
-            status: 400,
-            contentType: 'application/json; charset=utf-8',
-            body: JSON.stringify({
-              error:
-                'Coach requires IBAI_OLLAMA_MODEL to be set. Please configure the model environment variable.',
-            }),
-          };
-        }
-
-        // Parse outcomes from body
-        let outcomes: TopicOutcome[];
-        let bodySessionId: string | undefined;
-
-        try {
-          const parsed = parseJsonOutcomes(req.body ?? '');
-          outcomes = parsed.outcomes;
-          bodySessionId = parsed.sessionId;
-        } catch (parseError) {
-          return {
-            status: 400,
-            contentType: 'application/json; charset=utf-8',
-            body: JSON.stringify({
-              error:
-                parseError instanceof Error
-                  ? parseError.message
-                  : 'Invalid request body',
-            }),
-          };
-        }
-
-        const coachSessionId =
-          bodySessionId ?? sessionId ?? generateSessionId();
-
-        const input = {
-          sessionId: coachSessionId,
-          plan: sessionPlan,
-          outcomes,
-          assessment: view,
-          completedAt: new Date().toISOString() as IsoTimestamp,
-        };
-
-        let result: CoachResult;
-        try {
-          result = await coach({ storage, provider: deps.provider }, input);
-        } catch (coachError) {
-          if (isConnectionError(coachError)) {
-            return {
-              status: 502,
-              contentType: 'application/json; charset=utf-8',
-              body: JSON.stringify({
-                error:
-                  "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
-              }),
-            };
-          }
-          throw coachError;
-        }
-
+        // The JSON API is being reworked for AI-evaluation (PR 5b)
+        // Gate this path until the new contract is fully implemented
         return {
-          status: 200,
+          status: 400,
           contentType: 'application/json; charset=utf-8',
-          body: renderCoachJson(result),
+          body: JSON.stringify({
+            error:
+              'The coach JSON API is being reworked for AI-evaluation (PR 5b). Please use the web interface with a configured model (Anthropic or Ollama).',
+          }),
         };
       }
 
@@ -847,17 +756,18 @@ export function createCoachHandler(
 
         // Check if interview is complete
         if (nextStep >= sessionPlan.topics.length) {
-          // Interview complete - convert transcript to outcomes and run coach
-          const outcomes: TopicOutcome[] = updatedTranscript.map((entry) => ({
+          // Interview complete - convert transcript to answers for AI evaluation
+          // Note: succeeded/feedback will come FROM the model, not from user self-assessment
+          const answers: TopicAnswer[] = updatedTranscript.map((entry) => ({
             topicId: entry.topicId,
-            succeeded: entry.succeeded,
-            note: entry.answer, // Store the answer as the note
+            question: entry.question,
+            answer: entry.answer,
           }));
 
           const input = {
             sessionId: interviewState.sessionId,
             plan: sessionPlan,
-            outcomes,
+            answers,
             assessment: view,
             completedAt: new Date().toISOString() as IsoTimestamp,
           };

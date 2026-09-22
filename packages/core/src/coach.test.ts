@@ -3,11 +3,16 @@
  *
  * Tests use in-memory fake implementations of StorageAdapter and LlmProvider
  * via their INTERFACE TYPES. No real filesystem, no network.
+ *
+ * Tests the new AI-evaluation contract (ADR 0005 D6):
+ * - Model evaluates candidate answers and returns structured verdicts
+ * - Parse model output as UNTRUSTED with strict validation
+ * - FAIL CLOSED on malformed output (no storage writes)
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildCoachPrompt, coach } from './coach.js';
-import type { CoachInput } from './coach.js';
+import type { CoachInput, TopicAnswer } from './coach.js';
 import type { SessionPlan, PlanTopic } from './plan.js';
 import type { AssessmentView } from './assess.js';
 import type {
@@ -62,6 +67,12 @@ class FakeStorage implements StorageAdapter {
     this.weaknessRegister = register;
     this.weaknessUpdateCalled = true;
   }
+
+  resetWriteFlags(): void {
+    this.summaryWriteCalled = false;
+    this.competencyUpdateCalled = false;
+    this.weaknessUpdateCalled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -70,8 +81,7 @@ class FakeStorage implements StorageAdapter {
 
 class FakeProvider implements LlmProvider {
   public response: CompletionResponse = {
-    content:
-      'Great session! The candidate demonstrated strong problem-solving skills.',
+    content: '',
   };
   public shouldReject = false;
   public rejectError = new Error('Provider error');
@@ -81,6 +91,21 @@ class FakeProvider implements LlmProvider {
       throw this.rejectError;
     }
     return this.response;
+  }
+
+  /** Helper to set a well-formed JSON response */
+  setWellFormedResponse(
+    narrative: string,
+    evaluations: Array<{
+      topicId: string;
+      succeeded: boolean;
+      feedback: string;
+    }>,
+  ): void {
+    const json = JSON.stringify({ narrative, evaluations });
+    this.response = {
+      content: `Here is my evaluation of the candidate's answers.\n\n\`\`\`json\n${json}\n\`\`\``,
+    };
   }
 }
 
@@ -109,6 +134,13 @@ function createPlanTopic(
 }
 
 function createInput(overrides: Partial<CoachInput> = {}): CoachInput {
+  const defaultAnswers: TopicAnswer[] = [
+    { topicId: 'arrays', answer: 'I would use a hash map for O(1) lookup.' },
+    { topicId: 'graphs', answer: 'I think BFS is the right approach here.' },
+    { topicId: 'dynamic-programming', answer: 'We can use memoization.' },
+    { topicId: 'system-design', answer: 'I would start with a load balancer.' },
+  ];
+
   return {
     sessionId: 'test-session-123',
     plan: createPlan([
@@ -117,12 +149,7 @@ function createInput(overrides: Partial<CoachInput> = {}): CoachInput {
       createPlanTopic('dynamic-programming', 'focus', 0.4),
       createPlanTopic('system-design', 'twist', 0.2),
     ]),
-    outcomes: [
-      { topicId: 'arrays', succeeded: true },
-      { topicId: 'graphs', succeeded: false, note: 'Struggled with BFS' },
-      { topicId: 'dynamic-programming', succeeded: true },
-      { topicId: 'system-design', succeeded: false },
-    ],
+    answers: defaultAnswers,
     completedAt: '2026-09-08T12:00:00.000Z',
     ...overrides,
   };
@@ -139,8 +166,13 @@ describe('buildCoachPrompt', () => {
       createPlanTopic('graphs', 'focus'),
       createPlanTopic('dp', 'twist'),
     ]);
+    const answers: TopicAnswer[] = [
+      { topicId: 'arrays', answer: 'My answer' },
+      { topicId: 'graphs', answer: 'My answer' },
+      { topicId: 'dp', answer: 'My answer' },
+    ];
 
-    const request = buildCoachPrompt(plan);
+    const request = buildCoachPrompt(plan, answers);
 
     expect(request.messages.length).toBeGreaterThanOrEqual(1);
     const systemMsg = request.messages.find((m) => m.role === 'system');
@@ -150,8 +182,9 @@ describe('buildCoachPrompt', () => {
 
   it('system message instructs eliciting user intuition and forbids giving answers', () => {
     const plan = createPlan([createPlanTopic('trees', 'focus')]);
+    const answers: TopicAnswer[] = [{ topicId: 'trees', answer: 'My answer' }];
 
-    const request = buildCoachPrompt(plan);
+    const request = buildCoachPrompt(plan, answers);
 
     const systemMsg = request.messages.find((m) => m.role === 'system');
     expect(systemMsg?.content).toContain('ELICIT');
@@ -159,14 +192,35 @@ describe('buildCoachPrompt', () => {
     expect(systemMsg?.content).toContain('NEVER');
   });
 
-  it('includes focus topicIds and rationales as framing', () => {
+  it('includes candidate answers in the user message', () => {
     const plan = createPlan([createPlanTopic('linked-lists', 'focus', 0.35)]);
+    const answers: TopicAnswer[] = [
+      {
+        topicId: 'linked-lists',
+        question: 'Reverse a linked list',
+        answer: 'Use two pointers',
+      },
+    ];
 
-    const request = buildCoachPrompt(plan);
+    const request = buildCoachPrompt(plan, answers);
 
     const userMsg = request.messages.find((m) => m.role === 'user');
+    expect(userMsg?.content).toContain('CANDIDATE ANSWERS');
     expect(userMsg?.content).toContain('linked-lists');
-    expect(userMsg?.content).toContain('Test rationale for linked-lists');
+    expect(userMsg?.content).toContain('Use two pointers');
+    expect(userMsg?.content).toContain('Reverse a linked list');
+  });
+
+  it('includes JSON output instruction', () => {
+    const plan = createPlan([createPlanTopic('arrays', 'warmup')]);
+    const answers: TopicAnswer[] = [{ topicId: 'arrays', answer: 'My answer' }];
+
+    const request = buildCoachPrompt(plan, answers);
+
+    const userMsg = request.messages.find((m) => m.role === 'user');
+    expect(userMsg?.content).toContain('json');
+    expect(userMsg?.content).toContain('narrative');
+    expect(userMsg?.content).toContain('evaluations');
   });
 
   it('includes plan.summary in the request', () => {
@@ -174,8 +228,11 @@ describe('buildCoachPrompt', () => {
       topics: [createPlanTopic('sorting', 'focus')],
       summary: 'Focus on sorting algorithms today.',
     };
+    const answers: TopicAnswer[] = [
+      { topicId: 'sorting', answer: 'My answer' },
+    ];
 
-    const request = buildCoachPrompt(plan);
+    const request = buildCoachPrompt(plan, answers);
 
     const userMsg = request.messages.find((m) => m.role === 'user');
     expect(userMsg?.content).toContain('Focus on sorting algorithms today.');
@@ -186,12 +243,14 @@ describe('buildCoachPrompt', () => {
       createPlanTopic('binary-search', 'focus'),
       createPlanTopic('heap', 'twist'),
     ]);
+    const answers: TopicAnswer[] = [
+      { topicId: 'binary-search', answer: 'My answer' },
+      { topicId: 'heap', answer: 'My answer' },
+    ];
 
-    const request = buildCoachPrompt(plan);
+    const request = buildCoachPrompt(plan, answers);
 
-    // Check that no message contains engine-authored answer content
     for (const msg of request.messages) {
-      // These patterns would indicate leaked answers
       expect(msg.content.toLowerCase()).not.toContain('the answer is');
       expect(msg.content.toLowerCase()).not.toContain('solution:');
       expect(msg.content.toLowerCase()).not.toContain('here is how to solve');
@@ -200,8 +259,9 @@ describe('buildCoachPrompt', () => {
 
   it('handles empty plan (no topics) gracefully', () => {
     const plan = createPlan([]);
+    const answers: TopicAnswer[] = [];
 
-    const request = buildCoachPrompt(plan);
+    const request = buildCoachPrompt(plan, answers);
 
     expect(request.messages.length).toBeGreaterThanOrEqual(1);
     const systemMsg = request.messages.find((m) => m.role === 'system');
@@ -210,6 +270,9 @@ describe('buildCoachPrompt', () => {
 
   it('includes assessment context when provided', () => {
     const plan = createPlan([createPlanTopic('recursion', 'focus')]);
+    const answers: TopicAnswer[] = [
+      { topicId: 'recursion', answer: 'My answer' },
+    ];
     const assessment: AssessmentView = {
       topicsTracked: 5,
       topStrengths: [{ topicId: 'arrays', proficiency: 0.9 }],
@@ -225,7 +288,7 @@ describe('buildCoachPrompt', () => {
       recentSession: null,
     };
 
-    const request = buildCoachPrompt(plan, { assessment });
+    const request = buildCoachPrompt(plan, answers, { assessment });
 
     const userMsg = request.messages.find((m) => m.role === 'user');
     expect(userMsg?.content).toContain('recursion');
@@ -234,7 +297,7 @@ describe('buildCoachPrompt', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: coach (growth-loop round trip)
+// Tests: coach (AI-evaluation with model verdicts)
 // ---------------------------------------------------------------------------
 
 describe('coach', () => {
@@ -246,273 +309,408 @@ describe('coach', () => {
     fakeProvider = new FakeProvider();
   });
 
-  it('writes SessionSummary with correct fields from outcomes', async () => {
-    const input = createInput();
+  describe('well-formed model output', () => {
+    it('parses fenced JSON and derives summary from model verdicts', async () => {
+      fakeProvider.setWellFormedResponse(
+        'Great session! The candidate showed solid understanding.',
+        [
+          {
+            topicId: 'arrays',
+            succeeded: true,
+            feedback: 'Excellent hash map usage',
+          },
+          {
+            topicId: 'graphs',
+            succeeded: false,
+            feedback: 'Struggled with BFS traversal',
+          },
+          {
+            topicId: 'dynamic-programming',
+            succeeded: true,
+            feedback: 'Good memoization approach',
+          },
+          {
+            topicId: 'system-design',
+            succeeded: false,
+            feedback: 'Needs more practice',
+          },
+        ],
+      );
 
-    await coach({ storage: fakeStorage, provider: fakeProvider }, input);
+      const input = createInput();
+      const result = await coach(
+        { storage: fakeStorage, provider: fakeProvider },
+        input,
+      );
 
-    expect(fakeStorage.summaryWriteCalled).toBe(true);
-    expect(fakeStorage.lastSummary).not.toBeNull();
-    expect(fakeStorage.lastSummary?.sessionId).toBe('test-session-123');
-    expect(fakeStorage.lastSummary?.completedAt).toBe(
-      '2026-09-08T12:00:00.000Z',
-    );
-    expect(fakeStorage.lastSummary?.narrative).toBe(
-      'Great session! The candidate demonstrated strong problem-solving skills.',
-    );
-    // Strengths from succeeded outcomes
-    expect(fakeStorage.lastSummary?.strengths).toContain('arrays');
-    expect(fakeStorage.lastSummary?.strengths).toContain('dynamic-programming');
-    // Weaknesses from failed outcomes
-    expect(fakeStorage.lastSummary?.weaknesses).toContain('graphs');
-    expect(fakeStorage.lastSummary?.weaknesses).toContain('system-design');
-  });
+      expect(fakeStorage.summaryWriteCalled).toBe(true);
+      expect(fakeStorage.lastSummary?.sessionId).toBe('test-session-123');
+      expect(fakeStorage.lastSummary?.narrative).toBe(
+        'Great session! The candidate showed solid understanding.',
+      );
+      expect(fakeStorage.lastSummary?.strengths).toContain('arrays');
+      expect(fakeStorage.lastSummary?.strengths).toContain(
+        'dynamic-programming',
+      );
+      expect(fakeStorage.lastSummary?.weaknesses).toContain('graphs');
+      expect(fakeStorage.lastSummary?.weaknesses).toContain('system-design');
 
-  it('updates competency map with proficiency changes', async () => {
-    // Seed existing competency
-    fakeStorage.competencyMap = {
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.7,
-          lastUpdated: '2026-09-01T00:00:00.000Z',
-        },
-        graphs: {
-          topicId: 'graphs',
-          proficiency: 0.4,
-          lastUpdated: '2026-09-01T00:00:00.000Z',
-        },
-        'other-topic': {
-          topicId: 'other-topic',
-          proficiency: 0.5,
-          lastUpdated: '2026-09-01T00:00:00.000Z',
-        },
-      },
-    };
-
-    const input = createInput({
-      outcomes: [
-        { topicId: 'arrays', succeeded: true },
-        { topicId: 'graphs', succeeded: false },
-      ],
+      expect(result.evaluations).toHaveLength(4);
+      expect(
+        result.evaluations.find((e) => e.topicId === 'arrays')?.succeeded,
+      ).toBe(true);
+      expect(
+        result.evaluations.find((e) => e.topicId === 'graphs')?.succeeded,
+      ).toBe(false);
     });
 
-    await coach({ storage: fakeStorage, provider: fakeProvider }, input);
-
-    expect(fakeStorage.competencyUpdateCalled).toBe(true);
-    // Success: proficiency should increase
-    expect(
-      fakeStorage.competencyMap.entries['arrays']?.proficiency,
-    ).toBeCloseTo(0.8, 5);
-    // Failure: proficiency should decrease
-    expect(
-      fakeStorage.competencyMap.entries['graphs']?.proficiency,
-    ).toBeCloseTo(0.3, 5);
-    // Untouched topic should be preserved
-    expect(
-      fakeStorage.competencyMap.entries['other-topic']?.proficiency,
-    ).toBeCloseTo(0.5, 5);
-  });
-
-  it('clamps proficiency to [0, 1]', async () => {
-    fakeStorage.competencyMap = {
-      entries: {
-        'high-topic': {
-          topicId: 'high-topic',
-          proficiency: 0.95,
-          lastUpdated: '2026-09-01T00:00:00.000Z',
+    it('updates competency map from model verdicts (+/-0.1 clamped)', async () => {
+      fakeStorage.competencyMap = {
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.7,
+            lastUpdated: '2026-09-01T00:00:00.000Z',
+          },
+          graphs: {
+            topicId: 'graphs',
+            proficiency: 0.4,
+            lastUpdated: '2026-09-01T00:00:00.000Z',
+          },
         },
-        'low-topic': {
-          topicId: 'low-topic',
-          proficiency: 0.05,
-          lastUpdated: '2026-09-01T00:00:00.000Z',
-        },
-      },
-    };
+      };
 
-    const input = createInput({
-      plan: createPlan([
-        createPlanTopic('high-topic', 'warmup'),
-        createPlanTopic('low-topic', 'focus'),
-      ]),
-      outcomes: [
-        { topicId: 'high-topic', succeeded: true },
-        { topicId: 'low-topic', succeeded: false },
-      ],
+      fakeProvider.setWellFormedResponse('Good session', [
+        { topicId: 'arrays', succeeded: true, feedback: 'Great' },
+        { topicId: 'graphs', succeeded: false, feedback: 'Needs work' },
+      ]);
+
+      const input = createInput({
+        plan: createPlan([
+          createPlanTopic('arrays', 'warmup', 0.7),
+          createPlanTopic('graphs', 'focus', 0.4),
+        ]),
+        answers: [
+          { topicId: 'arrays', answer: 'My answer' },
+          { topicId: 'graphs', answer: 'My answer' },
+        ],
+      });
+
+      await coach({ storage: fakeStorage, provider: fakeProvider }, input);
+
+      expect(fakeStorage.competencyUpdateCalled).toBe(true);
+      expect(
+        fakeStorage.competencyMap.entries['arrays']?.proficiency,
+      ).toBeCloseTo(0.8, 5);
+      expect(
+        fakeStorage.competencyMap.entries['graphs']?.proficiency,
+      ).toBeCloseTo(0.3, 5);
     });
 
-    await coach({ storage: fakeStorage, provider: fakeProvider }, input);
-
-    // Should be clamped to 1.0
-    expect(fakeStorage.competencyMap.entries['high-topic']?.proficiency).toBe(
-      1.0,
-    );
-    // Should be clamped to 0.0
-    expect(fakeStorage.competencyMap.entries['low-topic']?.proficiency).toBe(
-      0.0,
-    );
-  });
-
-  it('updates weakness register for failed outcomes', async () => {
-    // Seed existing weakness
-    fakeStorage.weaknessRegister = {
-      entries: [
-        {
-          topicId: 'graphs',
-          note: 'Old note',
-          occurrences: 2,
-          lastObserved: '2026-09-01T00:00:00.000Z',
+    it('clamps proficiency to [0, 1]', async () => {
+      fakeStorage.competencyMap = {
+        entries: {
+          'high-topic': {
+            topicId: 'high-topic',
+            proficiency: 0.95,
+            lastUpdated: '2026-09-01T00:00:00.000Z',
+          },
+          'low-topic': {
+            topicId: 'low-topic',
+            proficiency: 0.05,
+            lastUpdated: '2026-09-01T00:00:00.000Z',
+          },
         },
-      ],
-    };
+      };
 
-    const input = createInput({
-      outcomes: [
+      fakeProvider.setWellFormedResponse('Session complete', [
+        { topicId: 'high-topic', succeeded: true, feedback: 'Excellent' },
+        { topicId: 'low-topic', succeeded: false, feedback: 'Struggling' },
+      ]);
+
+      const input = createInput({
+        plan: createPlan([
+          createPlanTopic('high-topic', 'warmup'),
+          createPlanTopic('low-topic', 'focus'),
+        ]),
+        answers: [
+          { topicId: 'high-topic', answer: 'My answer' },
+          { topicId: 'low-topic', answer: 'My answer' },
+        ],
+      });
+
+      await coach({ storage: fakeStorage, provider: fakeProvider }, input);
+
+      expect(fakeStorage.competencyMap.entries['high-topic']?.proficiency).toBe(
+        1.0,
+      );
+      expect(fakeStorage.competencyMap.entries['low-topic']?.proficiency).toBe(
+        0.0,
+      );
+    });
+
+    it('updates weakness register from model feedback', async () => {
+      fakeStorage.weaknessRegister = {
+        entries: [
+          {
+            topicId: 'graphs',
+            note: 'Old note',
+            occurrences: 2,
+            lastObserved: '2026-09-01T00:00:00.000Z',
+          },
+        ],
+      };
+
+      fakeProvider.setWellFormedResponse('Session feedback', [
         {
           topicId: 'graphs',
           succeeded: false,
-          note: 'Still struggling with BFS',
+          feedback: 'Still struggling with BFS',
         },
         {
           topicId: 'new-weakness',
           succeeded: false,
-          note: 'First time failing this',
+          feedback: 'First time failing this',
         },
-        { topicId: 'success-topic', succeeded: true },
-      ],
+        { topicId: 'success-topic', succeeded: true, feedback: 'Great work' },
+      ]);
+
+      const input = createInput({
+        plan: createPlan([
+          createPlanTopic('graphs', 'focus'),
+          createPlanTopic('new-weakness', 'focus'),
+          createPlanTopic('success-topic', 'warmup'),
+        ]),
+        answers: [
+          { topicId: 'graphs', answer: 'My answer' },
+          { topicId: 'new-weakness', answer: 'My answer' },
+          { topicId: 'success-topic', answer: 'My answer' },
+        ],
+      });
+
+      await coach({ storage: fakeStorage, provider: fakeProvider }, input);
+
+      expect(fakeStorage.weaknessUpdateCalled).toBe(true);
+      const entries = fakeStorage.weaknessRegister.entries;
+
+      const graphsEntry = entries.find((e) => e.topicId === 'graphs');
+      expect(graphsEntry?.occurrences).toBe(3);
+      expect(graphsEntry?.note).toBe('Still struggling with BFS');
+
+      const newEntry = entries.find((e) => e.topicId === 'new-weakness');
+      expect(newEntry?.occurrences).toBe(1);
+      expect(newEntry?.note).toBe('First time failing this');
+
+      const successEntry = entries.find((e) => e.topicId === 'success-topic');
+      expect(successEntry).toBeUndefined();
     });
 
-    await coach({ storage: fakeStorage, provider: fakeProvider }, input);
+    it('parses JSON from prose + trailing fenced block', async () => {
+      fakeProvider.response = {
+        content:
+          'Let me evaluate the candidate\'s performance.\n\nThe candidate showed varying levels.\n\n```json\n{"narrative": "Mixed performance overall", "evaluations": [{ "topicId": "arrays", "succeeded": true, "feedback": "Good" }]}\n```',
+      };
 
-    expect(fakeStorage.weaknessUpdateCalled).toBe(true);
-    const entries = fakeStorage.weaknessRegister.entries;
+      const input = createInput({
+        plan: createPlan([createPlanTopic('arrays', 'warmup')]),
+        answers: [{ topicId: 'arrays', answer: 'My answer' }],
+      });
 
-    // Existing weakness should be incremented
-    const graphsEntry = entries.find((e) => e.topicId === 'graphs');
-    expect(graphsEntry?.occurrences).toBe(3);
-    expect(graphsEntry?.note).toBe('Still struggling with BFS');
+      const result = await coach(
+        { storage: fakeStorage, provider: fakeProvider },
+        input,
+      );
 
-    // New weakness should be added
-    const newEntry = entries.find((e) => e.topicId === 'new-weakness');
-    expect(newEntry?.occurrences).toBe(1);
-    expect(newEntry?.note).toBe('First time failing this');
-
-    // Success topic should NOT be in weakness register
-    const successEntry = entries.find((e) => e.topicId === 'success-topic');
-    expect(successEntry).toBeUndefined();
-  });
-
-  it('records ALL writes (summary, competency, weakness)', async () => {
-    const input = createInput();
-
-    await coach({ storage: fakeStorage, provider: fakeProvider }, input);
-
-    expect(fakeStorage.summaryWriteCalled).toBe(true);
-    expect(fakeStorage.competencyUpdateCalled).toBe(true);
-    expect(fakeStorage.weaknessUpdateCalled).toBe(true);
-  });
-
-  it('returns the raw request for observability', async () => {
-    const input = createInput();
-
-    const result = await coach(
-      { storage: fakeStorage, provider: fakeProvider },
-      input,
-    );
-
-    expect(result.request).toBeDefined();
-    expect(result.request.messages.length).toBeGreaterThan(0);
-  });
-
-  it('handles empty plan and outcomes without crashing', async () => {
-    const input = createInput({
-      plan: createPlan([]),
-      outcomes: [],
+      expect(result.summary.narrative).toBe('Mixed performance overall');
+      expect(result.evaluations).toHaveLength(1);
+      expect(result.evaluations[0]?.succeeded).toBe(true);
     });
 
-    const result = await coach(
-      { storage: fakeStorage, provider: fakeProvider },
-      input,
-    );
+    it('falls back to bare JSON object when no fenced block', async () => {
+      fakeProvider.response = {
+        content:
+          'Some prose here {"narrative": "Bare JSON test", "evaluations": [{"topicId": "arrays", "succeeded": true, "feedback": "OK"}]} more prose',
+      };
 
-    expect(result.summary.topics).toEqual([]);
-    expect(result.summary.strengths).toEqual([]);
-    expect(result.summary.weaknesses).toEqual([]);
-    expect(fakeStorage.summaryWriteCalled).toBe(true);
-  });
-});
+      const input = createInput({
+        plan: createPlan([createPlanTopic('arrays', 'warmup')]),
+        answers: [{ topicId: 'arrays', answer: 'My answer' }],
+      });
 
-// ---------------------------------------------------------------------------
-// Tests: provider error path
-// ---------------------------------------------------------------------------
+      const result = await coach(
+        { storage: fakeStorage, provider: fakeProvider },
+        input,
+      );
 
-describe('coach - provider error handling', () => {
-  it('rejects when provider rejects', async () => {
-    const fakeStorage = new FakeStorage();
-    const fakeProvider = new FakeProvider();
-    fakeProvider.shouldReject = true;
-    fakeProvider.rejectError = new Error('Model unavailable');
-
-    const input = createInput();
-
-    await expect(
-      coach({ storage: fakeStorage, provider: fakeProvider }, input),
-    ).rejects.toThrow('Model unavailable');
-
-    // No writes should have happened
-    expect(fakeStorage.summaryWriteCalled).toBe(false);
-    expect(fakeStorage.competencyUpdateCalled).toBe(false);
-    expect(fakeStorage.weaknessUpdateCalled).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Tests: untrusted output guard
-// ---------------------------------------------------------------------------
-
-describe('coach - untrusted output guard', () => {
-  it('handles empty content from provider', async () => {
-    const fakeStorage = new FakeStorage();
-    const fakeProvider = new FakeProvider();
-    fakeProvider.response = { content: '' };
-
-    const input = createInput();
-
-    const result = await coach(
-      { storage: fakeStorage, provider: fakeProvider },
-      input,
-    );
-
-    expect(result.summary.narrative).toBe('');
+      expect(result.summary.narrative).toBe('Bare JSON test');
+    });
   });
 
-  it('handles whitespace-only content from provider', async () => {
-    const fakeStorage = new FakeStorage();
-    const fakeProvider = new FakeProvider();
-    fakeProvider.response = { content: '   \n\t  ' };
+  describe('malformed model output - FAIL CLOSED', () => {
+    it('rejects when no JSON found in response', async () => {
+      fakeProvider.response = {
+        content: 'This response has no JSON at all, just plain text.',
+      };
 
-    const input = createInput();
+      const input = createInput();
 
-    const result = await coach(
-      { storage: fakeStorage, provider: fakeProvider },
-      input,
-    );
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('no JSON found');
 
-    expect(result.summary.narrative).toBe('');
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+      expect(fakeStorage.competencyUpdateCalled).toBe(false);
+      expect(fakeStorage.weaknessUpdateCalled).toBe(false);
+    });
+
+    it('rejects when JSON is invalid', async () => {
+      fakeProvider.response = {
+        content: '```json\n{ invalid json here }\n```',
+      };
+
+      const input = createInput();
+
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('invalid JSON');
+
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+    });
+
+    it('rejects when narrative field is missing', async () => {
+      fakeProvider.response = {
+        content: '```json\n{"evaluations": []}\n```',
+      };
+
+      const input = createInput({
+        plan: createPlan([]),
+        answers: [],
+      });
+
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('narrative');
+
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+    });
+
+    it('rejects when evaluations array is missing', async () => {
+      fakeProvider.response = {
+        content: '```json\n{"narrative": "test"}\n```',
+      };
+
+      const input = createInput({
+        plan: createPlan([]),
+        answers: [],
+      });
+
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('evaluations');
+
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+    });
+
+    it('rejects when succeeded is not a boolean', async () => {
+      fakeProvider.response = {
+        content:
+          '```json\n{"narrative": "test", "evaluations": [{"topicId": "arrays", "succeeded": "yes", "feedback": "ok"}]}\n```',
+      };
+
+      const input = createInput({
+        plan: createPlan([createPlanTopic('arrays', 'warmup')]),
+        answers: [{ topicId: 'arrays', answer: 'My answer' }],
+      });
+
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('boolean');
+
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+    });
+
+    it('rejects when a plan topic is missing from evaluations', async () => {
+      fakeProvider.response = {
+        content:
+          '```json\n{"narrative": "test", "evaluations": [{"topicId": "arrays", "succeeded": true, "feedback": "ok"}]}\n```',
+      };
+
+      const input = createInput({
+        plan: createPlan([
+          createPlanTopic('arrays', 'warmup'),
+          createPlanTopic('graphs', 'focus'),
+        ]),
+        answers: [
+          { topicId: 'arrays', answer: 'My answer' },
+          { topicId: 'graphs', answer: 'My answer' },
+        ],
+      });
+
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('missing required topicId');
+
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+    });
+
+    it('rejects when evaluation references unknown topic', async () => {
+      fakeProvider.response = {
+        content:
+          '```json\n{"narrative": "test", "evaluations": [{"topicId": "arrays", "succeeded": true, "feedback": "ok"}, {"topicId": "unknown-topic", "succeeded": true, "feedback": "ok"}]}\n```',
+      };
+
+      const input = createInput({
+        plan: createPlan([createPlanTopic('arrays', 'warmup')]),
+        answers: [{ topicId: 'arrays', answer: 'My answer' }],
+      });
+
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('unknown topicId');
+
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+    });
   });
 
-  it('trims valid content from provider', async () => {
-    const fakeStorage = new FakeStorage();
-    const fakeProvider = new FakeProvider();
-    fakeProvider.response = { content: '  Good session!  \n' };
+  describe('provider error handling', () => {
+    it('propagates provider error without storage writes', async () => {
+      fakeProvider.shouldReject = true;
+      fakeProvider.rejectError = new Error('Connection refused');
 
-    const input = createInput();
+      const input = createInput();
 
-    const result = await coach(
-      { storage: fakeStorage, provider: fakeProvider },
-      input,
-    );
+      await expect(
+        coach({ storage: fakeStorage, provider: fakeProvider }, input),
+      ).rejects.toThrow('Connection refused');
 
-    expect(result.summary.narrative).toBe('Good session!');
+      expect(fakeStorage.summaryWriteCalled).toBe(false);
+      expect(fakeStorage.competencyUpdateCalled).toBe(false);
+      expect(fakeStorage.weaknessUpdateCalled).toBe(false);
+    });
+  });
+
+  describe('result structure', () => {
+    it('returns request, evaluations, and all derived data', async () => {
+      fakeProvider.setWellFormedResponse('Test narrative', [
+        { topicId: 'arrays', succeeded: true, feedback: 'Good' },
+      ]);
+
+      const input = createInput({
+        plan: createPlan([createPlanTopic('arrays', 'warmup')]),
+        answers: [{ topicId: 'arrays', answer: 'My answer' }],
+      });
+
+      const result = await coach(
+        { storage: fakeStorage, provider: fakeProvider },
+        input,
+      );
+
+      expect(result.request).toBeDefined();
+      expect(result.request.messages.length).toBeGreaterThan(0);
+      expect(result.evaluations).toHaveLength(1);
+      expect(result.summary).toBeDefined();
+      expect(result.competencyMap).toBeDefined();
+      expect(result.weaknessRegister).toBeDefined();
+    });
   });
 });

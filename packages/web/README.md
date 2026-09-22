@@ -21,7 +21,9 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 - **Coaching Sessions** — Run full coaching sessions from the browser with outcome tracking and AI-generated feedback
 - **JSON APIs** — Machine-readable endpoints for integration with other tools
 - **Dark theme** — Modern, accessible UI with dark color scheme
-- **Local-first** — All data stays on your machine; the only outbound call is to your configured Ollama endpoint
+- **Local-first** — All data stays on your machine; the only outbound call is to your configured LLM provider
+- **Provider REQUIRED** — Configure either Anthropic (ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL) or Ollama (IBAI_OLLAMA_MODEL) to use coach functionality
+- **AI-Evaluation** — The coach engine now uses AI-evaluation: the model evaluates your answers and provides structured verdicts (fail-closed on malformed output)
 - **Cookie-based directory persistence** — Browser remembers your data directory across visits (no login required)
 - **Zero-config demo** — Try the interactive interview with no LLM install required
 - **Notes editor** — Capture your intuition, solution approach, time/space complexity, and mark problems as complete
