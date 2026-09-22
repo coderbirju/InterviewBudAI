@@ -16,6 +16,7 @@ import {
   renderCoachResult,
   renderInterviewStep,
   renderNoTopicsState,
+  renderProviderRequired,
   renderCatalogHtml,
   renderNotesEditorHtml,
   renderNotesNoDatabaseHtml,
@@ -89,13 +90,13 @@ export interface HandlerRequest {
 
 /**
  * A single entry in the interview transcript.
- * Tracks the interviewer question, user answer, and outcome for each topic.
+ * Tracks the interviewer question and user answer for each topic.
+ * The model evaluates performance - no self-assessment.
  */
 export interface InterviewTranscriptEntry {
   readonly topicId: string;
   readonly question: string;
   readonly answer: string;
-  readonly succeeded: boolean;
 }
 
 /**
@@ -124,8 +125,28 @@ function isConnectionError(error: unknown): boolean {
 }
 
 /**
+ * Check if an error looks like an authentication/authorization error.
+ */
+function isAuthError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes('401') ||
+      msg.includes('unauthorized') ||
+      msg.includes('api key') ||
+      msg.includes('apikey') ||
+      msg.includes('authentication') ||
+      msg.includes('forbidden') ||
+      msg.includes('x-api-key')
+    );
+  }
+  return false;
+}
+
+/**
  * Parse interview state from POST form body.
- * Hidden fields carry: sessionId, step, question_<topicId>, answer_<topicId>, outcome_<topicId>
+ * Hidden fields carry: sessionId, step, question_<topicId>, answer_<topicId>
+ * No outcome fields - the model evaluates performance.
  */
 function parseInterviewState(body: string): InterviewState {
   const params = new URLSearchParams(body);
@@ -134,20 +155,18 @@ function parseInterviewState(body: string): InterviewState {
 
   const transcript: InterviewTranscriptEntry[] = [];
 
-  // Collect all completed topic entries (have question, answer, and outcome)
+  // Collect all completed topic entries (have question and answer)
   for (const [key, value] of params.entries()) {
     if (key.startsWith('question_')) {
       const topicId = key.slice('question_'.length);
       const answer = params.get(`answer_${topicId}`);
-      const outcomeVal = params.get(`outcome_${topicId}`);
 
-      // Only include if we have all required fields
-      if (answer !== null && (outcomeVal === 'pass' || outcomeVal === 'fail')) {
+      // Include if we have question and answer
+      if (answer !== null) {
         transcript.push({
           topicId,
           question: value,
           answer,
-          succeeded: outcomeVal === 'pass',
         });
       }
     }
@@ -591,12 +610,9 @@ export function createCoachHandler(
         // Check if provider is configured
         if (!deps.provider) {
           return {
-            status: 400,
+            status: 200,
             contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Configuration Error',
-              'Interview requires a provider. Please configure IBAI_OLLAMA_MODEL.',
-            ),
+            body: renderProviderRequired(deps.providerLabel),
           };
         }
 
@@ -629,11 +645,29 @@ export function createCoachHandler(
               contentType: 'text/html; charset=utf-8',
               body: renderErrorHtml(
                 'Connection Error',
-                "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+                'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
               ),
             };
           }
-          throw providerError;
+          if (isAuthError(providerError)) {
+            return {
+              status: 502,
+              contentType: 'text/html; charset=utf-8',
+              body: renderErrorHtml(
+                'Authentication Error',
+                'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+              ),
+            };
+          }
+          // Malformed output or other error
+          return {
+            status: 502,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Model Error',
+              'The model returned an unusable response. Please try again.',
+            ),
+          };
         }
 
         return {
@@ -651,17 +685,126 @@ export function createCoachHandler(
         };
       }
 
-      // Handle POST /coach.json - GATED: API being reworked for AI-evaluation
+      // Handle POST /coach.json - JSON API for AI-evaluation
       if (isCoachJsonPost) {
-        // The JSON API is being reworked for AI-evaluation (PR 5b)
-        // Gate this path until the new contract is fully implemented
+        // Check if provider is configured
+        if (!deps.provider) {
+          return {
+            status: 400,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              error:
+                'No model configured. Set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL, or IBAI_OLLAMA_MODEL, to run the AI interview.',
+            }),
+          };
+        }
+
+        // Parse JSON body
+        let jsonBody: {
+          sessionId?: string;
+          answers: Array<{
+            topicId: string;
+            question?: string;
+            answer: string;
+          }>;
+        };
+        try {
+          jsonBody = JSON.parse(req.body ?? '{}');
+        } catch {
+          return {
+            status: 400,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({ error: 'Invalid JSON body' }),
+          };
+        }
+
+        // Validate answers array
+        if (!Array.isArray(jsonBody.answers)) {
+          return {
+            status: 400,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              error: 'Missing or invalid answers array',
+            }),
+          };
+        }
+
+        // Validate each answer has non-empty answer and valid topicId
+        const validTopicIds = new Set(sessionPlan.topics.map((t) => t.topicId));
+        const answers: TopicAnswer[] = [];
+        for (const item of jsonBody.answers) {
+          if (!item.topicId || !item.answer?.trim()) {
+            return {
+              status: 400,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                error: `Invalid answer entry: each must have topicId and non-empty answer`,
+              }),
+            };
+          }
+          if (!validTopicIds.has(item.topicId)) {
+            return {
+              status: 400,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                error: `Invalid topicId: ${item.topicId} not in session plan`,
+              }),
+            };
+          }
+          answers.push({
+            topicId: item.topicId,
+            question: item.question,
+            answer: item.answer.trim(),
+          });
+        }
+
+        const input = {
+          sessionId: jsonBody.sessionId ?? generateSessionId(),
+          plan: sessionPlan,
+          answers,
+          assessment: view,
+          completedAt: new Date().toISOString() as IsoTimestamp,
+        };
+
+        let result: CoachResult;
+        try {
+          result = await coach({ storage, provider: deps.provider }, input);
+        } catch (coachError) {
+          if (isConnectionError(coachError)) {
+            return {
+              status: 502,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                error:
+                  'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
+              }),
+            };
+          }
+          if (isAuthError(coachError)) {
+            return {
+              status: 502,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                error:
+                  'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+              }),
+            };
+          }
+          // Malformed output or other error
+          return {
+            status: 502,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              error:
+                'The model returned an unusable response. Please try again.',
+            }),
+          };
+        }
+
         return {
-          status: 400,
+          status: 200,
           contentType: 'application/json; charset=utf-8',
-          body: JSON.stringify({
-            error:
-              'The coach JSON API is being reworked for AI-evaluation (PR 5b). Please use the web interface with a configured model (Anthropic or Ollama).',
-          }),
+          body: JSON.stringify(result),
         };
       }
 
@@ -670,12 +813,9 @@ export function createCoachHandler(
         // Check if provider is configured
         if (!deps.provider) {
           return {
-            status: 400,
+            status: 200,
             contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Configuration Error',
-              'Interview requires a provider. Please configure IBAI_OLLAMA_MODEL.',
-            ),
+            body: renderProviderRequired(deps.providerLabel),
           };
         }
 
@@ -699,20 +839,16 @@ export function createCoachHandler(
         // Get current answer from form (for the topic that was just answered)
         const formParams = new URLSearchParams(req.body ?? '');
         const currentAnswer = formParams.get('current_answer') ?? '';
-        const currentOutcome = formParams.get('current_outcome');
         const currentQuestion = formParams.get('current_question') ?? '';
 
-        // Validate current answer (must have answer and outcome)
-        if (
-          !currentAnswer.trim() ||
-          (currentOutcome !== 'pass' && currentOutcome !== 'fail')
-        ) {
+        // Validate current answer (must have non-empty answer)
+        if (!currentAnswer.trim()) {
           return {
             status: 400,
             contentType: 'text/html; charset=utf-8',
             body: renderErrorHtml(
               'Incomplete Response',
-              'Please provide an answer and select Pass or Fail before continuing.',
+              'Please provide an answer before continuing.',
             ),
           };
         }
@@ -748,7 +884,6 @@ export function createCoachHandler(
             topicId: currentTopic.topicId,
             question: currentQuestion,
             answer: currentAnswer.trim(),
-            succeeded: currentOutcome === 'pass',
           },
         ];
 
@@ -782,11 +917,29 @@ export function createCoachHandler(
                 contentType: 'text/html; charset=utf-8',
                 body: renderErrorHtml(
                   'Connection Error',
-                  "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+                  'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
                 ),
               };
             }
-            throw coachError;
+            if (isAuthError(coachError)) {
+              return {
+                status: 502,
+                contentType: 'text/html; charset=utf-8',
+                body: renderErrorHtml(
+                  'Authentication Error',
+                  'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+                ),
+              };
+            }
+            // Malformed output or other error
+            return {
+              status: 502,
+              contentType: 'text/html; charset=utf-8',
+              body: renderErrorHtml(
+                'Model Error',
+                'The model returned an unusable response. Please try again.',
+              ),
+            };
           }
 
           return {
@@ -824,11 +977,29 @@ export function createCoachHandler(
               contentType: 'text/html; charset=utf-8',
               body: renderErrorHtml(
                 'Connection Error',
-                "Could not connect to Ollama. Is Ollama running? Start it with 'ollama serve'.",
+                'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
               ),
             };
           }
-          throw providerError;
+          if (isAuthError(providerError)) {
+            return {
+              status: 502,
+              contentType: 'text/html; charset=utf-8',
+              body: renderErrorHtml(
+                'Authentication Error',
+                'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+              ),
+            };
+          }
+          // Malformed output or other error
+          return {
+            status: 502,
+            contentType: 'text/html; charset=utf-8',
+            body: renderErrorHtml(
+              'Model Error',
+              'The model returned an unusable response. Please try again.',
+            ),
+          };
         }
 
         return {
