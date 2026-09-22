@@ -1535,7 +1535,6 @@ export interface TranscriptEntry {
   topicId: string;
   question: string;
   answer: string;
-  succeeded: boolean;
 }
 
 /**
@@ -1598,10 +1597,7 @@ function renderTranscript(transcript: TranscriptEntry[]): string {
             ${escapeHtml(entry.question)}
           </div>
           <div class="transcript-answer">
-            <div class="transcript-answer-label">
-              Your Answer
-              <span class="transcript-outcome ${entry.succeeded ? 'pass' : 'fail'}">${entry.succeeded ? 'Pass' : 'Fail'}</span>
-            </div>
+            <div class="transcript-answer-label">Your Answer</div>
             ${escapeHtml(entry.answer)}
           </div>
         </div>`,
@@ -1625,13 +1621,10 @@ function renderHiddenStateFields(
     `<input type="hidden" name="current_question" value="${escapeHtml(currentQuestion)}">`,
   ];
 
-  // Carry forward all prior answers and outcomes
+  // Carry forward all prior answers and questions (no outcomes - AI evaluates)
   for (const entry of transcript) {
     fields.push(
       `<input type="hidden" name="answer_${escapeHtml(entry.topicId)}" value="${escapeHtml(entry.answer)}">`,
-    );
-    fields.push(
-      `<input type="hidden" name="outcome_${escapeHtml(entry.topicId)}" value="${entry.succeeded ? 'pass' : 'fail'}">`,
     );
     fields.push(
       `<input type="hidden" name="question_${escapeHtml(entry.topicId)}" value="${escapeHtml(entry.question)}">`,
@@ -1701,15 +1694,6 @@ export function renderInterviewStep(
           ></textarea>
         </div>
         
-        <div class="outcome-section">
-          <span class="outcome-label">How did you do?</span>
-          <div class="outcome-buttons">
-            <button type="button" class="outcome-btn-interview pass-btn" onclick="selectOutcomeInterview(this, 'pass')">Pass</button>
-            <button type="button" class="outcome-btn-interview fail-btn" onclick="selectOutcomeInterview(this, 'fail')">Fail</button>
-          </div>
-          <input type="hidden" name="current_outcome" id="currentOutcome" value="">
-        </div>
-        
         <div class="interview-nav">
           <a href="/" class="back-link">← Exit Interview</a>
           <button type="submit" class="next-btn">${buttonText}</button>
@@ -1721,19 +1705,6 @@ export function renderInterviewStep(
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
     </footer>
   </div>
-  
-  <script>
-    function selectOutcomeInterview(btn, outcome) {
-      const hiddenInput = document.getElementById('currentOutcome');
-      const passBtn = document.querySelector('.pass-btn');
-      const failBtn = document.querySelector('.fail-btn');
-      
-      passBtn.classList.remove('selected');
-      failBtn.classList.remove('selected');
-      btn.classList.add('selected');
-      hiddenInput.value = outcome;
-    }
-  </script>
 </body>
 </html>`;
 }
@@ -1765,6 +1736,64 @@ export function renderNoTopicsState(providerLabel?: string): string {
       <h2>No Topics Yet</h2>
       <p>Build up your practice history first to get personalized interview questions. Start by using the dashboard to track your progress.</p>
       <a href="/dashboard" class="dashboard-link">Go to Dashboard</a>
+    </section>
+    
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render a friendly provider-required configuration page.
+ * Shown when no provider is configured (not an error, just a configuration state).
+ */
+export function renderProviderRequired(_providerLabel?: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Configure Model</title>
+  <style>${getCommonStyles()}</style>
+</head>
+<body>
+  <div class="container">
+    ${renderNav('/coach')}
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">AI Interview Prep</p>
+    </header>
+    
+    <section class="dashboard-section provider-required-state">
+      <div class="icon">🤖</div>
+      <h2>Configure a model to start your AI interview</h2>
+      <p>This is not a demo &mdash; a real language model is required. All processing is local-first; your data never leaves your machine.</p>
+      
+      <div class="config-options">
+        <div class="config-option">
+          <h3>Option 1: Anthropic (Claude)</h3>
+          <p>Set your API key and model:</p>
+          <pre>export ANTHROPIC_API_KEY=sk-ant-...
+export IBAI_ANTHROPIC_MODEL=claude-sonnet-4-20250514</pre>
+        </div>
+        
+        <div class="config-option">
+          <h3>Option 2: Ollama (Local)</h3>
+          <p>Run Ollama locally and set the model:</p>
+          <pre>ollama serve
+export IBAI_OLLAMA_MODEL=llama2</pre>
+          <p>Optionally set a custom URL:</p>
+          <pre>export IBAI_OLLAMA_URL=http://127.0.0.1:11434</pre>
+        </div>
+      </div>
+      
+      <div class="nav-links">
+        <a href="/" class="dashboard-link">← Home</a>
+        <a href="/dashboard" class="dashboard-link">Dashboard</a>
+      </div>
     </section>
     
     <footer>

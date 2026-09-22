@@ -68,7 +68,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | CLI plan command | ✅ merged | `frontend/cli-plan` → PR merged. |
 | CLI coach command | 🟡 PR open | `frontend/cli-coach` — wires coach into CLI as thin composition root; OllamaProvider config; --outcome flag. |
 | Web assess slice | 🟡 PR open | `frontend/web-assess` → PR #10 open. localhost HTTP server, HTML/JSON render. |
-| Interactive interview UI | 🟡 in progress | `feature/interview-ui` — zero-config turn-by-turn interview; EchoDemoProvider default; stateless carry-forward; chat transcript UI. |
+| Interactive interview UI (Step 5b) | ✅ complete | `feature/ai-interview-ui` — turn-by-turn AI interview; self-assess Pass/Fail removed (model evaluates); POST /coach + /coach.json ungated; provider-required friendly state; fail-closed error handling. Last deferred: bulk-import of founder's Notion intuitions. |
 
 ## Milestone: Curriculum
 
