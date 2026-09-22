@@ -58,7 +58,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | LocalFileStorageAdapter | ✅ merged | `integrate/storage-git` → PR merged. Git/local file storage adapter. |
 | OllamaProvider | ✅ merged | `integrate/provider-ollama` → PR #13 merged. First concrete LLM provider. |
 | AnthropicProvider | 🟡 PR open | `integrate/provider-anthropic` — Reusable HTTP core + Claude adapter; ADR 0005 step 5. |
-| Demo provider (zero-config) | 🟡 | `feature/demo-provider` → PR open. EchoDemoProvider + ADR 0004; unblocks zero-config interview demo. |
+| Demo provider (zero-config) | ✅ REMOVED | EchoDemoProvider removed per ADR 0005 D6; provider now REQUIRED. |
 
 ## Milestone: Front-ends (current)
 
@@ -97,6 +97,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 | anthropic-provider | 2026-09-20 | Reusable HTTP provider core (http-provider.ts) + AnthropicProvider adapter. System messages → top-level field, max_tokens required (default 1024), content blocks mapping. Bring-your-own-key, no hardcoded model. |
 | ui-hardening | 2026-09-15 | IntuitionNote extended with completed/timeComplexity/spaceComplexity (additive, ADR 0005 amendment). Notes editor UI with checkbox + complexity inputs. Dashboard shows completed list. Catalog shows ✓ done marker. Home bug fixed: boot now injects createStorage factory + defaultDataDir so per-request cookie>env>default resolution works. |
 | home-three-state | 2026-09-20 | Root cause: empty AssessmentView (topicsTracked=0) conflated with no-db state. Fix: renderHomeHtml now takes dbExists boolean to distinguish three states: (1) no-db → create prompt, (2) empty-db → ready message, (3) has-data → progress summary. |
+| ai-eval-engine | 2026-09-20 | ADR 0005 D6 impl (Step 5a): AI-evaluation coach() contract (model evaluates candidate answers, structured verdicts, fail-closed); EchoDemoProvider removed (supersedes ADR 0004); provider REQUIRED (Anthropic/Ollama). Web/CLI wiring minimal; conversational interview UI is PR 5b. |
 
 ## Backlog / future
 

@@ -14,7 +14,8 @@ and ships concrete adapters. It is a **leaf package**: it NEVER depends on
 | --- | --- |
 | `OllamaProvider` | Real LLM provider for Ollama (recommended for local-first use) |
 | `AnthropicProvider` | Claude adapter for Anthropic API (bring-your-own-key) |
-| `EchoDemoProvider` | Built-in deterministic demo provider (zero-config trial) |
+
+**Note:** A provider is now REQUIRED. Configure either Anthropic or Ollama to use InterviewBudAI.
 
 ### OllamaProvider (Recommended for local-first)
 
@@ -71,18 +72,6 @@ IBAI_ANTHROPIC_MODEL=    # Model name
 - `max_tokens` is **required** by Anthropic — defaults to 1024 if not provided
 - Response text is extracted from `content` blocks with `type: 'text'`
 - Usage maps: `input_tokens` → `promptTokens`, `output_tokens` → `completionTokens`
-
-### EchoDemoProvider
-
-A **zero-config** deterministic demo adapter for trying the app with **no LLM
-installed**. Ships built-in so a fresh clone can run the interview flow
-immediately.
-
-```typescript
-import { EchoDemoProvider } from '@ibai/providers';
-
-const provider = new EchoDemoProvider(); // zero config required
-```
 
 ## Reusable HTTP Core
 

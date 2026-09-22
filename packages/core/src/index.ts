@@ -33,8 +33,13 @@ export { plan } from './plan.js';
 export type { SessionPlan, PlanTopic, PlanRole } from './plan.js';
 
 // ---------------------------------------------------------------------------
-// Coach engine job
+// Coach engine job (AI-evaluation contract - ADR 0005 D6)
 // ---------------------------------------------------------------------------
 
 export { coach, buildCoachPrompt } from './coach.js';
-export type { CoachInput, CoachResult, TopicOutcome } from './coach.js';
+export type {
+  CoachInput,
+  CoachResult,
+  TopicAnswer,
+  TopicEvaluation,
+} from './coach.js';

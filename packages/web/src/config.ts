@@ -190,3 +190,34 @@ export function resolveDataDirWithCookie(
 
   return resolveDataDir(env, argv);
 }
+
+/**
+ * Resolve the Anthropic API key.
+ * Precedence: IBAI_ANTHROPIC_API_KEY env > ANTHROPIC_API_KEY env
+ * Returns undefined if not configured (caller must handle this).
+ */
+export function resolveAnthropicApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env.IBAI_ANTHROPIC_API_KEY) {
+    return env.IBAI_ANTHROPIC_API_KEY;
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    return env.ANTHROPIC_API_KEY;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the Anthropic model name.
+ * Precedence: IBAI_ANTHROPIC_MODEL env
+ * Returns undefined if not configured (caller must handle this).
+ */
+export function resolveAnthropicModel(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env.IBAI_ANTHROPIC_MODEL) {
+    return env.IBAI_ANTHROPIC_MODEL;
+  }
+  return undefined;
+}

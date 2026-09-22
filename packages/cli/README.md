@@ -45,34 +45,29 @@ The plan command uses your assessment data to generate a personalized session pl
 Run a coaching session with AI-powered feedback:
 
 ```bash
+# Using Ollama (local-first)
 ibai coach --model llama3
+
+# Using Anthropic
+ANTHROPIC_API_KEY=your-key ibai coach --provider anthropic --model claude-3-5-sonnet-20241022
 ```
 
-The coach command:
-1. Runs `assess` to get your current standing
-2. Runs `plan` to determine session focus
-3. Calls the LLM to generate a coaching narrative
-4. Persists the session summary, updated competency map, and weakness register
+The coach command uses **AI-evaluation**: the model evaluates your typed answers and returns structured per-topic verdicts (succeeded/failed with feedback). The engine fails closed on malformed model output — no storage writes occur if the model response cannot be validated.
 
-**Note:** The coach command requires a running Ollama instance. Start it with:
+**Provider REQUIRED:** Configure either Ollama (--model) or Anthropic (--provider anthropic with ANTHROPIC_API_KEY/IBAI_ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL).
+
+#### Recording Answers
+
+Use `--answer` to provide your answer for evaluation:
 
 ```bash
-ollama serve
+ibai coach --model llama3 --answer "topicId:Your typed answer here"
 ```
 
-#### Recording Outcomes
+Format: `topicId:answer-text`
 
-Use `--outcome` to record topic results (repeatable):
-
-```bash
-ibai coach --model llama3 --outcome graphs:fail:BFS-confusion --outcome sorting:pass
-```
-
-Format: `topicId:pass|fail[:note]`
-
-- `topicId`: The topic identifier
-- `pass` or `fail`: Whether you succeeded
-- `note` (optional): Additional context for failures
+- `topicId`: The topic identifier from your session plan
+- `answer-text`: Your typed reasoning/solution for the model to evaluate
 
 ### Options
 

@@ -5,13 +5,14 @@
  * InterviewBudAI. It is TYPES/CONTRACTS ONLY: no concrete adapter, no vendor
  * SDK, no network I/O, and NO hardcoded model or endpoint.
  *
- * Design rules (ADR 0001, ADR 0002):
+ * Design rules (ADR 0001, ADR 0002, ADR 0005):
  *  - The engine (`@ibai/core`) BUILDS prompts; a provider only TRANSPORTS them
  *    to whatever model the user configured and returns the completion.
  *  - Model names, endpoints, and credentials are user-supplied configuration
  *    handed to a concrete adapter — never baked into this contract, never
  *    committed.
  *  - This package NEVER depends on `@ibai/core` (no dependency cycles).
+ *  - EchoDemoProvider REMOVED (supersedes ADR 0004) — provider now REQUIRED.
  */
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,5 @@ export interface LlmProvider {
 export { OllamaProvider } from './ollama.js';
 export type { OllamaProviderConfig } from './ollama.js';
 
-export { EchoDemoProvider } from './demo-provider.js';
-export type { EchoDemoProviderConfig } from './demo-provider.js';
 export { AnthropicProvider } from './anthropic.js';
 export type { AnthropicProviderConfig } from './anthropic.js';
