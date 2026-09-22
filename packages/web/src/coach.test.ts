@@ -19,7 +19,6 @@ import { createCoachHandler } from './handler.js';
 import type { HandlerRequest } from './handler.js';
 import { resolveOllamaUrl, resolveOllamaModel } from './config.js';
 import {
-  renderCoachForm,
   renderCoachResult,
   renderCoachJson,
   escapeHtml,
@@ -684,12 +683,6 @@ describe('render functions', () => {
     weaknessRegister: { entries: [] },
     request: { messages: [] },
   };
-
-  it('renderCoachForm produces valid HTML', () => {
-    const html = renderCoachForm(emptyPlan, emptyView);
-    expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('Coaching Session');
-  });
 
   it('renderCoachResult shows narrative and confirmation', () => {
     const html = renderCoachResult('test-123', emptyPlan, mockResult);
