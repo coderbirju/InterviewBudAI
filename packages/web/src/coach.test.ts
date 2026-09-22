@@ -328,7 +328,7 @@ describe('createCoachHandler - POST /coach (interactive interview)', () => {
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=Arrays%20are%20contiguous%20memory&current_outcome=pass&current_question=What%20is%20an%20array?',
+      body: 'sessionId=test-session&step=0&current_answer=Arrays%20are%20contiguous%20memory&current_question=What%20is%20an%20array?',
     });
 
     expect(res.status).toBe(200);
@@ -366,7 +366,7 @@ describe('createCoachHandler - POST /coach (interactive interview)', () => {
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=Arrays%20are%20ordered%20collections&current_outcome=pass&current_question=What%20is%20an%20array?',
+      body: 'sessionId=test-session&step=0&current_answer=Arrays%20are%20ordered%20collections&current_question=What%20is%20an%20array?',
     });
 
     expect(res.status).toBe(200);
