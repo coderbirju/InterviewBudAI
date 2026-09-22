@@ -11,15 +11,19 @@
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { assess, plan, coach } from '@ibai/core';
-import type { CoachInput } from '@ibai/core';
+import type { CoachInput, TopicAnswer } from '@ibai/core';
 import {
   LocalFileStorageAdapter,
   type StorageAdapter,
   type SessionId,
   type IsoTimestamp,
 } from '@ibai/storage';
-import { OllamaProvider, type LlmProvider } from '@ibai/providers';
-import { resolveDataDir, parseOutcomes } from './config.js';
+import {
+  AnthropicProvider,
+  OllamaProvider,
+  type LlmProvider,
+} from '@ibai/providers';
+import { resolveDataDir } from './config.js';
 import { formatAssessment, formatPlan, formatCoach } from './format.js';
 
 /** Result of running the CLI. */
@@ -50,16 +54,23 @@ Options:
   --data-dir <path>   Data directory (default: ~/.ibai/data, or IBAI_DATA_DIR env)
   --session <id>      Session ID for recent session context
   --ollama-url <url>  Ollama endpoint (default: http://127.0.0.1:11434, or IBAI_OLLAMA_URL env)
-  --model <name>      Ollama model name (required for coach, or IBAI_OLLAMA_MODEL env)
-  --outcome <spec>    Topic outcome (repeatable): topicId:pass|fail[:note]
+  --model <name>      Ollama model name (or IBAI_OLLAMA_MODEL env)
+  --provider <name>   Provider: 'anthropic' or 'ollama' (default: auto-detect from env)
+  --answer <text>     Answer text for single-topic quick coach (repeatable for multi-topic)
   --help              Show this help message
+
+Environment variables:
+  IBAI_ANTHROPIC_API_KEY  Anthropic API key (or ANTHROPIC_API_KEY)
+  IBAI_ANTHROPIC_MODEL    Anthropic model name (e.g., claude-sonnet-4-20250514)
+  IBAI_OLLAMA_MODEL       Ollama model name (e.g., llama3)
+  IBAI_OLLAMA_URL         Ollama endpoint URL
 
 Examples:
   ibai assess
   ibai assess --data-dir /path/to/data
   ibai assess --session my-session-123
   ibai plan
-  ibai coach --model llama3 --outcome graphs:fail:BFS-confusion --outcome sorting:pass
+  ibai coach --model llama3 --answer "I would use a hash map"
 `.trim();
 
 const ARGS_CONFIG = {
@@ -70,7 +81,8 @@ const ARGS_CONFIG = {
     session: { type: 'string' as const },
     'ollama-url': { type: 'string' as const },
     model: { type: 'string' as const },
-    outcome: { type: 'string' as const, multiple: true },
+    provider: { type: 'string' as const },
+    answer: { type: 'string' as const, multiple: true },
     help: { type: 'boolean' as const, default: false },
   },
 };
@@ -147,25 +159,91 @@ export async function run(
     // Build provider (real) unless injected
     let provider = deps.provider;
     if (!provider) {
-      const endpoint =
+      const providerChoice = values.provider as string | undefined;
+      const anthropicKey = env.IBAI_ANTHROPIC_API_KEY ?? env.ANTHROPIC_API_KEY;
+      const anthropicModel = env.IBAI_ANTHROPIC_MODEL;
+      const ollamaEndpoint =
         (values['ollama-url'] as string | undefined) ??
         env.IBAI_OLLAMA_URL ??
         'http://127.0.0.1:11434';
-      const model =
+      const ollamaModel =
         (values.model as string | undefined) ?? env.IBAI_OLLAMA_MODEL;
-      if (!model || model.trim() === '') {
+
+      // Provider selection: explicit choice > auto-detect from env
+      if (
+        providerChoice === 'anthropic' ||
+        (!providerChoice && anthropicKey && anthropicModel)
+      ) {
+        if (!anthropicKey || !anthropicModel) {
+          throw new Error(
+            'Anthropic provider requires IBAI_ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY) and IBAI_ANTHROPIC_MODEL',
+          );
+        }
+        provider = new AnthropicProvider({
+          apiKey: anthropicKey,
+          model: anthropicModel,
+        });
+      } else if (
+        providerChoice === 'ollama' ||
+        (!providerChoice && ollamaModel)
+      ) {
+        if (!ollamaModel || ollamaModel.trim() === '') {
+          throw new Error(
+            '--model (or IBAI_OLLAMA_MODEL) is required for Ollama provider',
+          );
+        }
+        provider = new OllamaProvider({
+          endpoint: ollamaEndpoint,
+          model: ollamaModel,
+        });
+      } else {
         throw new Error(
-          '--model (or IBAI_OLLAMA_MODEL) is required for the coach command',
+          'Configure a model (Anthropic or Ollama) to run coach command.\n' +
+            'Set IBAI_ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL for Anthropic,\n' +
+            'or IBAI_OLLAMA_MODEL (or --model) for Ollama.',
         );
       }
-      provider = new OllamaProvider({ endpoint, model });
     }
 
-    const outcomes = parseOutcomes(values.outcome as string[] | undefined);
+    // Build answers from --answer flags
+    const answerValues = values.answer as string[] | undefined;
+    const planTopics = sessionPlan.topics;
+
+    if (!answerValues || answerValues.length === 0) {
+      // No answers provided - give helpful message
+      return {
+        output:
+          `Error: The coach command requires answers via --answer flags.\n\n` +
+          `Your session plan has ${planTopics.length} topic(s):\n` +
+          planTopics.map((t, i) => `  ${i + 1}. ${t.topicId}`).join('\n') +
+          '\n\n' +
+          `Provide an answer for each topic with --answer "your answer text"\n` +
+          `Example: ibai coach --answer "Use hash map for O(1)" --answer "BFS for shortest path"`,
+        exitCode: 1,
+      };
+    }
+
+    // Map answers to topics (in order)
+    const answers: TopicAnswer[] = planTopics
+      .slice(0, answerValues.length)
+      .map((topic, i) => ({
+        topicId: topic.topicId,
+        answer: answerValues[i] ?? '',
+      }));
+
+    if (answers.length < planTopics.length) {
+      return {
+        output:
+          `Warning: Only ${answers.length} answer(s) provided for ${planTopics.length} topic(s).\n` +
+          `Proceeding with partial answers.`,
+        exitCode: 0,
+      };
+    }
+
     const input: CoachInput = {
       sessionId: coachSessionId,
       plan: sessionPlan,
-      outcomes,
+      answers,
       assessment: view,
       completedAt: new Date().toISOString() as IsoTimestamp,
     };
