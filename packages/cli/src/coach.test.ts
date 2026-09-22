@@ -3,12 +3,15 @@
  *
  * Uses recording fake storage and fake LLM provider.
  * NO real fs, NO network, NO live Ollama.
+ *
+ * Updated for AI-evaluation contract (ADR 0005 D6):
+ * - Uses --answer flags instead of --outcome
+ * - Provider must return well-formed JSON evaluation
  */
 
 import { describe, it, expect } from 'vitest';
 import { run } from './cli.js';
 import { formatCoach } from './format.js';
-import { parseOutcomes } from './config.js';
 import type {
   StorageAdapter,
   SessionId,
@@ -77,12 +80,19 @@ function createRecordingFakeStorage(initialData?: {
 }
 
 // ---------------------------------------------------------------------------
-// Fake LLM Provider
+// Fake LLM Provider (returns well-formed AI-evaluation JSON)
 // ---------------------------------------------------------------------------
 
+/**
+ * Create a fake provider that returns well-formed evaluation JSON.
+ * The topicIds parameter specifies which topics to include in the evaluation.
+ */
 function createFakeProvider(
-  content: string = 'Test narrative from coach.',
+  narrative: string,
+  evaluations: Array<{ topicId: string; succeeded: boolean; feedback: string }>,
 ): LlmProvider {
+  const json = JSON.stringify({ narrative, evaluations });
+  const content = `Here is my evaluation:\n\n\`\`\`json\n${json}\n\`\`\``;
   return {
     async complete(_request: CompletionRequest): Promise<CompletionResponse> {
       return { content };
@@ -103,7 +113,7 @@ function createFailingProvider(errorMessage: string): LlmProvider {
 // ---------------------------------------------------------------------------
 
 describe('coach command', () => {
-  it('runs full assess->plan->coach loop and captures write-back', async () => {
+  it('runs coach with --answer flags and captures write-back from model verdicts', async () => {
     const storage = createRecordingFakeStorage({
       competencyMap: {
         entries: {
@@ -115,8 +125,17 @@ describe('coach command', () => {
         },
       },
     });
+
+    // Provider returns evaluation for 'graphs' topic (which the plan will generate)
     const provider = createFakeProvider(
-      'Great session! You showed strong problem-solving.',
+      'Great session! You showed strong problem-solving on graphs.',
+      [
+        {
+          topicId: 'graphs',
+          succeeded: true,
+          feedback: 'Excellent BFS explanation',
+        },
+      ],
     );
 
     const result = await run(
@@ -124,10 +143,8 @@ describe('coach command', () => {
         'coach',
         '--model',
         'test-model',
-        '--outcome',
-        'graphs:pass',
-        '--outcome',
-        'trees:fail:struggled with traversal',
+        '--answer',
+        'I would use BFS for shortest path',
       ],
       { storage, provider },
     );
@@ -135,7 +152,7 @@ describe('coach command', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('=== Coaching Session ===');
     expect(result.output).toContain(
-      'Great session! You showed strong problem-solving.',
+      'Great session! You showed strong problem-solving on graphs.',
     );
     expect(result.output).toContain('Saved session summary');
 
@@ -144,39 +161,88 @@ describe('coach command', () => {
     expect(storage.recorded.updateCompetencyMap.length).toBe(1);
     expect(storage.recorded.updateWeaknessRegister.length).toBe(1);
 
-    // Verify summary content
+    // Verify summary content derived from model verdicts
     const summary = storage.recorded.writeSessionSummary[0];
-    expect(summary.narrative).toBe(
-      'Great session! You showed strong problem-solving.',
+    expect(summary?.narrative).toBe(
+      'Great session! You showed strong problem-solving on graphs.',
     );
-    expect(summary.strengths).toContain('graphs');
-    expect(summary.weaknesses).toContain('trees');
+    expect(summary?.strengths).toContain('graphs');
   });
 
-  it('returns exitCode 1 on provider error', async () => {
-    const storage = createRecordingFakeStorage();
-    const provider = createFailingProvider('Model not found');
+  it('returns error when no --answer flags provided', async () => {
+    const storage = createRecordingFakeStorage({
+      competencyMap: {
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.5,
+            lastUpdated: '2026-09-01T00:00:00.000Z' as IsoTimestamp,
+          },
+        },
+      },
+    });
+    const provider = createFakeProvider('Test', [
+      { topicId: 'arrays', succeeded: true, feedback: 'Good' },
+    ]);
 
-    const result = await run(['coach', '--model', 'bad-model'], {
+    const result = await run(['coach', '--model', 'test-model'], {
       storage,
       provider,
     });
 
     expect(result.exitCode).toBe(1);
+    expect(result.output).toContain('--answer');
+  });
+
+  it('returns exitCode 1 on provider error', async () => {
+    const storage = createRecordingFakeStorage({
+      competencyMap: {
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.5,
+            lastUpdated: '2026-09-01T00:00:00.000Z' as IsoTimestamp,
+          },
+        },
+      },
+    });
+    const provider = createFailingProvider('Model not found');
+
+    const result = await run(
+      ['coach', '--model', 'bad-model', '--answer', 'my answer'],
+      {
+        storage,
+        provider,
+      },
+    );
+
+    expect(result.exitCode).toBe(1);
     expect(result.output).toContain('Error:');
-    expect(result.output).toContain('Model not found');
   });
 
   it('shows friendly message on ECONNREFUSED', async () => {
-    const storage = createRecordingFakeStorage();
+    const storage = createRecordingFakeStorage({
+      competencyMap: {
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.5,
+            lastUpdated: '2026-09-01T00:00:00.000Z' as IsoTimestamp,
+          },
+        },
+      },
+    });
     const provider = createFailingProvider(
       'connect ECONNREFUSED 127.0.0.1:11434',
     );
 
-    const result = await run(['coach', '--model', 'test'], {
-      storage,
-      provider,
-    });
+    const result = await run(
+      ['coach', '--model', 'test', '--answer', 'my answer'],
+      {
+        storage,
+        provider,
+      },
+    );
 
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('could not reach the LLM');
@@ -184,54 +250,61 @@ describe('coach command', () => {
   });
 
   it('shows friendly message on fetch failed', async () => {
-    const storage = createRecordingFakeStorage();
+    const storage = createRecordingFakeStorage({
+      competencyMap: {
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.5,
+            lastUpdated: '2026-09-01T00:00:00.000Z' as IsoTimestamp,
+          },
+        },
+      },
+    });
     const provider = createFailingProvider('fetch failed');
 
-    const result = await run(['coach', '--model', 'test'], {
-      storage,
-      provider,
-    });
+    const result = await run(
+      ['coach', '--model', 'test', '--answer', 'my answer'],
+      {
+        storage,
+        provider,
+      },
+    );
 
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('could not reach the LLM');
   });
 
-  it('handles empty/new-user case (no outcomes)', async () => {
-    const storage = createRecordingFakeStorage();
-    const provider = createFakeProvider('Welcome to your first session!');
-
-    const result = await run(['coach', '--model', 'test-model'], {
-      storage,
-      provider,
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(result.output).toContain('=== Coaching Session ===');
-    expect(result.output).toContain('Welcome to your first session!');
-
-    // Write-back still happens
-    expect(storage.recorded.writeSessionSummary.length).toBe(1);
-    expect(storage.recorded.updateCompetencyMap.length).toBe(1);
-    expect(storage.recorded.updateWeaknessRegister.length).toBe(1);
-  });
-
   it('errors when --model is missing and no env var', async () => {
     const storage = createRecordingFakeStorage();
 
-    const result = await run(['coach'], { storage, env: {} });
+    const result = await run(['coach', '--answer', 'my answer'], {
+      storage,
+      env: {},
+    });
 
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain(
-      '--model (or IBAI_OLLAMA_MODEL) is required',
-    );
+    expect(result.output).toContain('Configure a model');
   });
 
   it('uses IBAI_OLLAMA_MODEL env var when --model not provided', async () => {
-    const storage = createRecordingFakeStorage();
-    const provider = createFakeProvider('Using env model.');
+    const storage = createRecordingFakeStorage({
+      competencyMap: {
+        entries: {
+          arrays: {
+            topicId: 'arrays',
+            proficiency: 0.5,
+            lastUpdated: '2026-09-01T00:00:00.000Z' as IsoTimestamp,
+          },
+        },
+      },
+    });
+    const provider = createFakeProvider('Using env model.', [
+      { topicId: 'arrays', succeeded: true, feedback: 'Good' },
+    ]);
 
     // With injected provider, model is not needed (provider is already configured)
-    const result = await run(['coach'], {
+    const result = await run(['coach', '--answer', 'my answer'], {
       storage,
       provider,
       env: { IBAI_OLLAMA_MODEL: 'env-model' },
@@ -300,6 +373,10 @@ describe('formatCoach', () => {
         ],
       },
       request: { messages: [] },
+      evaluations: [
+        { topicId: 'arrays', succeeded: true, feedback: 'Great work' },
+        { topicId: 'graphs', succeeded: false, feedback: 'Needs practice' },
+      ],
     };
 
     const output = formatCoach(sessionId, plan, result);
@@ -307,24 +384,15 @@ describe('formatCoach', () => {
     expect(output).toContain('=== Coaching Session ===');
     expect(output).toContain('Session ID: test-session-123');
     expect(output).toContain('Topics covered: 2');
-    expect(output).toContain(
-      'Plan summary: Focus on graphs, warm up with arrays.',
-    );
-    expect(output).toContain('Session Recap:');
-    expect(output).toContain(
-      'Excellent work on arrays! Graphs need more practice.',
-    );
-    expect(output).toContain('Saved session summary');
+    expect(output).toContain('Excellent work on arrays!');
     expect(output).toContain('Competency entries: 2');
     expect(output).toContain('Weakness entries: 1');
   });
 
-  it('handles empty narrative', () => {
-    const sessionId = 'empty-narrative';
-    const plan: SessionPlan = { topics: [], summary: 'Empty plan' };
+  it('handles empty narrative gracefully', () => {
     const result: CoachResult = {
       summary: {
-        sessionId: sessionId as SessionId,
+        sessionId: 'test' as SessionId,
         completedAt: '2026-09-10T12:00:00.000Z' as IsoTimestamp,
         topics: [],
         narrative: '',
@@ -334,84 +402,12 @@ describe('formatCoach', () => {
       competencyMap: { entries: {} },
       weaknessRegister: { entries: [] },
       request: { messages: [] },
+      evaluations: [],
     };
+    const plan: SessionPlan = { topics: [], summary: 'Empty session' };
 
-    const output = formatCoach(sessionId, plan, result);
+    const output = formatCoach('test', plan, result);
 
     expect(output).toContain('(No narrative generated)');
-    expect(output).toContain('Competency entries: 0');
-    expect(output).toContain('Weakness entries: 0');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// parseOutcomes Tests
-// ---------------------------------------------------------------------------
-
-describe('parseOutcomes', () => {
-  it('parses valid pass outcome', () => {
-    const outcomes = parseOutcomes(['graphs:pass']);
-    expect(outcomes).toEqual([{ topicId: 'graphs', succeeded: true }]);
-  });
-
-  it('parses valid fail outcome', () => {
-    const outcomes = parseOutcomes(['trees:fail']);
-    expect(outcomes).toEqual([{ topicId: 'trees', succeeded: false }]);
-  });
-
-  it('parses outcome with note', () => {
-    const outcomes = parseOutcomes(['dp:fail:struggled with memoization']);
-    expect(outcomes).toEqual([
-      { topicId: 'dp', succeeded: false, note: 'struggled with memoization' },
-    ]);
-  });
-
-  it('handles note containing colons', () => {
-    const outcomes = parseOutcomes(['api:fail:error at 10:30:45']);
-    expect(outcomes).toEqual([
-      { topicId: 'api', succeeded: false, note: 'error at 10:30:45' },
-    ]);
-  });
-
-  it('parses multiple outcomes', () => {
-    const outcomes = parseOutcomes([
-      'graphs:pass',
-      'trees:fail:traversal issues',
-    ]);
-    expect(outcomes).toHaveLength(2);
-    expect(outcomes[0]).toEqual({ topicId: 'graphs', succeeded: true });
-    expect(outcomes[1]).toEqual({
-      topicId: 'trees',
-      succeeded: false,
-      note: 'traversal issues',
-    });
-  });
-
-  it('returns empty array for undefined input', () => {
-    const outcomes = parseOutcomes(undefined);
-    expect(outcomes).toEqual([]);
-  });
-
-  it('returns empty array for empty array input', () => {
-    const outcomes = parseOutcomes([]);
-    expect(outcomes).toEqual([]);
-  });
-
-  it('throws on invalid format (missing result)', () => {
-    expect(() => parseOutcomes(['graphs'])).toThrow(
-      "invalid --outcome 'graphs'; expected topicId:pass|fail[:note]",
-    );
-  });
-
-  it('throws on invalid result value', () => {
-    expect(() => parseOutcomes(['graphs:yes'])).toThrow(
-      "invalid --outcome 'graphs:yes'; expected topicId:pass|fail[:note]",
-    );
-  });
-
-  it('throws on p/f shortcuts (strict mode)', () => {
-    expect(() => parseOutcomes(['graphs:p'])).toThrow(
-      "invalid --outcome 'graphs:p'; expected topicId:pass|fail[:note]",
-    );
   });
 });

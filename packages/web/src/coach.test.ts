@@ -98,21 +98,34 @@ class FakeStorageAdapter implements StorageAdapter {
 
 /**
  * Fake LLM provider for testing.
+ * Updated for AI-evaluation contract: returns fenced JSON with narrative + evaluations.
  */
 class FakeLlmProvider implements LlmProvider {
   public completeCalls: CompletionRequest[] = [];
   private response: CompletionResponse = {
-    content: JSON.stringify({
-      narrative: 'Great session! You showed strong understanding.',
-      strengths: ['arrays', 'problem-solving'],
-      weaknesses: ['edge cases'],
-    }),
+    content:
+      '```json\n{"narrative": "Great session! You showed strong understanding.", "evaluations": [{"topicId": "arrays", "succeeded": true, "feedback": "Good work"}]}\n```',
   };
   private shouldThrow = false;
   private errorMessage = 'Provider error';
 
   setResponse(response: CompletionResponse): void {
     this.response = response;
+  }
+
+  /** Helper to set well-formed evaluation response for specific topics */
+  setEvaluationResponse(
+    narrative: string,
+    evaluations: Array<{
+      topicId: string;
+      succeeded: boolean;
+      feedback: string;
+    }>,
+  ): void {
+    const json = JSON.stringify({ narrative, evaluations });
+    this.response = {
+      content: '```json\n' + json + '\n```',
+    };
   }
 
   setShouldThrow(should: boolean, message?: string): void {
@@ -334,6 +347,14 @@ describe('createCoachHandler - POST /coach (interactive interview)', () => {
     });
 
     const provider = new FakeLlmProvider();
+    // Set proper AI-evaluation response for 'arrays' topic
+    provider.setEvaluationResponse('Great work on arrays!', [
+      {
+        topicId: 'arrays',
+        succeeded: true,
+        feedback: 'Excellent understanding',
+      },
+    ]);
     const handler = createCoachHandler({ storage, provider });
 
     // Submit final step (step 0 with only one topic completes the interview)
@@ -391,8 +412,8 @@ describe('createCoachHandler - POST /coach (interactive interview)', () => {
   });
 });
 
-describe('createCoachHandler - POST /coach.json (JSON)', () => {
-  it('returns 400 when provider not configured', async () => {
+describe('createCoachHandler - POST /coach.json (JSON) - GATED FOR PR 5b', () => {
+  it('returns 400 with gated message (JSON API rework)', async () => {
     const storage = new FakeStorageAdapter();
     const handler = createCoachHandler({ storage }); // no provider
 
@@ -404,13 +425,15 @@ describe('createCoachHandler - POST /coach.json (JSON)', () => {
       }),
     });
 
+    // JSON API is gated - returns 400 with rework message
     expect(res.status).toBe(400);
     expect(res.contentType).toBe('application/json; charset=utf-8');
     const body = JSON.parse(res.body);
-    expect(body.error).toContain('IBAI_OLLAMA_MODEL');
+    expect(body.error).toContain('reworked');
+    expect(body.error).toContain('PR 5b');
   });
 
-  it('returns CoachResult as JSON on success', async () => {
+  it('returns gated message even with provider (JSON API rework)', async () => {
     const storage = new FakeStorageAdapter();
     storage.setCompetencyMap({
       entries: {
@@ -434,19 +457,15 @@ describe('createCoachHandler - POST /coach.json (JSON)', () => {
       }),
     });
 
-    expect(res.status).toBe(200);
+    // JSON API is gated regardless of provider - returns 400 with rework message
+    expect(res.status).toBe(400);
     expect(res.contentType).toBe('application/json; charset=utf-8');
 
     const result = JSON.parse(res.body);
-    expect(result).toHaveProperty('summary');
-    expect(result).toHaveProperty('competencyMap');
-    expect(result).toHaveProperty('weaknessRegister');
-
-    // Verify write-back
-    expect(storage.writeSessionSummaryCalls.length).toBe(1);
+    expect(result.error).toContain('reworked');
   });
 
-  it('returns 502 on connection error with JSON error', async () => {
+  it('returns gated message regardless of provider error (JSON API rework)', async () => {
     const storage = new FakeStorageAdapter();
     storage.setCompetencyMap({
       entries: {
@@ -469,10 +488,11 @@ describe('createCoachHandler - POST /coach.json (JSON)', () => {
       body: JSON.stringify({ outcomes: [] }),
     });
 
-    expect(res.status).toBe(502);
+    // JSON API is gated - returns 400 before any provider call
+    expect(res.status).toBe(400);
     expect(res.contentType).toBe('application/json; charset=utf-8');
     const body = JSON.parse(res.body);
-    expect(body.error).toContain('Ollama');
+    expect(body.error).toContain('reworked');
   });
 });
 
@@ -489,9 +509,8 @@ describe('empty/new-user coach', () => {
     expect(res.body).toContain('No Topics Yet');
   });
 
-  it('POST /coach.json succeeds with empty outcomes', async () => {
-    // Note: POST /coach (HTML) requires interview state now
-    // Use /coach.json for direct outcome submission
+  it('POST /coach.json returns gated message (JSON API rework)', async () => {
+    // Note: JSON API is gated for AI-evaluation rework (PR 5b)
     const storage = new FakeStorageAdapter();
     const provider = new FakeLlmProvider();
     const handler = createCoachHandler({ storage, provider });
@@ -502,8 +521,10 @@ describe('empty/new-user coach', () => {
       body: JSON.stringify({ outcomes: [] }),
     });
 
-    expect(res.status).toBe(200);
-    expect(provider.completeCalls.length).toBe(1);
+    // JSON API is gated - returns 400 with rework message
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error).toContain('reworked');
   });
 });
 
