@@ -18,12 +18,8 @@ import type {
 import { createCoachHandler } from './handler.js';
 import type { HandlerRequest } from './handler.js';
 import { resolveOllamaUrl, resolveOllamaModel } from './config.js';
-import {
-  renderCoachResult,
-  renderCoachJson,
-  escapeHtml,
-} from './render.js';
-import type { SessionPlan, AssessmentView, CoachResult } from '@ibai/core';
+import { renderCoachResult, renderCoachJson, escapeHtml } from './render.js';
+import type { SessionPlan, CoachResult } from '@ibai/core';
 
 /**
  * In-memory fake storage adapter for testing.
@@ -660,14 +656,6 @@ describe('render functions', () => {
   const emptyPlan: SessionPlan = {
     topics: [],
     summary: 'No history yet.',
-  };
-
-  const emptyView: AssessmentView = {
-    topicsTracked: 0,
-    topStrengths: [],
-    focusAreas: [],
-    recurringWeaknesses: [],
-    recentSession: null,
   };
 
   const mockResult: CoachResult = {
