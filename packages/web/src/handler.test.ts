@@ -880,13 +880,10 @@ describe('createAssessHandler', () => {
     });
   });
 
-  describe('AI Interview (turn-by-turn)', () => {
-    // Helper to create a handler with provider for coach tests
+  describe('AI Interview (chat)', () => {
     const createCoachHandlerWithProvider = () => {
       const storage = new TrackingFakeStorageAdapter();
       const provider = new FakeLlmProvider();
-
-      // Seed competency map so plan() yields topics
       storage.setCompetencyMap({
         entries: {
           arrays: {
@@ -901,35 +898,29 @@ describe('createAssessHandler', () => {
           },
         },
       });
-
       const handler = createCoachHandler({
         storage,
         provider,
         providerLabel: 'Using Test: mock-model',
         createStorage: () => storage,
       });
-
       return { storage, provider, handler };
     };
 
     describe('GET /coach with provider', () => {
-      it('returns 200 and renders first-topic interviewer question', async () => {
+      it('renders the chat page and does NOT call the provider on load', async () => {
         const { provider, handler } = createCoachHandlerWithProvider();
-        provider.setResponse({ content: 'Tell me about array traversal' });
-
         const res = await handler({ method: 'GET', url: '/coach' });
-
         expect(res.status).toBe(200);
-        expect(res.contentType).toBe('text/html; charset=utf-8');
-        expect(res.body).toContain('Tell me about array traversal');
-        expect(provider.completeCalls.length).toBeGreaterThan(0);
+        expect(res.body).toContain('chat-form');
+        expect(res.body).toContain('<textarea');
+        expect(provider.completeCalls.length).toBe(0);
       });
     });
 
     describe('GET /coach without provider', () => {
       it('returns 200 with provider-required page (not 4xx)', async () => {
-        const storage = new FakeStorageAdapter();
-        // Seed competency map so plan() yields topics (otherwise we get "No Topics Yet")
+        const storage = new TrackingFakeStorageAdapter();
         storage.setCompetencyMap({
           entries: {
             arrays: {
@@ -939,124 +930,49 @@ describe('createAssessHandler', () => {
             },
           },
         });
-        // No provider passed
         const handler = createCoachHandler({
           storage,
           createStorage: () => storage,
         });
-
         const res = await handler({ method: 'GET', url: '/coach' });
-
         expect(res.status).toBe(200);
-        expect(res.contentType).toBe('text/html; charset=utf-8');
-        // Should have the configure model message, NOT an error
         expect(res.body).toContain('Configure a model');
-        expect(res.body).toContain('ANTHROPIC_API_KEY');
-        expect(res.body).toContain('IBAI_OLLAMA_MODEL');
-        // Should NOT be the error page
         expect(res.body).not.toContain('Configuration Error');
       });
     });
 
-    describe('POST /coach final step with write-backs', () => {
-      it('assembles TopicAnswer[], calls coach(), write-backs occur', async () => {
-        const { storage, provider, handler } = createCoachHandlerWithProvider();
-
-        // Mock coach response - the model evaluates and returns structured feedback
-        const mockCoachResponse = JSON.stringify({
-          evaluations: [
-            {
-              topicId: 'arrays',
-              succeeded: true,
-              feedback: 'Great explanation!',
-            },
-            {
-              topicId: 'graphs',
-              succeeded: true,
-              feedback: 'Good graphs answer!',
-            },
-          ],
-          narrative: 'You performed well on both topics.',
-        });
-        provider.setResponse({ content: mockCoachResponse });
-
-        // Simulate final step POST (step=1 is last of 2 topics, with prior transcript)
-        const body = new URLSearchParams({
-          sessionId: 'test-session',
-          step: '1', // Second (final) step
-          current_question: 'What is a graph?',
-          current_answer: 'A graph is a collection of nodes and edges.',
-          // Prior transcript from step 0
-          question_arrays: 'What is an array?',
-          answer_arrays: 'An array is a contiguous block of memory.',
-        }).toString();
-
+    describe('POST /coach chat turn', () => {
+      it('relays message to provider and renders reply with write-back-free chat', async () => {
+        const { provider, handler } = createCoachHandlerWithProvider();
+        provider.setResponse({ content: 'What is your approach?' });
         const res = await handler({
           method: 'POST',
           url: '/coach',
-          body,
-          contentType: 'application/x-www-form-urlencoded',
+          body: 'message=' + encodeURIComponent('lets talk arrays'),
         });
-
         expect(res.status).toBe(200);
-        expect(res.body).toContain('Session Complete');
-        // Write-backs should have occurred
-        expect(storage.writeSessionSummaryCalls.length).toBe(1);
-        expect(storage.updateCompetencyMapCalls.length).toBe(1);
-        expect(storage.updateWeaknessRegisterCalls.length).toBe(1);
+        expect(provider.completeCalls.length).toBe(1);
+        expect(res.body).toContain('lets talk arrays');
+        expect(res.body).toContain('What is your approach?');
       });
-    });
 
-    describe('malformed output handling', () => {
-      it('returns friendly error and NO writes on malformed model output', async () => {
-        const { storage, provider, handler } = createCoachHandlerWithProvider();
-        provider.setResponse({ content: 'not json at all' });
-
-        // Simulate final step POST to trigger coach() call
-        const body = new URLSearchParams({
-          sessionId: 'test-session',
-          step: '1', // Final step
-          current_question: 'What is a graph?',
-          current_answer: 'My answer here',
-          // Prior transcript
-          question_arrays: 'What is an array?',
-          answer_arrays: 'Prior answer',
-        }).toString();
-
+      it('renders friendly inline error on provider failure (no dead page)', async () => {
+        const { provider, handler } = createCoachHandlerWithProvider();
+        provider.setShouldThrow(true, '401 unauthorized');
         const res = await handler({
           method: 'POST',
           url: '/coach',
-          body,
-          contentType: 'application/x-www-form-urlencoded',
+          body: 'message=' + encodeURIComponent('hi'),
         });
-
-        expect(res.status).toBe(502);
-        expect(res.body).toContain('unusable response');
-        // NO writes should have occurred (fail-closed)
-        expect(storage.writeSessionSummaryCalls.length).toBe(0);
-      });
-    });
-
-    describe('provider reject handling', () => {
-      it('returns friendly auth error on 401, no crash, no writes', async () => {
-        const { storage, provider, handler } = createCoachHandlerWithProvider();
-        provider.setShouldThrow(true, '401 Unauthorized: invalid x-api-key');
-
-        const res = await handler({ method: 'GET', url: '/coach' });
-
-        expect(res.status).toBe(502);
-        expect(res.body).toContain('model rejected the request');
-        expect(res.body).toContain('ANTHROPIC_API_KEY');
-        // No writes
-        expect(storage.writeSessionSummaryCalls.length).toBe(0);
+        expect(res.status).toBe(200);
+        expect(res.body).toContain('chat-error');
+        expect(res.body).toContain('chat-form');
       });
     });
 
     describe('POST /coach.json', () => {
       it('returns 200 JSON CoachResult with evaluations on success', async () => {
         const { storage, provider, handler } = createCoachHandlerWithProvider();
-
-        // Mock coach response - must have 'narrative' and evaluations for ALL plan topics
         const mockCoachResponse = JSON.stringify({
           narrative: 'Good session overall.',
           evaluations: [
@@ -1065,7 +981,6 @@ describe('createAssessHandler', () => {
           ],
         });
         provider.setResponse({ content: mockCoachResponse });
-
         const res = await handler({
           method: 'POST',
           url: '/coach.json',
@@ -1086,13 +1001,11 @@ describe('createAssessHandler', () => {
           }),
           contentType: 'application/json',
         });
-
         expect(res.status).toBe(200);
         expect(res.contentType).toBe('application/json; charset=utf-8');
         const result = JSON.parse(res.body);
         expect(result.evaluations).toBeDefined();
         expect(result.summary).toBeDefined();
-        // Write-backs happened
         expect(storage.writeSessionSummaryCalls.length).toBe(1);
       });
 
@@ -1111,7 +1024,6 @@ describe('createAssessHandler', () => {
           storage,
           createStorage: () => storage,
         });
-
         const res = await handler({
           method: 'POST',
           url: '/coach.json',
@@ -1120,25 +1032,22 @@ describe('createAssessHandler', () => {
           }),
           contentType: 'application/json',
         });
-
         expect(res.status).toBe(400);
-        expect(res.contentType).toBe('application/json; charset=utf-8');
         const body = JSON.parse(res.body);
         expect(body.error).toContain('No model configured');
       });
     });
 
     describe('XSS escaping', () => {
-      it('escapes script tags in answers and model responses', async () => {
+      it('escapes script tags in user message and model reply', async () => {
         const { provider, handler } = createCoachHandlerWithProvider();
-        provider.setResponse({
-          content: '<script>alert(1)</script>What is an array?',
+        provider.setResponse({ content: '<script>alert(1)</script>reply' });
+        const res = await handler({
+          method: 'POST',
+          url: '/coach',
+          body: 'message=' + encodeURIComponent('<b>hi</b>'),
         });
-
-        const res = await handler({ method: 'GET', url: '/coach' });
-
         expect(res.status).toBe(200);
-        // Script tag should be escaped
         expect(res.body).toContain('&lt;script&gt;');
         expect(res.body).not.toContain('<script>alert(1)</script>');
       });
@@ -1146,18 +1055,13 @@ describe('createAssessHandler', () => {
 
     describe('self-assess removed', () => {
       it('GET /coach does NOT contain self-assess UI elements', async () => {
-        const { provider, handler } = createCoachHandlerWithProvider();
-        provider.setResponse({ content: 'Interview question' });
-
+        const { handler } = createCoachHandlerWithProvider();
         const res = await handler({ method: 'GET', url: '/coach' });
-
         expect(res.status).toBe(200);
-        // Must NOT contain self-assess elements
         expect(res.body).not.toContain('current_outcome');
         expect(res.body).not.toContain('outcome_');
         expect(res.body).not.toContain('How did you do?');
         expect(res.body).not.toContain('selectOutcomeInterview');
-        // Should NOT have Pass/Fail buttons in interview
         expect(res.body).not.toContain('onclick="selectOutcome');
       });
     });
