@@ -17,15 +17,19 @@ import { useEffect, useState } from 'react';
 /** The base path the SPA is mounted at on the server (matches Vite `base`). */
 export const APP_BASE = '/app';
 
-/** A parsed SPA route. `home` is the default; `notes` carries the problem id. */
+/**
+ * A parsed SPA route. `home` is the default; `notes` carries the problem id;
+ * `analytics` is the M4 analytics/charts page.
+ */
 export type Route =
   | { readonly kind: 'home' }
-  | { readonly kind: 'notes'; readonly problemId: string };
+  | { readonly kind: 'notes'; readonly problemId: string }
+  | { readonly kind: 'analytics' };
 
 /**
  * Parse a full pathname (e.g. `/app/notes/two-sum`) into a `Route`. Anything
- * that is not a recognized notes path resolves to `home`, so unknown/legacy
- * paths degrade to the catalog rather than a blank screen.
+ * that is not a recognized path resolves to `home`, so unknown/legacy paths
+ * degrade to the catalog rather than a blank screen.
  */
 export function parseRoute(pathname: string): Route {
   // Strip the app base, tolerating a trailing slash.
@@ -42,12 +46,20 @@ export function parseRoute(pathname: string): Route {
   if (segments[0] === 'notes' && segments[1]) {
     return { kind: 'notes', problemId: decodeURIComponent(segments[1]) };
   }
+  if (segments[0] === 'analytics' && segments.length === 1) {
+    return { kind: 'analytics' };
+  }
   return { kind: 'home' };
 }
 
 /** Build the SPA URL for the notes editor of a given problem. */
 export function notesHref(problemId: string): string {
   return `${APP_BASE}/notes/${encodeURIComponent(problemId)}`;
+}
+
+/** The SPA analytics (charts) URL. */
+export function analyticsHref(): string {
+  return `${APP_BASE}/analytics`;
 }
 
 /** The SPA home (catalog) URL. */
