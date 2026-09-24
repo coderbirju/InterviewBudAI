@@ -19,12 +19,14 @@ export const APP_BASE = '/app';
 
 /**
  * A parsed SPA route. `home` is the default; `notes` carries the problem id;
- * `analytics` is the M4 analytics/charts page.
+ * `analytics` is the M4 analytics/charts page; `interview` is the M5 interview
+ * chat page.
  */
 export type Route =
   | { readonly kind: 'home' }
   | { readonly kind: 'notes'; readonly problemId: string }
-  | { readonly kind: 'analytics' };
+  | { readonly kind: 'analytics' }
+  | { readonly kind: 'interview' };
 
 /**
  * Parse a full pathname (e.g. `/app/notes/two-sum`) into a `Route`. Anything
@@ -49,6 +51,9 @@ export function parseRoute(pathname: string): Route {
   if (segments[0] === 'analytics' && segments.length === 1) {
     return { kind: 'analytics' };
   }
+  if (segments[0] === 'interview' && segments.length === 1) {
+    return { kind: 'interview' };
+  }
   return { kind: 'home' };
 }
 
@@ -60,6 +65,11 @@ export function notesHref(problemId: string): string {
 /** The SPA analytics (charts) URL. */
 export function analyticsHref(): string {
   return `${APP_BASE}/analytics`;
+}
+
+/** The SPA interview chat URL. */
+export function interviewHref(): string {
+  return `${APP_BASE}/interview`;
 }
 
 /** The SPA home (catalog) URL. */
