@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseRoute, notesHref, homeHref, APP_BASE } from './router';
+import {
+  parseRoute,
+  notesHref,
+  analyticsHref,
+  homeHref,
+  APP_BASE,
+} from './router';
 
 describe('router.parseRoute', () => {
   it('resolves the app base and trailing slash to home', () => {
@@ -12,6 +18,15 @@ describe('router.parseRoute', () => {
       kind: 'notes',
       problemId: 'two-sum',
     });
+  });
+
+  it('parses the analytics route', () => {
+    expect(parseRoute('/app/analytics')).toEqual({ kind: 'analytics' });
+    expect(parseRoute('/app/analytics/')).toEqual({ kind: 'analytics' });
+  });
+
+  it('falls back to home for an analytics path with extra segments', () => {
+    expect(parseRoute('/app/analytics/extra')).toEqual({ kind: 'home' });
   });
 
   it('decodes an encoded problem id segment', () => {
@@ -32,6 +47,10 @@ describe('router href helpers', () => {
   it('builds an /app-based, encoded notes href', () => {
     expect(notesHref('two-sum')).toBe('/app/notes/two-sum');
     expect(notesHref('a/b')).toBe('/app/notes/a%2Fb');
+  });
+
+  it('builds the /app-based analytics href', () => {
+    expect(analyticsHref()).toBe('/app/analytics');
   });
 
   it('homeHref is the app base', () => {
