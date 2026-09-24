@@ -3,6 +3,7 @@ import {
   parseRoute,
   notesHref,
   analyticsHref,
+  interviewHref,
   homeHref,
   APP_BASE,
 } from './router';
@@ -23,6 +24,15 @@ describe('router.parseRoute', () => {
   it('parses the analytics route', () => {
     expect(parseRoute('/app/analytics')).toEqual({ kind: 'analytics' });
     expect(parseRoute('/app/analytics/')).toEqual({ kind: 'analytics' });
+  });
+
+  it('parses the interview route', () => {
+    expect(parseRoute('/app/interview')).toEqual({ kind: 'interview' });
+    expect(parseRoute('/app/interview/')).toEqual({ kind: 'interview' });
+  });
+
+  it('falls back to home for an interview path with extra segments', () => {
+    expect(parseRoute('/app/interview/extra')).toEqual({ kind: 'home' });
   });
 
   it('falls back to home for an analytics path with extra segments', () => {
@@ -51,6 +61,10 @@ describe('router href helpers', () => {
 
   it('builds the /app-based analytics href', () => {
     expect(analyticsHref()).toBe('/app/analytics');
+  });
+
+  it('builds the /app-based interview href', () => {
+    expect(interviewHref()).toBe('/app/interview');
   });
 
   it('homeHref is the app base', () => {

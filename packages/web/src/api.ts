@@ -17,6 +17,8 @@
  *   POST /api/notes/:id   — upsert a note (validated; 404 unknown id)
  *   GET  /api/progress    — overall progress counts for the banner
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
+ *   POST /api/chat        — one interview-coach chat turn (provider REQUIRED;
+ *                           the MODEL is the only source of assistant text)
  */
 
 import type {
@@ -27,6 +29,7 @@ import type {
 } from '@ibai/storage';
 import { isNoteStatus, resolveNoteStatus } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
+import type { LlmProvider, PromptMessage } from '@ibai/providers';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists, resolveDataDirWithCookie } from './config.js';
@@ -97,6 +100,67 @@ export interface ApiConfigResponse {
   readonly provider: string;
 }
 
+/** A single chat turn in a POST /api/chat request (untrusted until validated). */
+export interface ApiChatMessage {
+  readonly role: 'user' | 'assistant';
+  readonly content: string;
+}
+
+/** POST /api/chat response shape: the model's reply text only. */
+export interface ApiChatResponse {
+  readonly reply: string;
+}
+
+/**
+ * The interview-coach persona prepended (as the `system` message) to every
+ * chat turn. Kept IDENTICAL to the server-rendered `POST /coach` persona so the
+ * two surfaces behave the same. Per charter §6.2 the MODEL is the only source
+ * of assistant text — this persona shapes the conversation but ships NO canned
+ * answers: it elicits the candidate's own reasoning and withholds full
+ * solutions until they have worked through the problem themselves.
+ */
+export const INTERVIEW_COACH_PERSONA =
+  'You are an interview coach for software engineering candidates. Hold a ' +
+  'natural conversation: ask probing questions, help the candidate reason ' +
+  'through problems, and give feedback on THEIR ideas. Elicit their own ' +
+  'thinking. Do NOT dump full solutions or code unless they have worked ' +
+  'through it themselves.';
+
+/**
+ * Check if an error looks like a connection refused error (Ollama not running).
+ * Mirrors the classifier used by the server-rendered coach routes so the JSON
+ * chat endpoint distinguishes the same failure modes.
+ */
+function isConnectionError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes('econnrefused') ||
+      msg.includes('fetch failed') ||
+      msg.includes('connection refused') ||
+      msg.includes('network error')
+    );
+  }
+  return false;
+}
+
+/** Check if an error looks like an authentication/authorization error. */
+function isAuthError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes('401') ||
+      msg.includes('unauthorized') ||
+      msg.includes('api key') ||
+      msg.includes('apikey') ||
+      msg.includes('authentication') ||
+      msg.includes('forbidden') ||
+      msg.includes('x-api-key')
+    );
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Dependencies (mirrors the subset of CoachHandlerDeps the API needs)
 // ---------------------------------------------------------------------------
@@ -107,6 +171,8 @@ export interface ApiDeps {
   readonly createStorage?: (dataDir: string) => StorageAdapter;
   readonly storage: StorageAdapter;
   readonly defaultDataDir?: string;
+  /** LLM provider for POST /api/chat. Absent → chat returns 400 (provider required). */
+  readonly provider?: LlmProvider;
   readonly providerLabel?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly argv?: string[];
@@ -206,6 +272,42 @@ function statusCountsFor(
     (p) => statusById.get(p.id) ?? 'none',
   );
   return computeStatusCounts(statuses);
+}
+
+/**
+ * Validate + normalize an untrusted `messages` array into `ApiChatMessage[]`.
+ * Returns `null` if the value is not a non-empty array of well-formed turns
+ * (each an object with role 'user'|'assistant' and a string `content`). The
+ * body is untrusted, so we trim content and reject anything else rather than
+ * coercing — the caller turns a `null` into a 400.
+ */
+function parseChatMessages(value: unknown): ApiChatMessage[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  const out: ApiChatMessage[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) {
+      return null;
+    }
+    const turn = raw as Record<string, unknown>;
+    if (turn.role !== 'user' && turn.role !== 'assistant') {
+      return null;
+    }
+    if (typeof turn.content !== 'string') {
+      return null;
+    }
+    const content = turn.content.trim();
+    if (content.length === 0) {
+      return null;
+    }
+    out.push({ role: turn.role, content });
+  }
+  // A meaningful turn must end with the candidate's message.
+  if (out[out.length - 1]?.role !== 'user') {
+    return null;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +497,88 @@ export async function handleApiRoute(
 
       await storage.writeIntuitionNote(note);
       return json(200, toNoteResponse(problemId, note));
+    }
+
+    // ----- /api/chat (POST) -----
+    if (pathname === '/api/chat') {
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+
+      // Provider REQUIRED (mirrors the coach behavior). No provider → 400 JSON
+      // with configuration guidance; we never fabricate assistant text (§6.2).
+      if (!deps.provider) {
+        return json(400, {
+          error: 'no model configured',
+          detail:
+            'Set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL, or IBAI_OLLAMA_MODEL, to start the interview chat.',
+        });
+      }
+
+      // Parse untrusted body.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body ?? '{}');
+      } catch {
+        return json(400, { error: 'invalid JSON body' });
+      }
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return json(400, { error: 'invalid JSON body' });
+      }
+
+      // Accept the canonical shape { messages: [...] } (prior transcript + the
+      // new user turn). Validate every turn; a malformed array → 400.
+      const messages = parseChatMessages(
+        (parsed as Record<string, unknown>).messages,
+      );
+      if (!messages) {
+        return json(400, {
+          error:
+            'invalid messages: expected a non-empty array of { role: "user"|"assistant", content } ending with a user turn',
+        });
+      }
+
+      // Build the prompt: coach persona (system) + the conversation.
+      const promptMessages: PromptMessage[] = [
+        { role: 'system', content: INTERVIEW_COACH_PERSONA },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ];
+
+      let reply: string;
+      try {
+        const response = await deps.provider.complete({
+          messages: promptMessages,
+        });
+        reply =
+          typeof response.content === 'string' ? response.content.trim() : '';
+        if (!reply) {
+          throw new Error('Empty response from model');
+        }
+      } catch (providerError) {
+        // Distinguish auth vs connection vs malformed; never crash.
+        if (isConnectionError(providerError)) {
+          return json(502, {
+            error:
+              'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
+          });
+        }
+        if (isAuthError(providerError)) {
+          return json(502, {
+            error:
+              'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+          });
+        }
+        return json(502, {
+          error: 'The model returned an unusable response. Please try again.',
+        });
+      }
+
+      const chatResponse: ApiChatResponse = { reply };
+      return json(200, chatResponse);
     }
 
     // ----- Unknown /api path -----
