@@ -339,11 +339,11 @@ describe('createAssessHandler', () => {
     });
   });
 
-  describe('GET /dashboard', () => {
+  describe('GET /analytics', () => {
     it('returns 200 with HTML content type when cookie is set', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(
-        withCookie({ method: 'GET', url: '/dashboard' }),
+        withCookie({ method: 'GET', url: '/analytics' }),
       );
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('text/html; charset=utf-8');
@@ -352,7 +352,7 @@ describe('createAssessHandler', () => {
     it('shows Where You Stand section', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(
-        withCookie({ method: 'GET', url: '/dashboard' }),
+        withCookie({ method: 'GET', url: '/analytics' }),
       );
       expect(res.body).toContain('Where You Stand');
     });
@@ -360,7 +360,7 @@ describe('createAssessHandler', () => {
     it('shows Your Next Session section', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(
-        withCookie({ method: 'GET', url: '/dashboard' }),
+        withCookie({ method: 'GET', url: '/analytics' }),
       );
       expect(res.body).toContain('Your Next Session');
     });
@@ -368,18 +368,45 @@ describe('createAssessHandler', () => {
     it('shows friendly placeholder for empty state', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(
-        withCookie({ method: 'GET', url: '/dashboard' }),
+        withCookie({ method: 'GET', url: '/analytics' }),
       );
       expect(res.body).toContain('No strengths identified yet');
     });
 
-    it('includes navigation with Dashboard active', async () => {
+    it('includes navigation with Analytics (not Dashboard)', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/analytics' }),
+      );
+      expect(res.body).toContain('class="main-nav"');
+      expect(res.body).toContain('href="/analytics"');
+      expect(res.body).not.toContain('href="/dashboard"');
+    });
+
+    it('page title says Analytics', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(
+        withCookie({ method: 'GET', url: '/analytics' }),
+      );
+      expect(res.body).toContain('<title>InterviewBudAI - Analytics</title>');
+    });
+  });
+
+  describe('GET /dashboard (back-compat redirect)', () => {
+    it('302-redirects to /analytics', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(
         withCookie({ method: 'GET', url: '/dashboard' }),
       );
-      expect(res.body).toContain('class="main-nav"');
-      expect(res.body).toContain('href="/dashboard"');
+      expect(res.status).toBe(302);
+      expect(res.headers?.Location).toBe('/analytics');
+    });
+
+    it('redirects even without a cookie (no 404)', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler({ method: 'GET', url: '/dashboard' });
+      expect(res.status).toBe(302);
+      expect(res.headers?.Location).toBe('/analytics');
     });
   });
 
@@ -392,7 +419,7 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('Where You Stand');
     });
 
-    it('returns 200 with dashboard content (same as /dashboard)', async () => {
+    it('returns 200 with analytics content (same as /analytics)', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(withCookie({ method: 'GET', url: '/assess' }));
       expect(res.body).toContain('Your Next Session');
@@ -629,12 +656,12 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('catalog-table');
     });
 
-    it('returns 500 with readable message on storage error for dashboard', async () => {
+    it('returns 500 with readable message on storage error for analytics', async () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
       const res = await handler(
-        withCookie({ method: 'GET', url: '/dashboard' }),
+        withCookie({ method: 'GET', url: '/analytics' }),
       );
       expect(res.status).toBe(500);
       expect(res.body).toContain('Storage error');
@@ -667,13 +694,13 @@ describe('createAssessHandler', () => {
     });
   });
 
-  describe('dashboard completed problems', () => {
-    it('shows completed problems when notes marked complete', async () => {
+  describe('analytics status breakdown', () => {
+    it('reflects completed problems in the status breakdown', async () => {
       const { LocalFileStorageAdapter } = await import('@ibai/storage');
       const { createCatalogSource } = await import('@ibai/curriculum');
 
       const adapter = new LocalFileStorageAdapter(testDataDir!);
-      // Mark a problem as complete (lc-3 is the first problem in the catalog)
+      // Mark a problem as complete (lc-3 is a problem in the catalog)
       await adapter.writeIntuitionNote({
         problemId: 'lc-3',
         content: 'My solution',
@@ -689,29 +716,61 @@ describe('createAssessHandler', () => {
 
       const res = await handler({
         method: 'GET',
-        url: '/dashboard',
+        url: '/analytics',
         headers: {
           cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
         },
       });
 
       expect(res.status).toBe(200);
-      expect(res.body).toContain('Completed (1)');
-      expect(res.body).toContain(
-        'Longest Substring Without Repeating Characters',
-      ); // Problem title for lc-3
+      // Real charts, not a bare word dump.
+      expect(res.body).toContain('<svg');
+      expect(res.body).toContain('Status breakdown');
+      expect(res.body).toContain('analytics-table');
+      expect(res.body).toContain('Done');
+      expect(res.body).toContain('Total tracked');
     });
 
-    it('shows empty state when no problems completed', async () => {
+    it('reflects to_revisit status in the breakdown', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+      const { createCatalogSource } = await import('@ibai/curriculum');
+
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-3',
+        content: 'Need another pass',
+        lastUpdated: new Date().toISOString(),
+        status: 'to_revisit',
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        catalog: createCatalogSource(),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/analytics',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('<svg');
+      expect(res.body).toContain('To revisit');
+    });
+
+    it('shows friendly empty state when nothing tracked', async () => {
       const { handler } = createFakeHandler();
 
       const res = await handler(
-        withCookie({ method: 'GET', url: '/dashboard' }),
+        withCookie({ method: 'GET', url: '/analytics' }),
       );
 
       expect(res.status).toBe(200);
-      expect(res.body).toContain('Completed (0)');
-      expect(res.body).toContain('No problems marked as complete yet');
+      expect(res.body).toContain('No data yet');
     });
   });
 

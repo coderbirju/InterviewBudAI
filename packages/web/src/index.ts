@@ -27,7 +27,11 @@ export {
   renderAssessmentHtml,
   renderAssessmentJson,
   renderPlanJson,
-  renderDashboardHtml,
+  renderAnalyticsHtml,
+  computeProficiencyBars,
+  computeStatusCounts,
+  renderProficiencySvg,
+  renderStatusBreakdownSvg,
   renderCoachResult,
   renderCoachJson,
   renderInterviewStep,
@@ -39,6 +43,11 @@ export {
   renderSetupSuccessHtml,
   renderSetupErrorHtml,
   render404Html,
+} from './render.js';
+export type {
+  ProficiencyBar,
+  StatusCounts,
+  CompletedProblem,
 } from './render.js';
 
 // Handler
