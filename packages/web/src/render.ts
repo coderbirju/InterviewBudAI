@@ -978,8 +978,26 @@ export function getCommonStyles(): string {
       margin-bottom: 2rem;
       border-radius: 8px;
       display: flex;
-      justify-content: center;
-      gap: 2rem;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .nav-wordmark {
+      font-weight: 700;
+      font-size: 1.25rem;
+      text-decoration: none;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
     }
 
     .main-nav a {
@@ -991,14 +1009,165 @@ export function getCommonStyles(): string {
       transition: color 0.15s ease, background-color 0.15s ease;
     }
 
-    .main-nav a:hover {
+    .nav-links a:hover {
       color: var(--text-primary);
       background-color: var(--bg-card);
     }
 
-    .main-nav a.active {
+    .nav-links a.active {
       color: var(--accent-blue);
       background-color: var(--bg-card);
+    }
+
+    /* Shared catalog table (home + /catalog) */
+    .topic-nav {
+      background-color: var(--bg-secondary);
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 2rem;
+      line-height: 1.8;
+    }
+
+    .topic-nav a {
+      color: var(--accent-blue);
+      text-decoration: none;
+      margin: 0 0.25rem;
+    }
+
+    .topic-nav a:hover {
+      text-decoration: underline;
+    }
+
+    .topic-section {
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .topic-section h3 {
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+    }
+
+    .problem-count {
+      color: var(--text-muted);
+      font-weight: normal;
+      font-size: 0.9rem;
+    }
+
+    .catalog-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .catalog-table th,
+    .catalog-table td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .catalog-table th {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .catalog-table a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+
+    .catalog-table a:hover {
+      text-decoration: underline;
+    }
+
+    .difficulty-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: white;
+      text-transform: capitalize;
+    }
+
+    /* Per-row status badges */
+    .status-badge {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: white;
+    }
+
+    .status-badge.status-done {
+      background-color: var(--accent-green);
+    }
+
+    .status-badge.status-revisit {
+      background-color: var(--accent-yellow);
+      color: #1f2937;
+    }
+
+    .status-badge.status-confused {
+      background-color: var(--accent-red);
+    }
+
+    .status-badge.status-none {
+      background-color: transparent;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* Catalog CTA banner */
+    .cta-banner {
+      background-color: var(--bg-secondary);
+      padding: 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .cta-banner.highlight {
+      border: 2px solid var(--accent-blue);
+      background-color: rgba(59, 130, 246, 0.1);
+    }
+
+    .cta-link {
+      display: inline-block;
+      background-color: var(--accent-blue);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+      margin: 0.5rem;
+    }
+
+    .cta-link:hover {
+      opacity: 0.9;
+    }
+
+    .cta-note {
+      margin-top: 0.75rem;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .cta-note code {
+      background-color: var(--bg-card);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+    }
+
+    /* Home top action bar */
+    .home-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
     }
 
     /* Home page styles */
@@ -1138,83 +1307,184 @@ export function getCommonStyles(): string {
 
 /**
  * Render the main navigation bar.
+ *
+ * The left side carries the "InterviewBudAI" wordmark (shown on every page,
+ * since the nav is shared). The right side carries the navigation links.
+ * Catalog is intentionally NOT a separate nav item: the home page ("/") now
+ * surfaces the problem catalog directly (Milestone A3), so Home and Catalog
+ * would be redundant. The standalone /catalog route is still served.
+ *
  * @param activeRoute The current route path to mark as active
  */
 export function renderNav(activeRoute: string): string {
   const links = [
     { href: '/', label: 'Home' },
-    { href: '/catalog', label: 'Catalog' },
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/coach', label: 'Interview' },
   ];
 
+  const linksHtml = links
+    .map((link) => {
+      const isActive = link.href === activeRoute;
+      return `<a href="${link.href}"${isActive ? ' class="active" aria-current="page"' : ''}>${escapeHtml(link.label)}</a>`;
+    })
+    .join('');
+
   return `<nav class="main-nav" role="navigation" aria-label="Main navigation">
-    ${links
-      .map((link) => {
-        const isActive = link.href === activeRoute;
-        return `<a href="${link.href}"${isActive ? ' class="active" aria-current="page"' : ''}>${escapeHtml(link.label)}</a>`;
-      })
-      .join('')}
+    <a href="/" class="nav-wordmark">InterviewBudAI</a>
+    <div class="nav-links">
+      ${linksHtml}
+    </div>
   </nav>`;
 }
 
 /**
- * Render the home/landing page HTML.
- * Three states:
- * 1. !dbExists: No database - show "Create your database" CTA
- * 2. dbExists && (view===null || view.topicsTracked===0): Database ready but empty - show "start practicing" message
- * 3. dbExists && view.topicsTracked>0: Database with data - show progress summary
- * @param view AssessmentView or null for empty/error state
- * @param dbExists Whether the data directory exists on disk
+ * Map a {@link NoteStatus} to a human-readable badge label + CSS modifier
+ * class. `'none'` yields no badge (returns empty string from
+ * {@link renderStatusBadge}).
+ */
+const STATUS_BADGE_META: Record<
+  NoteStatus,
+  { readonly label: string; readonly cls: string }
+> = {
+  none: { label: '', cls: '' },
+  done: { label: 'Done', cls: 'status-done' },
+  to_revisit: { label: 'To revisit', cls: 'status-revisit' },
+  did_not_understand: { label: 'Did not understand', cls: 'status-confused' },
+};
+
+/**
+ * Render a per-problem status badge from a resolved {@link NoteStatus}.
+ * Returns an empty string for `'none'` so rows without a status stay clean.
+ * The label is a fixed constant (not user input) but escaped defensively.
+ */
+export function renderStatusBadge(status: NoteStatus): string {
+  const meta = STATUS_BADGE_META[status];
+  if (!meta || !meta.label) return '';
+  return `<span class="status-badge ${meta.cls}">${escapeHtml(meta.label)}</span>`;
+}
+
+/**
+ * Render the shared, grouped-by-topic catalog table used by both the home page
+ * (Milestone A3) and the standalone /catalog page.
+ *
+ * @param problems - The catalog problems to render.
+ * @param statusById - Resolved {@link NoteStatus} per problem id. Missing ids
+ *   are treated as `'none'`. Callers pass an empty map when no DB is available.
+ */
+export function renderCatalogTable(
+  problems: readonly Problem[],
+  statusById: ReadonlyMap<string, NoteStatus> = new Map(),
+): string {
+  // Group problems by topic
+  const byTopic = new Map<string, Problem[]>();
+  for (const problem of problems) {
+    for (const topic of problem.topics) {
+      const list = byTopic.get(topic) ?? [];
+      list.push(problem);
+      byTopic.set(topic, list);
+    }
+  }
+
+  // Sort topics alphabetically
+  const sortedTopics = Array.from(byTopic.keys()).sort();
+
+  // Build navigation links
+  const navLinks = sortedTopics
+    .map(
+      (topic) =>
+        `<a href="#topic-${escapeHtml(topicToSlug(topic))}">${escapeHtml(topic)}</a>`,
+    )
+    .join(' | ');
+
+  const topicSections = sortedTopics
+    .map((topic) => {
+      const topicProblems = byTopic.get(topic) ?? [];
+      const slug = topicToSlug(topic);
+
+      const rows = topicProblems
+        .map((p) => {
+          const badgeColor = difficultyColor(p.difficulty);
+          const status = statusById.get(p.id) ?? 'none';
+          const statusBadge = renderStatusBadge(status);
+          return `
+        <tr>
+          <td>${escapeHtml(p.title)}</td>
+          <td>${statusBadge || '<span class="status-badge status-none">—</span>'}</td>
+          <td><span class="difficulty-badge" style="background-color: ${badgeColor}">${escapeHtml(p.difficulty)}</span></td>
+          <td><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">LeetCode</a></td>
+          <td><a href="/notes/${escapeHtml(p.id)}">Notes</a></td>
+        </tr>`;
+        })
+        .join('');
+
+      return `
+      <section class="topic-section" id="topic-${escapeHtml(slug)}">
+        <h3>${escapeHtml(topic)} <span class="problem-count">(${topicProblems.length})</span></h3>
+        <table class="catalog-table">
+          <thead>
+            <tr>
+              <th>Problem</th>
+              <th>Status</th>
+              <th>Difficulty</th>
+              <th>Link</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </section>`;
+    })
+    .join('');
+
+  return `
+    <nav class="topic-nav">
+      <strong>Topics:</strong> ${navLinks}
+    </nav>
+    ${topicSections}`;
+}
+
+/**
+ * Render the home/landing page HTML (Milestone A).
+ *
+ * Two states:
+ * 1. `!dbExists`: no database — show a "Create your database" start CTA
+ *    (links to /setup). The catalog table is not shown.
+ * 2. `dbExists`: the home page IS the catalog — the grouped-by-topic problem
+ *    table is rendered directly on "/", each row carrying its resolved
+ *    {@link NoteStatus} badge, plus a "Continue practicing" top action.
+ *
+ * The big body `<h1>`/tagline are gone (A1) — the "InterviewBudAI" wordmark
+ * lives in the shared nav. The two action-button cards are gone (A2):
+ * "Continue practicing" is a top action; "Interview with AI" is reachable via
+ * the nav "Interview" link only.
+ *
+ * @param dbExists Whether the data directory exists on disk.
+ * @param problems The catalog problems (rendered only when `dbExists`).
+ * @param statusById Resolved {@link NoteStatus} per problem id (missing → none).
  */
 export function renderHomeHtml(
-  view: AssessmentView | null,
   dbExists: boolean,
+  problems: readonly Problem[] = [],
+  statusById: ReadonlyMap<string, NoteStatus> = new Map(),
 ): string {
-  let progressSection: string;
+  let mainSection: string;
 
   if (!dbExists) {
-    // State 1: No database - show create prompt
-    progressSection = `<div class="empty-state-cta">
-        <p>Create your database to start tracking progress</p>
+    // State 1: No database - show create prompt (start CTA).
+    mainSection = `<div class="empty-state-cta">
+        <p>Create your database to start tracking your progress across the problem catalog.</p>
         <a href="/setup" class="setup-link">Create your database</a>
       </div>`;
-  } else if (view === null || view.topicsTracked === 0) {
-    // State 2: Database exists but empty - show ready message with catalog CTA
-    progressSection = `<div class="cta-banner">
-        <h2>Your database is ready</h2>
-        <p>Start practicing and your progress will appear here as you add intuitions.</p>
-        <a href="/catalog" class="cta-link">Continue practicing</a>
-      </div>`;
   } else {
-    // State 3: Database with data - show progress summary
-    progressSection = `<div class="progress-summary">
-        <h2>Your Progress</h2>
-        <div class="progress-cards">
-          <div class="progress-card">
-            <div class="label">Topics tracked</div>
-            <div class="value">${view.topicsTracked}</div>
-          </div>
-          ${
-            view.topStrengths.length > 0
-              ? `
-          <div class="progress-card">
-            <div class="label">Top strength</div>
-            <div class="value">${escapeHtml(view.topStrengths[0]?.topicId ?? '')}</div>
-          </div>`
-              : ''
-          }
-          ${
-            view.focusAreas.length > 0
-              ? `
-          <div class="progress-card">
-            <div class="label">Focus area</div>
-            <div class="value">${escapeHtml(view.focusAreas[0]?.topicId ?? '')}</div>
-          </div>`
-              : ''
-          }
-        </div>
-      </div>`;
+    // State 2: Database configured - home IS the catalog.
+    mainSection = `
+      <div class="home-actions">
+        <a href="/coach" class="action-btn">Continue practicing</a>
+      </div>
+      ${renderCatalogTable(problems, statusById)}`;
   }
 
   return `<!DOCTYPE html>
@@ -1229,18 +1499,7 @@ export function renderHomeHtml(
   <div class="container">
     ${renderNav('/')}
 
-    <div class="hero">
-      <h1>InterviewBudAI</h1>
-      <p class="tagline">Your AI-powered interview preparation companion</p>
-    </div>
-
-    <div class="action-buttons">
-      <a href="/catalog" class="action-btn">Continue practicing</a>
-      <a href="/coach" class="action-btn secondary">Interview with AI</a>
-    </div>
-    <p class="interview-note">AI interview requires a configured model</p>
-
-    ${progressSection}
+    ${mainSection}
 
     <footer>
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
@@ -1844,68 +2103,15 @@ export function renderCatalogHtml(
   defaultDataDir: string,
   completedIds: ReadonlySet<string> = new Set(),
 ): string {
-  // Group problems by topic
-  const byTopic = new Map<string, Problem[]>();
-  for (const problem of problems) {
-    for (const topic of problem.topics) {
-      const list = byTopic.get(topic) ?? [];
-      list.push(problem);
-      byTopic.set(topic, list);
-    }
+  // Map the legacy completedIds set into a status map for the shared table.
+  // Completed problems resolve to the 'done' badge; the standalone catalog
+  // page thus shows the same status column as the home page.
+  const statusById = new Map<string, NoteStatus>();
+  for (const id of completedIds) {
+    statusById.set(id, 'done');
   }
 
-  // Sort topics alphabetically
-  const sortedTopics = Array.from(byTopic.keys()).sort();
-
-  // Build navigation links
-  const navLinks = sortedTopics
-    .map(
-      (topic) =>
-        `<a href="#topic-${escapeHtml(topicToSlug(topic))}">${escapeHtml(topic)}</a>`,
-    )
-    .join(' | ');
-
-  // Build topic sections
-  const topicSections = sortedTopics
-    .map((topic) => {
-      const topicProblems = byTopic.get(topic) ?? [];
-      const slug = topicToSlug(topic);
-
-      const rows = topicProblems
-        .map((p) => {
-          const badgeColor = difficultyColor(p.difficulty);
-          const doneMarker = completedIds.has(p.id)
-            ? '<span class="done-marker" title="Completed">✓ done</span>'
-            : '';
-          return `
-        <tr>
-          <td>${escapeHtml(p.title)} ${doneMarker}</td>
-          <td><span class="difficulty-badge" style="background-color: ${badgeColor}">${escapeHtml(p.difficulty)}</span></td>
-          <td><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">LeetCode</a></td>
-          <td><a href="/notes/${escapeHtml(p.id)}">Notes</a></td>
-        </tr>`;
-        })
-        .join('');
-
-      return `
-      <section class="topic-section" id="topic-${escapeHtml(slug)}">
-        <h3>${escapeHtml(topic)} <span class="problem-count">(${topicProblems.length})</span></h3>
-        <table class="catalog-table">
-          <thead>
-            <tr>
-              <th>Problem</th>
-              <th>Difficulty</th>
-              <th>Link</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-      </section>`;
-    })
-    .join('');
+  const catalogTable = renderCatalogTable(problems, statusById);
 
   // Build CTA for new users
   const ctaHtml = hasCookie
@@ -1924,147 +2130,15 @@ export function renderCatalogHtml(
   <title>InterviewBudAI - Problem Catalog</title>
   <style>
     ${getCommonStyles()}
-
-    /* Hide main-nav .catalog-link underline - topic-nav is different */
-    .topic-nav {
-      background-color: var(--bg-secondary);
-      padding: 1rem;
-      border-radius: 8px;
-      margin-bottom: 2rem;
-      line-height: 1.8;
-    }
-    
-    .topic-nav a {
-      color: var(--accent-blue);
-      text-decoration: none;
-      margin: 0 0.25rem;
-    }
-    
-    .topic-nav a:hover {
-      text-decoration: underline;
-    }
-    
-    .topic-section {
-      background-color: var(--bg-secondary);
-      border-radius: 12px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-    
-    .topic-section h3 {
-      margin-bottom: 1rem;
-      color: var(--text-primary);
-    }
-    
-    .problem-count {
-      color: var(--text-muted);
-      font-weight: normal;
-      font-size: 0.9rem;
-    }
-    
-    .catalog-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    
-    .catalog-table th,
-    .catalog-table td {
-      padding: 0.75rem;
-      text-align: left;
-      border-bottom: 1px solid var(--border-color);
-    }
-    
-    .catalog-table th {
-      color: var(--text-secondary);
-      font-weight: 500;
-    }
-    
-    .catalog-table a {
-      color: var(--accent-blue);
-      text-decoration: none;
-    }
-    
-    .catalog-table a:hover {
-      text-decoration: underline;
-    }
-    
-    .difficulty-badge {
-      display: inline-block;
-      padding: 0.25rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: white;
-      text-transform: capitalize;
-    }
-    
-    .done-marker {
-      display: inline-block;
-      margin-left: 0.5rem;
-      padding: 0.125rem 0.375rem;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 500;
-      color: #22c55e;
-      background-color: rgba(34, 197, 94, 0.1);
-    }
-    
-    .cta-banner {
-      background-color: var(--bg-secondary);
-      padding: 1.5rem;
-      border-radius: 12px;
-      margin-bottom: 2rem;
-      text-align: center;
-    }
-    
-    .cta-banner.highlight {
-      border: 2px solid var(--accent-blue);
-      background-color: rgba(59, 130, 246, 0.1);
-    }
-    
-    .cta-link {
-      display: inline-block;
-      background-color: var(--accent-blue);
-      color: white;
-      padding: 0.75rem 1.5rem;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: 500;
-      margin: 0.5rem;
-    }
-    
-    .cta-link:hover {
-      opacity: 0.9;
-    }
-    
-    .cta-note {
-      margin-top: 0.75rem;
-      color: var(--text-secondary);
-      font-size: 0.9rem;
-    }
-    
-    .cta-note code {
-      background-color: var(--bg-card);
-      padding: 0.2rem 0.4rem;
-      border-radius: 4px;
-    }
   </style>
 </head>
 <body>
   <div class="container">
-    ${renderNav('/catalog')}
-    <header>
-      <h1>InterviewBudAI</h1>
-      <p class="tagline">Problem Catalog - ${problems.length} curated problems</p>
-    </header>
+    ${renderNav('/')}
     
     ${ctaHtml}
     
-    <nav class="topic-nav">
-      <strong>Topics:</strong> ${navLinks}
-    </nav>
-    
-    ${topicSections}
+    ${catalogTable}
     
     <footer>
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>

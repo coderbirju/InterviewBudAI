@@ -22,6 +22,10 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 |---|---|---|
 | B1 — Status field data model (`NoteStatus` + `IntuitionNote.status`) | 🟡 PR open | `feature/status-tags` — additive `export type NoteStatus = 'none' \| 'done' \| 'to_revisit' \| 'did_not_understand'`; `status?` on IntuitionNote; `completed` kept for back-compat and kept consistent (`'done'` ⇔ `completed:true`); `resolveNoteStatus`/`isNoteStatus` helpers exported. LocalFileStorageAdapter persists/parses `status` in frontmatter (tolerant: missing→undefined, unknown→ignored, legacy `completed:true`→`done`, no throw). |
 | B2 — Notes editor status selector (`/notes/<id>`) | 🟡 PR open | `feature/status-tags` — checkbox replaced by a `<select>` (None / Done / To revisit / Did not understand), pre-filled from saved `status` (falls back to `completed`); POST parses status, saves it, keeps `completed` consistent. Catalog ✓ marker + dashboard count still driven by `completed` (Done keeps it true). Scope limited to data model + notes editor (Milestone A/C own home/catalog/dashboard). |
+| A1 — De-clutter header (wordmark in nav) | 🟡 PR open | `feature/home-revamp` — removed the big body `<h1>`/tagline; `InterviewBudAI` is now a left-side wordmark in the shared `renderNav` (every page). Tagline dropped. |
+| A2 — Actions (top button; Interview nav-only) | 🟡 PR open | `feature/home-revamp` — "Continue practicing" is a top action-bar button; "Interview with AI" body button removed (reachable via nav "Interview" only); both big action cards removed. |
+| A3 — Home = catalog | 🟡 PR open | `feature/home-revamp` — GET `/` renders the grouped-by-topic catalog table directly when a DB is configured; create-database CTA when not. Shared `renderCatalogTable` reused by home + standalone `/catalog`; Catalog dropped from nav. |
+| A4 — Per-row status badges | 🟡 PR open | `feature/home-revamp` — each home row shows a status badge via `resolveNoteStatus` (Done green / To revisit amber / Did not understand red / none). Read-only, safe with no DB. Verified live (seeded `to_revisit` → badge appears). |
 
 ## Milestone: Foundation
 

@@ -318,7 +318,7 @@ describe('onboarding routing', () => {
     expect(res.body).toContain('Create your database');
   });
 
-  it('GET / with cookie returns home page with action buttons', async () => {
+  it('GET / with cookie (db configured) shows the catalog table + Continue practicing', async () => {
     // Create a temp dir for the cookie to point to
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-cookie-'));
 
@@ -326,6 +326,7 @@ describe('onboarding routing', () => {
       const deps: CoachHandlerDeps = {
         storage: createMockStorage(),
         createStorage: () => createMockStorage(),
+        catalog: createCatalogSource(),
       };
       const handler = createCoachHandler(deps);
 
@@ -340,8 +341,16 @@ describe('onboarding routing', () => {
 
       expect(res.status).toBe(200);
       expect(res.contentType).toBe('text/html; charset=utf-8');
+      // Home IS the catalog when a db is configured (A3): table + top action.
       expect(res.body).toContain('Continue practicing');
-      expect(res.body).toContain('Interview with AI');
+      expect(res.body).toContain('catalog-table');
+      expect(res.body).toContain('>Notes</a>');
+      // "Interview with AI" is NOT a body button anymore (A2) — nav-only.
+      expect(res.body).not.toContain('Interview with AI');
+      // Big body header/tagline are gone (A1).
+      expect(res.body).not.toContain(
+        'Your AI-powered interview preparation companion',
+      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

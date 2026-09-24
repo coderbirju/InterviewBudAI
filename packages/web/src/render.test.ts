@@ -1,11 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import type { AssessmentView, SessionPlan } from '@ibai/core';
+import type { Problem } from '@ibai/curriculum';
+import type { NoteStatus } from '@ibai/storage';
 import {
   escapeHtml,
   renderAssessmentJson,
   renderPlanJson,
   renderDashboardHtml,
   renderAssessmentHtml,
+  renderStatusBadge,
+  renderCatalogTable,
+  renderHomeHtml,
 } from './render.js';
 
 describe('escapeHtml', () => {
@@ -289,5 +294,126 @@ describe('renderAssessmentHtml (legacy)', () => {
     const html = renderAssessmentHtml(view);
     expect(html).toContain('Where You Stand');
     // Note: deprecated function only shows assessment, not plan section
+  });
+});
+
+describe('renderStatusBadge (A4)', () => {
+  it('renders nothing for none', () => {
+    expect(renderStatusBadge('none')).toBe('');
+  });
+
+  it('renders a green Done badge', () => {
+    const html = renderStatusBadge('done');
+    expect(html).toContain('status-done');
+    expect(html).toContain('Done');
+  });
+
+  it('renders an amber To revisit badge', () => {
+    const html = renderStatusBadge('to_revisit');
+    expect(html).toContain('status-revisit');
+    expect(html).toContain('To revisit');
+  });
+
+  it('renders a red Did not understand badge', () => {
+    const html = renderStatusBadge('did_not_understand');
+    expect(html).toContain('status-confused');
+    expect(html).toContain('Did not understand');
+  });
+});
+
+describe('renderCatalogTable (A3/A4)', () => {
+  const problems: readonly Problem[] = [
+    {
+      id: 'p-1',
+      title: 'Two Sum',
+      url: 'https://example.com/two-sum',
+      difficulty: 'easy',
+      topics: ['arrays'],
+    },
+    {
+      id: 'p-2',
+      title: 'Binary Search',
+      url: 'https://example.com/bsearch',
+      difficulty: 'medium',
+      topics: ['binary-search'],
+    },
+  ];
+
+  it('groups by topic and renders rows with Notes links', () => {
+    const html = renderCatalogTable(problems);
+    expect(html).toContain('catalog-table');
+    expect(html).toContain('Two Sum');
+    expect(html).toContain('arrays');
+    expect(html).toContain('binary-search');
+    expect(html).toContain('/notes/p-1');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener"');
+  });
+
+  it('shows a status badge for a problem that has a status', () => {
+    const statusById = new Map<string, NoteStatus>([['p-1', 'to_revisit']]);
+    const html = renderCatalogTable(problems, statusById);
+    expect(html).toContain('status-revisit');
+    expect(html).toContain('To revisit');
+  });
+
+  it('escapes XSS in titles', () => {
+    const xss: readonly Problem[] = [
+      {
+        id: 'x',
+        title: '<script>alert(1)</script>',
+        url: 'https://example.com/x',
+        difficulty: 'easy',
+        topics: ['t'],
+      },
+    ];
+    const html = renderCatalogTable(xss);
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('renderHomeHtml (A1/A2/A3)', () => {
+  const problems: readonly Problem[] = [
+    {
+      id: 'p-1',
+      title: 'Two Sum',
+      url: 'https://example.com/two-sum',
+      difficulty: 'easy',
+      topics: ['arrays'],
+    },
+  ];
+
+  it('shows create-database CTA when no db', () => {
+    const html = renderHomeHtml(false);
+    expect(html).toContain('Create your database');
+    expect(html).toContain('href="/setup"');
+    // The table element itself is not rendered (the class appears only in CSS).
+    expect(html).not.toContain('<table class="catalog-table"');
+    expect(html).not.toContain('home-actions">');
+  });
+
+  it('shows the catalog table + Continue practicing when db configured', () => {
+    const html = renderHomeHtml(true, problems);
+    expect(html).toContain('catalog-table');
+    expect(html).toContain('Two Sum');
+    expect(html).toContain('Continue practicing');
+    expect(html).toContain('href="/coach"');
+    expect(html).toContain('home-actions');
+  });
+
+  it('has no big body header/tagline and no Interview with AI button (A1/A2)', () => {
+    const html = renderHomeHtml(true, problems);
+    expect(html).not.toContain(
+      'Your AI-powered interview preparation companion',
+    );
+    expect(html).not.toContain('<div class="hero">');
+    expect(html).not.toContain('Interview with AI');
+  });
+
+  it('nav carries the InterviewBudAI wordmark', () => {
+    const html = renderHomeHtml(true, problems);
+    expect(html).toContain('nav-wordmark');
+    expect(html).toContain('>InterviewBudAI</a>');
   });
 });
