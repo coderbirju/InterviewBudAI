@@ -9,66 +9,66 @@ import {
 } from './router';
 
 describe('router.parseRoute', () => {
-  it('resolves the app base and trailing slash to home', () => {
-    expect(parseRoute('/app')).toEqual({ kind: 'home' });
-    expect(parseRoute('/app/')).toEqual({ kind: 'home' });
+  it('resolves the root and trailing slash to home', () => {
+    expect(parseRoute('/')).toEqual({ kind: 'home' });
+    expect(parseRoute('')).toEqual({ kind: 'home' });
   });
 
   it('parses a notes route with a problem id', () => {
-    expect(parseRoute('/app/notes/two-sum')).toEqual({
+    expect(parseRoute('/notes/two-sum')).toEqual({
       kind: 'notes',
       problemId: 'two-sum',
     });
   });
 
   it('parses the analytics route', () => {
-    expect(parseRoute('/app/analytics')).toEqual({ kind: 'analytics' });
-    expect(parseRoute('/app/analytics/')).toEqual({ kind: 'analytics' });
+    expect(parseRoute('/analytics')).toEqual({ kind: 'analytics' });
+    expect(parseRoute('/analytics/')).toEqual({ kind: 'analytics' });
   });
 
   it('parses the interview route', () => {
-    expect(parseRoute('/app/interview')).toEqual({ kind: 'interview' });
-    expect(parseRoute('/app/interview/')).toEqual({ kind: 'interview' });
+    expect(parseRoute('/interview')).toEqual({ kind: 'interview' });
+    expect(parseRoute('/interview/')).toEqual({ kind: 'interview' });
   });
 
   it('falls back to home for an interview path with extra segments', () => {
-    expect(parseRoute('/app/interview/extra')).toEqual({ kind: 'home' });
+    expect(parseRoute('/interview/extra')).toEqual({ kind: 'home' });
   });
 
   it('falls back to home for an analytics path with extra segments', () => {
-    expect(parseRoute('/app/analytics/extra')).toEqual({ kind: 'home' });
+    expect(parseRoute('/analytics/extra')).toEqual({ kind: 'home' });
   });
 
   it('decodes an encoded problem id segment', () => {
-    expect(parseRoute('/app/notes/a%2Fb')).toEqual({
+    expect(parseRoute('/notes/a%2Fb')).toEqual({
       kind: 'notes',
       problemId: 'a/b',
     });
   });
 
   it('falls back to home for a notes path with no id or an unknown path', () => {
-    expect(parseRoute('/app/notes')).toEqual({ kind: 'home' });
-    expect(parseRoute('/app/notes/')).toEqual({ kind: 'home' });
-    expect(parseRoute('/app/something-else')).toEqual({ kind: 'home' });
+    expect(parseRoute('/notes')).toEqual({ kind: 'home' });
+    expect(parseRoute('/notes/')).toEqual({ kind: 'home' });
+    expect(parseRoute('/something-else')).toEqual({ kind: 'home' });
   });
 });
 
 describe('router href helpers', () => {
-  it('builds an /app-based, encoded notes href', () => {
-    expect(notesHref('two-sum')).toBe('/app/notes/two-sum');
-    expect(notesHref('a/b')).toBe('/app/notes/a%2Fb');
+  it('builds a root-relative, encoded notes href', () => {
+    expect(notesHref('two-sum')).toBe('/notes/two-sum');
+    expect(notesHref('a/b')).toBe('/notes/a%2Fb');
   });
 
-  it('builds the /app-based analytics href', () => {
-    expect(analyticsHref()).toBe('/app/analytics');
+  it('builds the root-relative analytics href', () => {
+    expect(analyticsHref()).toBe('/analytics');
   });
 
-  it('builds the /app-based interview href', () => {
-    expect(interviewHref()).toBe('/app/interview');
+  it('builds the root-relative interview href', () => {
+    expect(interviewHref()).toBe('/interview');
   });
 
-  it('homeHref is the app base', () => {
-    expect(homeHref()).toBe(APP_BASE);
-    expect(APP_BASE).toBe('/app');
+  it('homeHref is the site root and APP_BASE is empty', () => {
+    expect(homeHref()).toBe('/');
+    expect(APP_BASE).toBe('');
   });
 });

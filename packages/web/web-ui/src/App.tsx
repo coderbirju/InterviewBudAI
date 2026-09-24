@@ -21,15 +21,14 @@ import type { Route } from './lib/router';
 /**
  * App shell (nav + wordmark, ADR 0006) hosting the SPA views.
  *
- * M2 rendered Home only; M3 added the notes editor at `/app/notes/<id>`; M4
- * adds the analytics/charts page at `/app/analytics`; M5 adds the interview
- * chat at `/app/interview`. Views are selected by the tiny client-side router
- * (`lib/router`, React built-ins + History API only, no routing dependency).
+ * M2 rendered Home only; M3 added the notes editor at `/notes/<id>`; M4 added
+ * the analytics/charts page at `/analytics`; M5 added the interview chat at
+ * `/interview`. Views are selected by the tiny client-side router (`lib/router`,
+ * React built-ins + History API only, no routing dependency).
  *
- * Nav: Home, Analytics, and Interview are all SPA routes now (client-side nav,
- * active-state from the current route). M5 moved Interview off the
- * server-rendered `/coach` (which stays until M6). M6 makes the SPA the real
- * `/`.
+ * M6: the SPA is the whole app, served at the site root. Home, Interview, and
+ * Analytics are all SPA routes (client-side nav, active-state from the current
+ * route).
  */
 interface NavLink {
   readonly label: string;
