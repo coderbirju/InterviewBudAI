@@ -62,3 +62,6 @@ export type {
 // Server
 export { startServer } from './server.js';
 export type { ServerHandle, StartServerOptions } from './server.js';
+
+// SPA (React bundle served at /app — ADR 0006)
+export { isAppRoute, bundleExists, handleAppRoute } from './spa.js';

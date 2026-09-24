@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      LOCAL-FIRST (ADR 0006 D3): no external CDN/font/script links here.
+      Vite injects only the local, same-origin bundled JS/CSS at build time.
+      Tailwind is compiled to a static CSS file; lucide-react is bundled into JS.
+    -->
+    <title>InterviewBudAI</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
