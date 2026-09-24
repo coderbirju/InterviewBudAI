@@ -69,6 +69,41 @@ export interface NoteResponse {
   readonly completed: boolean;
 }
 
+/**
+ * A fully-resolved saved note (GET /api/notes/:id when a DB is configured, and
+ * the POST /api/notes/:id response). Mirrors the server `ApiNoteResponse`:
+ * `content` is always a string; the two complexity fields and `lastUpdated` are
+ * `null` when unset. A never-saved problem yields an empty note (status 'none').
+ */
+export interface FullNote {
+  readonly problemId: string;
+  readonly content: string;
+  readonly status: NoteStatus;
+  readonly completed: boolean;
+  readonly timeComplexity: string | null;
+  readonly spaceComplexity: string | null;
+  readonly lastUpdated: string | null;
+}
+
+/**
+ * GET /api/notes/:id result, discriminated on DB state:
+ *  - `{ dbConfigured: false }` when no database is configured (server returns
+ *    this instead of a note), so the page can show the create-DB call-to-action;
+ *  - a `FullNote` (implicitly `dbConfigured: true`) otherwise.
+ * An unknown problem id is a 404 and surfaces as an `ApiError` (status 404).
+ */
+export type NoteFetchResult =
+  | { readonly dbConfigured: false }
+  | ({ readonly dbConfigured?: true } & FullNote);
+
+/** Fields the notes editor may persist via POST /api/notes/:id. */
+export interface NoteSaveInput {
+  readonly content?: string;
+  readonly status?: NoteStatus;
+  readonly timeComplexity?: string;
+  readonly spaceComplexity?: string;
+}
+
 /** Thrown when an API call returns a non-2xx status. */
 export class ApiError extends Error {
   constructor(
@@ -129,4 +164,44 @@ export async function postNoteStatus(
     );
   }
   return (await res.json()) as NoteResponse;
+}
+
+/**
+ * GET /api/notes/:id — the saved note for a problem. Returns either a
+ * `{ dbConfigured: false }` marker (no DB configured) or a `FullNote`. Throws
+ * `ApiError(404)` for an unknown problem id so the page can show a friendly
+ * "problem not found" message, and `ApiError` for other non-2xx responses.
+ */
+export async function fetchNote(problemId: string): Promise<NoteFetchResult> {
+  const path = `/api/notes/${encodeURIComponent(problemId)}`;
+  const res = await fetch(path, { headers: { Accept: 'application/json' } });
+  if (!res.ok) {
+    throw new ApiError(`GET ${path} failed (${res.status})`, res.status);
+  }
+  return (await res.json()) as NoteFetchResult;
+}
+
+/**
+ * POST /api/notes/:id — persist the editor fields. Only the provided fields are
+ * sent; the server preserves the rest and keeps `completed` consistent with
+ * `status === 'done'`. Returns the persisted note. Throws `ApiError` on non-2xx
+ * (e.g. 400 when no DB is configured, 404 for an unknown id).
+ */
+export async function saveNote(
+  problemId: string,
+  input: NoteSaveInput,
+): Promise<FullNote> {
+  const path = `/api/notes/${encodeURIComponent(problemId)}`;
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST ${path} failed (${res.status})`, res.status);
+  }
+  return (await res.json()) as FullNote;
 }

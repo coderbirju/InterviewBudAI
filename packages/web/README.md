@@ -8,7 +8,7 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 
 ## React SPA (ADR 0006)
 
-A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0** delivered the toolchain scaffold + styled shell (top nav + `InterviewBudAI` wordmark). **M2** ships the first real feature — the **Home page** (categorized problem list + progress banner) — rendered at the SPA root of `/app`. It is served by the **same** local Node server at the `/app` route, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged. (M6 will make the SPA the real `/`.)
+A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0** delivered the toolchain scaffold + styled shell (top nav + `InterviewBudAI` wordmark). **M2** ships the first real feature — the **Home page** (categorized problem list + progress banner) — rendered at the SPA root of `/app`. **M3** adds the **Notes / intuition editor** at `/app/notes/<id>`, replacing the server-rendered `/notes/<id>` for SPA users. It is served by the **same** local Node server at the `/app` route, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged. (M6 will make the SPA the real `/`.)
 
 ### Home page (M2)
 
@@ -19,12 +19,26 @@ At `/app` the SPA consumes the M1 JSON API and renders:
   - **Status** — an interactive 4-state control (menu: Done / To revisit / Didn't understand / Not started). Selecting a value **optimistically** updates the row, the category badge, and the global bar, then `POST`s to `/api/notes/:id`. On failure it reverts and shows a subtle error. Done rows get an emerald highlight.
   - **Problem** — links out to the LeetCode URL (`target="_blank" rel="noopener noreferrer"`).
   - **Difficulty** — Easy/Medium/Hard badge in the strict token colors.
-  - **Notes** — links to the notes editor at `/notes/<id>` (server-rendered for now; M3 replaces it with the React notes page).
+  - **Notes** — links to the React notes editor at `/app/notes/<id>` (M3). Navigation is client-side (History API), so it opens without a full page reload.
 
   No Solution/Video/Code columns — the project ships no answers (charter §6.2).
 - **States** — if `GET /api/config` reports `dbConfigured:false`, a "Create your database" call-to-action links to `/setup` instead of the list. Loading and API-error states render friendly messages (no crash).
 
-All status is client-side React state (`useState`/`useEffect`) — no router or state library added.
+All Home status is client-side React state (`useState`/`useEffect`). Switching between the Home and Notes views is handled by a tiny in-repo router (`src/lib/router.ts`) built on React built-ins + the History API — **no routing/state library added**.
+
+### Notes editor (M3)
+
+At `/app/notes/<id>` the SPA renders the intuition editor for a single problem, replacing the server-rendered `/notes/<id>` for SPA users:
+
+- **Problem title** — links out to the LeetCode URL (`target="_blank" rel="noopener noreferrer"`) when the catalog lookup resolves; falls back to the problem id as a plain heading otherwise.
+- **Status** — the same interactive 4-state control as Home (Done / To revisit / Didn't understand / Not started), pre-filled from the saved note.
+- **Intuition & approach** — a free-text `textarea`, pre-filled from the saved note.
+- **Time / Space complexity** — two text inputs, pre-filled from the saved note.
+- **Save** — `POST /api/notes/:id` with `{ content, status, timeComplexity, spaceComplexity }`; on success shows a **"Saved"** confirmation, reconciling local state with the server's response. Editing any field clears a stale confirmation.
+- **Back to problems** — a link back to the SPA Home (client-side nav).
+- **States** — no DB configured → a "Create your database" CTA linking `/setup`; unknown problem id (`404`) → a friendly "Problem not found" message; a network/API error → an inline error. None of these crash the page.
+
+Data comes from the M1 API only (`GET /api/notes/:id` for the note, `GET /api/catalog` for the title/url) — the server stays the storage owner. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`.
 
 ### Where the UI lives
 
@@ -35,8 +49,9 @@ packages/web/
     index.html
     src/main.tsx, src/App.tsx, src/index.css
     src/components/  ProgressBanner, CategoryAccordion, ProblemRow,
-                     StatusControl, DifficultyBadge, Home
-    src/lib/         api.ts (typed M1 client), home.ts (pure helpers)
+                     StatusControl, DifficultyBadge, Home, Notes
+    src/lib/         api.ts (typed M1 client), home.ts (pure helpers),
+                     router.ts (minimal History-API router)
     vite.config.ts, vitest.config.ts, tailwind.config.cjs, postcss.config.cjs
   dist-ui/      built SPA bundle (generated, git-ignored)
 ```
@@ -231,7 +246,7 @@ Precedence: CLI flag > environment variable > default.
 | `/dashboard` | GET | 302 | Back-compat redirect to `/analytics` (the page was renamed from Dashboard → Analytics). Old bookmarks keep working. |
 | `/assess` | GET | HTML | Alias for `/analytics` |
 | `/catalog` | GET | HTML | Standalone problem catalog grouped by topic (same table as home) with status, LeetCode, and Notes links |
-| `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. |
+| `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. (SPA users get the React editor at `/app/notes/<id>` — M3; this server-rendered route remains until M6.) |
 | `/notes/<id>` | POST | HTML | Save notes content, status tag, and complexity. Shows 'Saved' banner on success. |
 | `/setup` | GET | HTML | Form to create/select data directory |
 | `/setup` | POST | HTML | Create data directory and set cookie |
