@@ -1,0 +1,72 @@
+import { ExternalLink, FileText } from 'lucide-react';
+import type { CatalogProblem, NoteStatus } from '../lib/api';
+import { DifficultyBadge } from './DifficultyBadge';
+import { StatusControl } from './StatusControl';
+
+/**
+ * A single problem row in a category's table.
+ *
+ * Columns (no Solution/Video/Code — we ship no answers, charter §6.2):
+ *   1. Status — interactive 4-state control (parent handles optimistic + POST)
+ *   2. Title  — links out to the LeetCode url (new tab, noopener)
+ *   3. Difficulty — Easy/Medium/Hard badge
+ *   4. Notes — link to the notes editor for this problem
+ *
+ * A `done` problem gets an emerald row highlight.
+ */
+export function ProblemRow({
+  problem,
+  busy = false,
+  onStatusChange,
+}: {
+  problem: CatalogProblem;
+  busy?: boolean;
+  onStatusChange: (id: string, next: NoteStatus) => void;
+}): JSX.Element {
+  const isDone = problem.status === 'done';
+  return (
+    <tr
+      className={`border-t border-slate-800 transition-all duration-200 ${
+        isDone
+          ? 'bg-emerald-500/5 hover:bg-emerald-500/10'
+          : 'hover:bg-slate-800/40'
+      }`}
+    >
+      <td className="px-4 py-2 align-middle">
+        <StatusControl
+          status={problem.status}
+          busy={busy}
+          onChange={(next) => onStatusChange(problem.id, next)}
+        />
+      </td>
+      <td className="px-4 py-2 align-middle">
+        <a
+          href={problem.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 font-medium text-slate-100 transition-all duration-200 hover:text-emerald-400"
+        >
+          {problem.title}
+          <ExternalLink className="h-3.5 w-3.5 text-slate-500" aria-hidden />
+        </a>
+      </td>
+      <td className="px-4 py-2 align-middle">
+        <DifficultyBadge difficulty={problem.difficulty} />
+      </td>
+      <td className="px-4 py-2 align-middle">
+        {/*
+          M2 links to the existing server-rendered notes editor at /notes/<id>.
+          M3 replaces this with the React notes page.
+        */}
+        <a
+          href={`/notes/${encodeURIComponent(problem.id)}`}
+          className="inline-flex items-center gap-1.5 text-sm text-slate-400 transition-all duration-200 hover:text-emerald-400"
+          aria-label={`Open notes for ${problem.title}`}
+        >
+          <FileText className="h-4 w-4" aria-hidden />
+          Notes
+        </a>
+      </td>
+    </tr>
+  );
+}
