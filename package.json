@@ -12,11 +12,13 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build",
+    "typecheck": "tsc --build && npm run typecheck:ui --workspace=@ibai/web",
+    "typecheck:ui": "npm run typecheck:ui --workspace=@ibai/web",
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "build": "tsc --build",
+    "build": "tsc --build && npm run build:ui --workspace=@ibai/web",
+    "build:ui": "npm run build:ui --workspace=@ibai/web",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run lint && npm run format && npm run build && npm run test",
     "clean": "tsc --build --clean"
@@ -27,6 +29,8 @@
     "@typescript-eslint/parser": "7.16.0",
     "eslint": "8.57.0",
     "eslint-config-prettier": "9.1.0",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "4.6.2",
     "prettier": "3.3.2",
     "typescript": "5.5.3",
     "vitest": "1.6.0"

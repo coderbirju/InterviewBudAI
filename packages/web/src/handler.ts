@@ -40,6 +40,7 @@ import {
   resolveDataDir,
   resolveDataDirWithCookie,
 } from './config.js';
+import { isAppRoute, handleAppRoute } from './spa.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -153,6 +154,20 @@ export function createCoachHandler(
     // Determine route
     const isGet = req.method === 'GET';
     const isPost = req.method === 'POST';
+
+    // /app — the React SPA bundle (ADR 0006 M0). Handled independently of the
+    // existing server-rendered routes so it cannot disrupt them. GET serves the
+    // bundle (or a graceful message if not built); other methods -> 405.
+    if (isAppRoute(pathname)) {
+      if (!isGet) {
+        return {
+          status: 405,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({ error: 'Method not allowed' }),
+        };
+      }
+      return handleAppRoute(pathname);
+    }
 
     // GET routes
     const isAssessJson = isGet && pathname === '/assess.json';

@@ -6,6 +6,55 @@ Locally-hosted web front-end for InterviewBudAI's ASSESS, PLAN, and COACH capabi
 
 This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
 
+## React SPA (M0 scaffold — ADR 0006)
+
+A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0 is a toolchain scaffold only** — a styled shell (top nav + `InterviewBudAI` wordmark), no product features yet. It is served by the **same** local Node server at a **new `/app` route**, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged.
+
+### Where the UI lives
+
+```
+packages/web/
+  src/          existing Node server (tsc build → dist/)  ← unchanged pipeline
+  web-ui/       React SPA source (Vite build → dist-ui/)  ← new, separate pipeline
+    index.html
+    src/main.tsx, src/App.tsx, src/index.css
+    vite.config.ts, tailwind.config.cjs, postcss.config.cjs, tsconfig.json
+  dist-ui/      built SPA bundle (generated, git-ignored)
+```
+
+The server's `tsc` build (`dist/`) and the Vite build (`dist-ui/`) are **separate** so both work independently.
+
+### Build the UI
+
+```bash
+# Build just the SPA bundle (Vite → packages/web/dist-ui/)
+npm run build:ui                     # from repo root
+# or:  npm --workspace @ibai/web run build:ui
+
+# The root build does BOTH the server tsc build and the UI build:
+npm run build                        # tsc --build && build:ui  → server + dist-ui
+```
+
+`npm run build` (and therefore `npm run verify`) produces the servable bundle. After a clean `npm ci`, `npm run verify` compiles the SPA as part of the build step and stays green.
+
+### Run (single server serves /app)
+
+```bash
+npm run build                                   # ensure dist/ and dist-ui/ exist
+npm --workspace @ibai/web run start             # existing server, now also serves /app
+# open http://127.0.0.1:4173/app
+```
+
+If the SPA bundle is absent (you ran the server without `build:ui`), `/app` **degrades gracefully** with a short "run `npm run build:ui`" message and does **not** crash any other route.
+
+### Local-first guarantee
+
+Tailwind is compiled to a **static CSS file at build time** and lucide-react icons are **bundled into the JS**. The served `/app` HTML references only local, same-origin `/app/assets/*` files — **no CDN, no remote fonts, no runtime network**. The SPA is served by the existing localhost-only Node server.
+
+## Overview
+
+This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
+
 ## Provider Required
 
 The AI interview **requires a configured LLM provider**. All processing is local-first; your data never leaves your machine. The only outbound call is to your configured provider.
@@ -112,6 +161,7 @@ Precedence: CLI flag > environment variable > default.
 
 | Path | Method | Format | Description |
 |------|--------|--------|-------------|
+| `/app` | GET | HTML/asset | React SPA (M0 scaffold, ADR 0006). Serves the Vite-built shell + local `/app/assets/*` JS/CSS. Graceful message if the bundle is not built. |
 | `/` | GET | HTML | Home page. With a database configured it renders the problem catalog directly (grouped table + per-row status + "Continue practicing"); with no database it shows the create-database CTA. |
 | `/analytics` | GET | HTML | Analytics page: Where You Stand, Your Next Session, and inline-SVG proficiency + status-breakdown charts (with a table). Friendly empty state when no data. |
 | `/dashboard` | GET | 302 | Back-compat redirect to `/analytics` (the page was renamed from Dashboard → Analytics). Old bookmarks keep working. |
