@@ -114,6 +114,23 @@ export interface WeaknessRegister {
 // ---------------------------------------------------------------------------
 
 /**
+ * A per-note status tag capturing where the user stands on a problem.
+ *
+ * A small, fixed string union — NOT a configurable/custom tag system (that is
+ * explicitly deferred). Values:
+ *  - `'none'`             — no explicit status (default).
+ *  - `'done'`             — the problem is complete/solved.
+ *  - `'to_revisit'`       — the user wants to come back and review it.
+ *  - `'did_not_understand'` — the user did not grasp it yet (maybe-later tag,
+ *    included as it is trivial; UIs MAY choose not to surface it).
+ *
+ * `status` is the PRIMARY completion signal going forward; the legacy
+ * `completed` boolean on {@link IntuitionNote} is kept for back-compat and is
+ * derived from / kept consistent with `status` (`'done'` ⇔ `completed: true`).
+ */
+export type NoteStatus = 'none' | 'done' | 'to_revisit' | 'did_not_understand';
+
+/**
  * A user's intuition/notes for a single curriculum problem.
  *
  * Part of the PROGRESS layer (user-owned, never committed to the repo).
@@ -132,12 +149,64 @@ export interface IntuitionNote {
   readonly lastUpdated: IsoTimestamp;
   /** Optional count of attempts/practice sessions for this problem. */
   readonly attempts?: number;
-  /** Whether the problem is marked as complete/solved. */
+  /**
+   * Whether the problem is marked as complete/solved.
+   *
+   * @remarks
+   * KEPT FOR BACK-COMPAT. `status` (below) is the primary signal going
+   * forward. The two are kept CONSISTENT when saving: `status: 'done'` implies
+   * `completed: true`, and any other status implies `completed: false`. When
+   * reading a legacy note that has `completed: true` but no `status`, the
+   * status resolves to `'done'`. Existing completed-based UI (dashboard count,
+   * catalog ✓ marker) keeps working unchanged.
+   */
   readonly completed?: boolean;
+  /**
+   * The user's status tag for this problem (Done / To revisit / …).
+   *
+   * @remarks
+   * PRIMARY completion signal (see {@link NoteStatus}). Optional and additive:
+   * missing → `undefined`. Kept consistent with {@link IntuitionNote.completed}
+   * on save (`'done'` ⇔ `completed: true`).
+   */
+  readonly status?: NoteStatus;
   /** Time complexity of the solution, e.g. 'O(n)', 'O(n log n)'. */
   readonly timeComplexity?: string;
   /** Space complexity of the solution, e.g. 'O(1)', 'O(n)'. */
   readonly spaceComplexity?: string;
+}
+
+/**
+ * Resolve the effective {@link NoteStatus} for a note, applying back-compat.
+ *
+ * Precedence:
+ *  1. An explicit `status` (a valid {@link NoteStatus}) wins.
+ *  2. Otherwise, a legacy `completed: true` resolves to `'done'`.
+ *  3. Otherwise `'none'`.
+ *
+ * Exported so front-ends (e.g. the notes editor) share one resolution rule.
+ */
+export function resolveNoteStatus(note: {
+  readonly status?: NoteStatus;
+  readonly completed?: boolean;
+}): NoteStatus {
+  if (isNoteStatus(note.status)) {
+    return note.status;
+  }
+  if (note.completed === true) {
+    return 'done';
+  }
+  return 'none';
+}
+
+/** Type guard: is `value` a valid {@link NoteStatus}? */
+export function isNoteStatus(value: unknown): value is NoteStatus {
+  return (
+    value === 'none' ||
+    value === 'done' ||
+    value === 'to_revisit' ||
+    value === 'did_not_understand'
+  );
 }
 
 // ---------------------------------------------------------------------------

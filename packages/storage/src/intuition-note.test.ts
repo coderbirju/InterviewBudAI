@@ -333,6 +333,156 @@ describe('LocalFileStorageAdapter - IntuitionNote methods', () => {
     });
   });
 
+  describe('status field handling', () => {
+    it("round-trips status: 'done' (and keeps completed true)", async () => {
+      const note: IntuitionNote = {
+        problemId: 'lc-500',
+        content: 'Solved cleanly',
+        lastUpdated: '2026-09-20T10:00:00.000Z',
+        status: 'done',
+      };
+
+      await adapter.writeIntuitionNote(note);
+      const result = await adapter.readIntuitionNote('lc-500');
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('done');
+      // status 'done' <=> completed true (consistency invariant)
+      expect(result!.completed).toBe(true);
+    });
+
+    it("round-trips status: 'to_revisit' (completed false)", async () => {
+      const note: IntuitionNote = {
+        problemId: 'lc-501',
+        content: 'Need another pass on the edge cases',
+        lastUpdated: '2026-09-20T10:00:00.000Z',
+        status: 'to_revisit',
+      };
+
+      await adapter.writeIntuitionNote(note);
+      const result = await adapter.readIntuitionNote('lc-501');
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('to_revisit');
+      expect(result!.completed).toBe(false);
+    });
+
+    it("round-trips status: 'did_not_understand'", async () => {
+      const note: IntuitionNote = {
+        problemId: 'lc-502',
+        content: 'DP still confusing',
+        lastUpdated: '2026-09-20T10:00:00.000Z',
+        status: 'did_not_understand',
+      };
+
+      await adapter.writeIntuitionNote(note);
+      const result = await adapter.readIntuitionNote('lc-502');
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('did_not_understand');
+      expect(result!.completed).toBe(false);
+    });
+
+    it('omits status line and reads back undefined when status is undefined and completed undefined', async () => {
+      const note: IntuitionNote = {
+        problemId: 'lc-503',
+        content: 'No status set',
+        lastUpdated: '2026-09-20T10:00:00.000Z',
+      };
+
+      await adapter.writeIntuitionNote(note);
+
+      const filePath = join(tempDir, 'notes', 'lc-503.md');
+      const fileContent = await readFile(filePath, 'utf-8');
+      expect(fileContent).not.toContain('status:');
+
+      const result = await adapter.readIntuitionNote('lc-503');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBeUndefined();
+      expect(result!.completed).toBeUndefined();
+    });
+
+    it("keeps status and completed consistent: completed:true (no status) writes status 'done'", async () => {
+      const note: IntuitionNote = {
+        problemId: 'lc-504',
+        content: 'Marked complete via legacy boolean',
+        lastUpdated: '2026-09-20T10:00:00.000Z',
+        completed: true,
+      };
+
+      await adapter.writeIntuitionNote(note);
+      const result = await adapter.readIntuitionNote('lc-504');
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('done');
+      expect(result!.completed).toBe(true);
+    });
+
+    it('ignores an unknown/malformed status value (reads as undefined), no throw', async () => {
+      const notesDir = join(tempDir, 'notes');
+      await mkdir(notesDir, { recursive: true });
+      await writeFile(
+        join(notesDir, 'lc-badstatus.md'),
+        '---\nid: lc-badstatus\nlastUpdated: 2026-09-20T00:00:00.000Z\nstatus: banana\n---\nContent\n',
+        'utf-8',
+      );
+
+      const result = await adapter.readIntuitionNote('lc-badstatus');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBeUndefined();
+    });
+  });
+
+  describe('status back-compat', () => {
+    it('old note with completed:true and no status resolves status to done', async () => {
+      const notesDir = join(tempDir, 'notes');
+      await mkdir(notesDir, { recursive: true });
+      await writeFile(
+        join(notesDir, 'lc-oldcomplete.md'),
+        '---\nid: lc-oldcomplete\nlastUpdated: 2026-01-01T00:00:00.000Z\ncompleted: true\n---\nSolved long ago\n',
+        'utf-8',
+      );
+
+      const result = await adapter.readIntuitionNote('lc-oldcomplete');
+
+      expect(result).not.toBeNull();
+      // Back-compat: legacy completed:true reads as status 'done'
+      expect(result!.status).toBe('done');
+      expect(result!.completed).toBe(true);
+    });
+
+    it('old note with completed:false and no status resolves status to undefined', async () => {
+      const notesDir = join(tempDir, 'notes');
+      await mkdir(notesDir, { recursive: true });
+      await writeFile(
+        join(notesDir, 'lc-oldincomplete.md'),
+        '---\nid: lc-oldincomplete\nlastUpdated: 2026-01-01T00:00:00.000Z\ncompleted: false\n---\nNot done\n',
+        'utf-8',
+      );
+
+      const result = await adapter.readIntuitionNote('lc-oldincomplete');
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBeUndefined();
+      expect(result!.completed).toBe(false);
+    });
+
+    it('explicit status wins over a conflicting legacy completed value', async () => {
+      // Hand-written note where completed and status disagree; status wins.
+      const notesDir = join(tempDir, 'notes');
+      await mkdir(notesDir, { recursive: true });
+      await writeFile(
+        join(notesDir, 'lc-conflict.md'),
+        '---\nid: lc-conflict\nlastUpdated: 2026-01-01T00:00:00.000Z\nstatus: to_revisit\ncompleted: true\n---\nConflicting flags\n',
+        'utf-8',
+      );
+
+      const result = await adapter.readIntuitionNote('lc-conflict');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('to_revisit');
+    });
+  });
+
   describe('backward compatibility', () => {
     it('reads old note file (only id+lastUpdated+body) without new fields', async () => {
       // Hand-write an OLD note file with only original frontmatter

@@ -16,6 +16,13 @@ skills) + six **skills** in `skills/` (scaffold, implement, integrate, frontend,
 verify, code-review). See `team-charter.md` §0 & §9A and
 `skills/00-skill-contract.md`.
 
+## Milestone: UI/UX Revamp
+
+| Item | Status | Notes |
+|---|---|---|
+| B1 — Status field data model (`NoteStatus` + `IntuitionNote.status`) | 🟡 PR open | `feature/status-tags` — additive `export type NoteStatus = 'none' \| 'done' \| 'to_revisit' \| 'did_not_understand'`; `status?` on IntuitionNote; `completed` kept for back-compat and kept consistent (`'done'` ⇔ `completed:true`); `resolveNoteStatus`/`isNoteStatus` helpers exported. LocalFileStorageAdapter persists/parses `status` in frontmatter (tolerant: missing→undefined, unknown→ignored, legacy `completed:true`→`done`, no throw). |
+| B2 — Notes editor status selector (`/notes/<id>`) | 🟡 PR open | `feature/status-tags` — checkbox replaced by a `<select>` (None / Done / To revisit / Did not understand), pre-filled from saved `status` (falls back to `completed`); POST parses status, saves it, keeps `completed` consistent. Catalog ✓ marker + dashboard count still driven by `completed` (Done keeps it true). Scope limited to data model + notes editor (Milestone A/C own home/catalog/dashboard). |
+
 ## Milestone: Foundation
 
 | Item | Status | Notes |
