@@ -16,6 +16,18 @@ skills) + six **skills** in `skills/` (scaffold, implement, integrate, frontend,
 verify, code-review). See `team-charter.md` §0 & §9A and
 `skills/00-skill-contract.md`.
 
+## Milestone: Web React migration
+
+| Item | Status | Notes |
+|---|---|---|
+| M0 — Toolchain scaffold (React + Vite + Tailwind + Lucide) | 🟡 PR open | `feature/m0-react-scaffold` — ADR 0006. React 18.3.1/react-dom 18.3.1/lucide-react 0.462.0 (runtime); vite 5.4.21/@vitejs/plugin-react 4.7.0/tailwindcss 3.4.19/postcss 8.5.28/autoprefixer 10.4.27/@types/react 18.3.31/@types/react-dom 18.3.7 (dev); eslint-plugin-react 7.37.5/eslint-plugin-react-hooks 4.6.2 (root dev). UI lives in `packages/web/web-ui/` (Vite → `dist-ui/`), SEPARATE from the server tsc build (`dist/`). Styled SHELL only (nav + `InterviewBudAI` wordmark + Lucide icons + slate/emerald + status/difficulty design tokens); NO product features. Existing Node server serves the bundle at **GET `/app`** (+ local `/app/assets/*`); `/`, `/catalog`, etc. untouched. Graceful degrade if bundle absent. Root `build` = `tsc --build && build:ui`; `typecheck` includes `tsc --noEmit` on the .tsx. Added project `.npmrc` (public npm registry). Verified from CLEAN `npm ci` → `npm run verify` GREEN (24 files/408 tests incl. lint+format) + live curl: `/app` 200 (local assets, no CDN), `/` 200. Local-first: Tailwind→static CSS, lucide→bundled JS, no runtime network. |
+| M1 — JSON API endpoints (SPA fetches them) | ⬜ | Server adds JSON API; SPA consumes same-origin. Server remains storage owner. |
+| M2 — Home → React | ⬜ | Move `/` catalog into the SPA. |
+| M3 — Notes → React | ⬜ | Move notes editor into the SPA. |
+| M4 — Analytics → React | ⬜ | Move analytics/charts into the SPA. |
+| M5 — Interview chat → React | ⬜ | Move the coach/interview chat into the SPA. |
+| M6 — Retire server-rendered HTML | ⬜ | Remove `render.ts` HTML strings once parity reached. |
+
 ## Milestone: UI/UX Revamp
 
 | Item | Status | Notes |
@@ -103,6 +115,7 @@ verify, code-review). See `team-charter.md` §0 & §9A and
 
 | Label | Date | Summary |
 |-------|------|--------|
+| m0-react-scaffold | 2026-09-24 | ADR 0006 accepted: adopt React + Vite + Tailwind + lucide-react for the web front-end (widely-used stable lines, pinned exact). M0 = toolchain scaffold + styled shell (nav + wordmark) served by the existing Node server at a new `/app` route; existing server-rendered pages untouched. UI in `packages/web/web-ui/` (Vite → `dist-ui/`), kept separate from the server tsc build. Root `build`/`verify` integrate `build:ui` and `.tsx` typecheck; added project `.npmrc` (public npm) so `npm ci`/CI resolve deps. Local-first: Tailwind→static CSS, lucide bundled, no runtime CDN. Verified CLEAN `npm ci`+`verify` green + live curl `/app` 200 (local assets, no CDN), `/` 200. M1–M6 migration roadmap recorded. |
 | onboarding-adr | 2026-09-13 | ADR 0005 accepted: catalog-first onboarding, intuition capture (IntuitionNote + optional StorageAdapter methods), AI-evaluation interview. Supersedes ADR 0004 demo-provider fallback; extends ADR 0003 curriculum usage. 6-step impl roadmap recorded. |
 | web-catalog-landing | 2026-09-14 | Catalog-first landing + create-database + cookie dataDir; Notes placeholder, intuition capture next PR. |
 | app-shell-nav | 2026-09-14 | Added shared nav bar on all pages (Home, Catalog, Dashboard, Interview). Home landing at `/` with action buttons and progress summary. Dashboard moved to `/dashboard`. Nav includes active state and aria-current for a11y. |
