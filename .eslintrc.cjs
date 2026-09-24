@@ -58,5 +58,24 @@ module.exports = {
         react: { version: 'detect' },
       },
     },
+    {
+      // Vitest component/unit tests for the SPA. Declare the test globals
+      // (globals:true in vitest.config) so no-undef does not flag them.
+      files: ['packages/web/web-ui/**/*.test.{ts,tsx}'],
+      env: {
+        browser: true,
+        es2022: true,
+      },
+      globals: {
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly',
+        vi: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+      },
+    },
   ],
 };
