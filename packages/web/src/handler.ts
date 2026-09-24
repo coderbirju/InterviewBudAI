@@ -1,4 +1,10 @@
-import type { StorageAdapter, SessionId, IsoTimestamp } from '@ibai/storage';
+import type {
+  StorageAdapter,
+  SessionId,
+  IsoTimestamp,
+  NoteStatus,
+} from '@ibai/storage';
+import { isNoteStatus } from '@ibai/storage';
 import type { LlmProvider, PromptMessage } from '@ibai/providers';
 import { assess, plan, coach } from '@ibai/core';
 import type {
@@ -327,8 +333,12 @@ export function createCoachHandler(
         // POST: Save the note content
         const formParams = new URLSearchParams(req.body ?? '');
         const content = formParams.get('content') ?? '';
-        // Checkbox: present in form data = true, absent = false
-        const completed = formParams.has('completed');
+        // Status selector is the primary signal. Tolerate missing/unknown
+        // values by falling back to 'none'. Keep the legacy `completed`
+        // boolean consistent: status 'done' <=> completed true.
+        const rawStatus = formParams.get('status');
+        const status: NoteStatus = isNoteStatus(rawStatus) ? rawStatus : 'none';
+        const completed = status === 'done';
         const timeComplexity = formParams.get('timeComplexity') || undefined;
         const spaceComplexity = formParams.get('spaceComplexity') || undefined;
 
@@ -341,6 +351,7 @@ export function createCoachHandler(
           content,
           lastUpdated: new Date().toISOString() as IsoTimestamp,
           attempts: existingNote?.attempts,
+          status,
           completed,
           timeComplexity,
           spaceComplexity,
@@ -352,6 +363,7 @@ export function createCoachHandler(
           contentType: 'text/html; charset=utf-8',
           body: renderNotesEditorHtml(problem, content, {
             saved: true,
+            status,
             completed,
             timeComplexity,
             spaceComplexity,
@@ -365,6 +377,7 @@ export function createCoachHandler(
         status: 200,
         contentType: 'text/html; charset=utf-8',
         body: renderNotesEditorHtml(problem, note?.content ?? '', {
+          status: note?.status,
           completed: note?.completed,
           timeComplexity: note?.timeComplexity,
           spaceComplexity: note?.spaceComplexity,

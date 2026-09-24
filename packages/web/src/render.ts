@@ -5,6 +5,7 @@ import type {
   CoachResult,
 } from '@ibai/core';
 import type { Problem } from '@ibai/curriculum';
+import type { NoteStatus } from '@ibai/storage';
 
 /**
  * Escape HTML special characters to prevent XSS.
@@ -2089,12 +2090,42 @@ export interface CompletedProblem {
 export interface NotesEditorOptions {
   /** If true, show a 'Saved' confirmation banner. */
   readonly saved?: boolean;
-  /** Whether the problem is marked as complete. */
+  /**
+   * The note's status tag. Primary signal for the status selector. If omitted,
+   * the selector falls back to `completed` (`true` → Done, else None).
+   */
+  readonly status?: NoteStatus;
+  /** Whether the problem is marked as complete (legacy/back-compat fallback). */
   readonly completed?: boolean;
   /** Time complexity of the solution (e.g. 'O(n)'). */
   readonly timeComplexity?: string;
   /** Space complexity of the solution (e.g. 'O(1)'). */
   readonly spaceComplexity?: string;
+}
+
+/** The status options offered by the notes editor selector, in display order. */
+const NOTE_STATUS_OPTIONS: ReadonlyArray<{
+  readonly value: NoteStatus;
+  readonly label: string;
+}> = [
+  { value: 'none', label: 'None' },
+  { value: 'done', label: 'Done' },
+  { value: 'to_revisit', label: 'To revisit' },
+  { value: 'did_not_understand', label: 'Did not understand' },
+];
+
+/**
+ * Resolve the status to pre-select in the editor: an explicit `status` wins,
+ * otherwise fall back to the legacy `completed` boolean (`true` → 'done').
+ */
+function editorSelectedStatus(opts?: NotesEditorOptions): NoteStatus {
+  if (opts?.status) {
+    return opts.status;
+  }
+  if (opts?.completed === true) {
+    return 'done';
+  }
+  return 'none';
 }
 
 /**
@@ -2110,7 +2141,11 @@ export function renderNotesEditorHtml(
   const savedBanner = opts?.saved
     ? `<div class="saved-banner">✓ Saved successfully</div>`
     : '';
-  const completedChecked = opts?.completed ? 'checked' : '';
+  const selectedStatus = editorSelectedStatus(opts);
+  const statusOptionsHtml = NOTE_STATUS_OPTIONS.map(
+    (o) =>
+      `<option value="${o.value}"${o.value === selectedStatus ? ' selected' : ''}>${escapeHtml(o.label)}</option>`,
+  ).join('');
   const timeComplexityValue = opts?.timeComplexity
     ? escapeHtml(opts.timeComplexity)
     : '';
@@ -2265,21 +2300,30 @@ export function renderNotesEditorHtml(
       border-color: var(--accent-blue);
     }
     
-    .checkbox-field {
+    .status-field {
       display: flex;
-      align-items: center;
-      gap: 0.5rem;
+      flex-direction: column;
+      gap: 0.25rem;
     }
     
-    .checkbox-field input[type="checkbox"] {
-      width: 1.25rem;
-      height: 1.25rem;
-      accent-color: var(--accent-blue);
-    }
-    
-    .checkbox-field label {
+    .status-field label {
       font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+    
+    .status-select {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--bg-primary);
       color: var(--text-primary);
+      font-size: 0.875rem;
+      min-width: 180px;
+    }
+    
+    .status-select:focus {
+      outline: none;
+      border-color: var(--accent-blue);
     }
   </style>
 </head>
@@ -2317,9 +2361,11 @@ export function renderNotesEditorHtml(
               <input type="text" id="spaceComplexity" name="spaceComplexity" placeholder="e.g. O(1)" value="${spaceComplexityValue}">
             </div>
           </div>
-          <div class="checkbox-field">
-            <input type="checkbox" id="completed" name="completed" ${completedChecked}>
-            <label for="completed">Mark as complete</label>
+          <div class="status-field">
+            <label for="status">Status</label>
+            <select id="status" name="status" class="status-select">
+              ${statusOptionsHtml}
+            </select>
           </div>
         </div>
         
