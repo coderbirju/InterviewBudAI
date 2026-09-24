@@ -21,6 +21,7 @@ module.exports = {
   ],
   ignorePatterns: [
     'dist/',
+    'dist-ui/',
     'node_modules/',
     'coverage/',
     '*.config.*',
@@ -32,4 +33,30 @@ module.exports = {
       { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
     ],
   },
+  overrides: [
+    {
+      // React SPA source (ADR 0006). Browser env + JSX; adds React rules
+      // WITHOUT weakening the base TypeScript rules above.
+      files: ['packages/web/web-ui/**/*.{ts,tsx}'],
+      env: {
+        browser: true,
+        es2022: true,
+      },
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+      plugins: ['@typescript-eslint', 'react', 'react-hooks'],
+      extends: [
+        'eslint:recommended',
+        'plugin:@typescript-eslint/recommended',
+        'plugin:react/recommended',
+        'plugin:react/jsx-runtime',
+        'plugin:react-hooks/recommended',
+        'prettier',
+      ],
+      settings: {
+        react: { version: 'detect' },
+      },
+    },
+  ],
 };
