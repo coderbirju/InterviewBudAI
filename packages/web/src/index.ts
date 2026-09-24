@@ -65,3 +65,15 @@ export type { ServerHandle, StartServerOptions } from './server.js';
 
 // SPA (React bundle served at /app — ADR 0006)
 export { isAppRoute, bundleExists, handleAppRoute } from './spa.js';
+
+// JSON API (served under /api — ADR 0006 D4, M1)
+export { isApiRoute, handleApiRoute } from './api.js';
+export type {
+  ApiDeps,
+  ApiCatalogProblem,
+  ApiCatalogTopic,
+  ApiCatalogResponse,
+  ApiProgressResponse,
+  ApiNoteResponse,
+  ApiConfigResponse,
+} from './api.js';
