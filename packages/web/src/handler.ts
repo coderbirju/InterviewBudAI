@@ -41,6 +41,7 @@ import {
   resolveDataDirWithCookie,
 } from './config.js';
 import { isAppRoute, handleAppRoute } from './spa.js';
+import { isApiRoute, handleApiRoute } from './api.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -167,6 +168,33 @@ export function createCoachHandler(
         };
       }
       return handleAppRoute(pathname);
+    }
+
+    // /api/* — JSON API layer (ADR 0006 D4, M1). Handled independently of the
+    // server-rendered routes so it cannot disrupt them: always JSON, never
+    // HTML, data-dir resolved per-request via the same cookie>env>default
+    // precedence. Unknown /api paths 404 (JSON), wrong methods 405 (JSON).
+    if (isApiRoute(pathname)) {
+      const apiCookieHeader =
+        typeof req.headers?.cookie === 'string'
+          ? req.headers.cookie
+          : undefined;
+      const apiCookieDataDir = parseCookies(apiCookieHeader)['ibai_data_dir'];
+      return handleApiRoute(
+        req.method,
+        pathname,
+        {
+          catalog: deps.catalog ?? createCatalogSource(),
+          createStorage: deps.createStorage,
+          storage: deps.storage,
+          defaultDataDir: deps.defaultDataDir,
+          providerLabel: deps.providerLabel,
+          env: deps.env,
+          argv: deps.argv,
+        },
+        apiCookieDataDir,
+        req.body,
+      );
     }
 
     // GET routes

@@ -51,6 +51,41 @@ If the SPA bundle is absent (you ran the server without `build:ui`), `/app` **de
 
 Tailwind is compiled to a **static CSS file at build time** and lucide-react icons are **bundled into the JS**. The served `/app` HTML references only local, same-origin `/app/assets/*` files — **no CDN, no remote fonts, no runtime network**. The SPA is served by the existing localhost-only Node server.
 
+## JSON API (M1 — ADR 0006 D4)
+
+The server exposes a same-origin, **localhost-only JSON API** under `/api` for
+the React SPA to consume. The server remains the **storage owner** (the browser
+is UI + cookie; the server is the filesystem authority). These routes are
+**additive** — the existing server-rendered pages and `/app` keep working
+unchanged. There is **no auth** (local-first).
+
+Every `/api` route returns `application/json`, resolves the data directory
+per-request via the same **cookie `ibai_data_dir` > `IBAI_DATA_DIR` env >
+default** precedence used everywhere else, uses proper status codes, and never
+emits HTML (`404` for unknown `/api` paths, `405` for wrong methods).
+
+| Method & path | Purpose | Success | No-DB behaviour |
+|---|---|---|---|
+| `GET /api/catalog` | Full curated catalog grouped by topic (alphabetical), each problem `{ id, title, url, difficulty, status, completed }`, plus `totals: { total, byStatus }`. | `200` | Safe: every `status` is `'none'`. |
+| `GET /api/notes/:id` | Saved note for a problem id (validated against the catalog). | `200` note (or empty note if none saved); `404` unknown id. | `200 { dbConfigured: false }`. |
+| `POST /api/notes/:id` | Upsert a note. Body `{ content?, status?, timeComplexity?, spaceComplexity? }` (untrusted → validated). Keeps `completed` consistent with `status: 'done'`. | `200` saved note; `400` malformed body / invalid status; `404` unknown id. | `400 { error: 'no database configured' }` (does not crash). |
+| `GET /api/progress` | Overall counts for the banner: `{ completed, total, byStatus: { done, to_revisit, did_not_understand, none } }`. | `200` | Safe empty (all `none`). |
+| `GET /api/config` | `{ dbConfigured, dataDir?, provider }` so the SPA can choose create-db vs show-catalog and show the provider banner. `dataDir` is display-only and omitted when no DB. | `200` | `{ dbConfigured: false, provider }`. |
+
+Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
+`ApiNoteResponse`, `ApiProgressResponse`, `ApiConfigResponse`).
+
+Example:
+
+```bash
+curl -s http://127.0.0.1:4173/api/config
+# {"dbConfigured":true,"provider":"...","dataDir":"/…/.interviewbudai/data"}
+
+curl -s -X POST http://127.0.0.1:4173/api/notes/lc-3 \
+  -H 'Content-Type: application/json' -d '{"status":"done","content":"…"}'
+# {"problemId":"lc-3","content":"…","status":"done","completed":true,…}
+```
+
 ## Overview
 
 This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
