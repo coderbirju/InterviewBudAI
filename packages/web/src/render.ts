@@ -1661,6 +1661,98 @@ export function renderNoTopicsState(providerLabel?: string): string {
  * Render a friendly provider-required configuration page.
  * Shown when no provider is configured (not an error, just a configuration state).
  */
+
+/** A single chat turn in the interview conversation. */
+export interface ChatTurn {
+  readonly role: 'user' | 'assistant';
+  readonly content: string;
+}
+
+/**
+ * Render the simple AI interview chat page.
+ *
+ * Renders instantly with NO model call: a transcript, a message input, and a
+ * Send button that POSTs to /coach. The full transcript is carried across
+ * turns in a hidden field (JSON). Provider errors are shown as an inline
+ * banner (this function is called again with `errorMsg`) so the chat is never
+ * lost. All dynamic values are HTML-escaped (user- and model-authored text).
+ */
+export function renderChat(
+  transcript: readonly ChatTurn[],
+  providerLabel?: string,
+  errorMsg?: string,
+): string {
+  const turnsHtml =
+    transcript.length > 0
+      ? transcript
+          .map(
+            (t) => `
+        <div class="chat-turn ${t.role === 'user' ? 'chat-user' : 'chat-assistant'}">
+          <div class="chat-role">${t.role === 'user' ? 'You' : 'Interviewer'}</div>
+          <div class="chat-content">${escapeHtml(t.content)}</div>
+        </div>`,
+          )
+          .join('')
+      : `<div class="chat-turn chat-assistant">
+          <div class="chat-role">Interviewer</div>
+          <div class="chat-content">Hi! I'm your interview coach. Tell me a problem or topic you're working on, or ask me to start, and we'll talk it through.</div>
+        </div>`;
+
+  const errorHtml = errorMsg
+    ? `<div class="chat-error">${escapeHtml(errorMsg)}</div>`
+    : '';
+
+  const transcriptJson = escapeHtml(JSON.stringify(transcript));
+
+  const label = providerLabel ? escapeHtml(providerLabel) : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewBudAI - Interview</title>
+  <style>${getCommonStyles()}
+    .chat-log { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+    .chat-turn { padding: 0.75rem 1rem; border-radius: 8px; max-width: 90%; }
+    .chat-user { background: #1e293b; align-self: flex-end; border: 1px solid #334155; }
+    .chat-assistant { background: #0f172a; align-self: flex-start; border: 1px solid #334155; }
+    .chat-role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 0.25rem; }
+    .chat-content { white-space: pre-wrap; word-break: break-word; }
+    .chat-error { background: #7f1d1d; color: #fecaca; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .chat-form textarea { width: 100%; min-height: 80px; padding: 0.75rem; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-family: inherit; font-size: 1rem; box-sizing: border-box; }
+    .chat-form .chat-send { margin-top: 0.5rem; padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: #6366f1; color: #fff; font-size: 1rem; cursor: pointer; }
+    .chat-provider { font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    ${renderNav('/coach')}
+    <header>
+      <h1>InterviewBudAI</h1>
+      <p class="tagline">Interview Chat</p>
+    </header>
+
+    <section class="dashboard-section">
+      ${label ? `<div class="chat-provider">${label}</div>` : ''}
+      ${errorHtml}
+      <div class="chat-log">
+        ${turnsHtml}
+      </div>
+      <form class="chat-form" method="POST" action="/coach">
+        <input type="hidden" name="transcript" value="${transcriptJson}">
+        <textarea name="message" placeholder="Type your message..." required autofocus></textarea>
+        <div><button type="submit" class="chat-send">Send</button></div>
+      </form>
+    </section>
+
+    <footer>
+      <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
 export function renderProviderRequired(_providerLabel?: string): string {
   return `<!DOCTYPE html>
 <html lang="en">

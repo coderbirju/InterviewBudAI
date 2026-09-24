@@ -180,235 +180,148 @@ describe('resolveOllamaModel', () => {
   });
 });
 
-describe('createCoachHandler - GET /coach (interactive interview)', () => {
-  it('returns 200 with provider-required page when provider not configured', async () => {
+describe('createCoachHandler - GET /coach (chat page)', () => {
+  it('returns provider-required page when provider not configured', async () => {
     const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
     const handler = createCoachHandler({ storage }); // no provider
 
     const res = await handler({ method: 'GET', url: '/coach' });
 
-    // Provider-required is a configuration state (200), not an error (4xx)
     expect(res.status).toBe(200);
     expect(res.body).toContain('Configure a model');
-    expect(res.body).toContain('ANTHROPIC_API_KEY');
-    expect(res.body).toContain('IBAI_OLLAMA_MODEL');
   });
 
-  it('returns 200 with interview step when provider configured', async () => {
+  it('renders the chat page WITHOUT calling the provider on load', async () => {
     const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
     const provider = new FakeLlmProvider();
     const handler = createCoachHandler({ storage, provider });
 
     const res = await handler({ method: 'GET', url: '/coach' });
 
     expect(res.status).toBe(200);
-    expect(res.contentType).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('Interview'); // Interview step page
-    expect(res.body).toContain('arrays');
-    expect(res.body).toContain('<form'); // Interview form
-    expect(provider.completeCalls.length).toBe(1); // Provider called for question
+    expect(res.body).toContain('chat-form');
+    expect(res.body).toContain('<textarea');
+    // CRITICAL: no model call just to render the page
+    expect(provider.completeCalls.length).toBe(0);
   });
 
   it('shows provider label when configured', async () => {
     const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
     const provider = new FakeLlmProvider();
     const handler = createCoachHandler({
       storage,
       provider,
-      providerLabel: 'Demo interviewer (no LLM configured)',
+      providerLabel: 'Using Anthropic: claude-x',
     });
 
     const res = await handler({ method: 'GET', url: '/coach' });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toContain('Demo interviewer');
+    expect(res.body).toContain('Using Anthropic: claude-x');
   });
 });
 
-describe('createCoachHandler - POST /coach (interactive interview)', () => {
-  it('returns 200 with provider-required page when provider not configured', async () => {
+describe('createCoachHandler - POST /coach (chat turn)', () => {
+  it('returns provider-required page when provider not configured', async () => {
     const storage = new FakeStorageAdapter();
     const handler = createCoachHandler({ storage }); // no provider
 
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=test&current_question=What%20is%20an%20array?',
+      body: 'message=hello',
     });
 
-    // Provider-required is a configuration state (200), not an error (4xx)
     expect(res.status).toBe(200);
     expect(res.body).toContain('Configure a model');
-    expect(res.body).toContain('IBAI_OLLAMA_MODEL');
   });
 
-  it('returns 400 when answer is empty', async () => {
+  it('relays the message to the provider and renders the reply', async () => {
     const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
     const provider = new FakeLlmProvider();
+    provider.setResponse({ content: 'What is your approach?' });
     const handler = createCoachHandler({ storage, provider });
 
-    // Empty answer (model evaluates, no outcome needed)
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=&current_question=What%20is%20an%20array?',
-    });
-
-    expect(res.status).toBe(400);
-    expect(res.body).toContain('Please provide an answer');
-  });
-
-  it('advances to next step when more topics remain', async () => {
-    const storage = new FakeStorageAdapter();
-    // Set up two topics so we have multiple steps
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-        'linked-lists': {
-          topicId: 'linked-lists',
-          proficiency: 0.2,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
-    const provider = new FakeLlmProvider();
-    const handler = createCoachHandler({ storage, provider });
-
-    // Submit first step answer (step 0)
-    const res = await handler({
-      method: 'POST',
-      url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=Arrays%20are%20contiguous%20memory&current_question=What%20is%20an%20array?',
+      body: 'message=' + encodeURIComponent('I want to practice arrays'),
     });
 
     expect(res.status).toBe(200);
-    expect(res.contentType).toBe('text/html; charset=utf-8');
-    // Should render next interview step, not the final result
-    expect(res.body).toContain('Interview');
-    expect(res.body).toContain('linked-lists'); // Next topic
-    expect(provider.completeCalls.length).toBe(1); // Called to get next question
-  });
-
-  it('runs coach loop and records write-back when interview complete', async () => {
-    const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
-    const provider = new FakeLlmProvider();
-    // Set proper AI-evaluation response for 'arrays' topic
-    provider.setEvaluationResponse('Great work on arrays!', [
-      {
-        topicId: 'arrays',
-        succeeded: true,
-        feedback: 'Excellent understanding',
-      },
-    ]);
-    const handler = createCoachHandler({ storage, provider });
-
-    // Submit final step (step 0 with only one topic completes the interview)
-    const res = await handler({
-      method: 'POST',
-      url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=Arrays%20are%20ordered%20collections&current_question=What%20is%20an%20array?',
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.contentType).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('Session Complete');
-    expect(res.body).toContain('Progress Saved');
-
-    // Verify provider was called for coach feedback
     expect(provider.completeCalls.length).toBe(1);
-
-    // Verify write-back occurred
-    expect(storage.writeSessionSummaryCalls.length).toBe(1);
-    expect(storage.updateCompetencyMapCalls.length).toBe(1);
-    expect(storage.updateWeaknessRegisterCalls.length).toBe(1);
+    // user message + assistant reply both present
+    expect(res.body).toContain('I want to practice arrays');
+    expect(res.body).toContain('What is your approach?');
   });
 
-  it('returns 502 on connection error during interview', async () => {
+  it('carries prior transcript forward across turns', async () => {
     const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        arrays: {
-          topicId: 'arrays',
-          proficiency: 0.3,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-        'linked-lists': {
-          topicId: 'linked-lists',
-          proficiency: 0.2,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
+    const provider = new FakeLlmProvider();
+    provider.setResponse({ content: 'Second reply' });
+    const handler = createCoachHandler({ storage, provider });
+
+    const transcript = JSON.stringify([
+      { role: 'user', content: 'first user msg' },
+      { role: 'assistant', content: 'first reply' },
+    ]);
+
+    const res = await handler({
+      method: 'POST',
+      url: '/coach',
+      body:
+        'transcript=' +
+        encodeURIComponent(transcript) +
+        '&message=' +
+        encodeURIComponent('second user msg'),
     });
 
-    const provider = new FakeLlmProvider();
-    provider.setShouldThrow(true, 'fetch failed: ECONNREFUSED');
+    expect(res.status).toBe(200);
+    // prior turns preserved + new turn + reply
+    expect(res.body).toContain('first user msg');
+    expect(res.body).toContain('first reply');
+    expect(res.body).toContain('second user msg');
+    expect(res.body).toContain('Second reply');
+    // provider received the prior turns in the conversation
+    const sent = provider.completeCalls[0];
+    expect(sent).toBeDefined();
+    expect(sent!.messages.length).toBeGreaterThanOrEqual(4); // system + 2 prior + new
+  });
 
+  it('renders a friendly INLINE error (not a dead page) on provider failure, preserving transcript', async () => {
+    const storage = new FakeStorageAdapter();
+    const provider = new FakeLlmProvider();
+    provider.setShouldThrow(true, 'ECONNREFUSED');
     const handler = createCoachHandler({ storage, provider });
 
     const res = await handler({
       method: 'POST',
       url: '/coach',
-      body: 'sessionId=test-session&step=0&current_answer=test&current_outcome=pass&current_question=What%20is%20an%20array?',
+      body: 'message=' + encodeURIComponent('my answer'),
     });
 
-    expect(res.status).toBe(502);
-    expect(res.body).toContain('Ollama');
-    expect(res.body).toContain('ollama serve');
+    // 200 with the chat still rendered + an error banner, NOT a 502 dead page
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('chat-error');
+    expect(res.body).toContain('chat-form');
+    // user's message preserved so they can retry
+    expect(res.body).toContain('my answer');
+  });
+
+  it('escapes user message and model reply (XSS)', async () => {
+    const storage = new FakeStorageAdapter();
+    const provider = new FakeLlmProvider();
+    provider.setResponse({ content: '<img src=x onerror=alert(1)>' });
+    const handler = createCoachHandler({ storage, provider });
+
+    const res = await handler({
+      method: 'POST',
+      url: '/coach',
+      body: 'message=' + encodeURIComponent('<script>alert(2)</script>'),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).not.toContain('<script>alert(2)</script>');
+    expect(res.body).not.toContain('<img src=x onerror=alert(1)>');
+    expect(res.body).toContain('&lt;script&gt;');
   });
 });
 
@@ -495,15 +408,16 @@ describe('createCoachHandler - POST /coach.json (JSON API)', () => {
 
 describe('empty/new-user coach', () => {
   it('GET /coach shows empty state message when no topics', async () => {
-    const storage = new FakeStorageAdapter(); // empty storage = no topics
+    const storage = new FakeStorageAdapter(); // empty storage = no progress
     const provider = new FakeLlmProvider();
     const handler = createCoachHandler({ storage, provider });
 
     const res = await handler({ method: 'GET', url: '/coach' });
 
     expect(res.status).toBe(200);
-    // Empty plan shows message (from renderNoTopicsState)
-    expect(res.body).toContain('No Topics Yet');
+    // Chat works even with no progress/topics - it does not require a plan
+    expect(res.body).toContain('chat-form');
+    expect(provider.completeCalls.length).toBe(0);
   });
 
   it('POST /coach.json with empty answers and matching mock succeeds (evaluates topic from plan)', async () => {
@@ -542,27 +456,6 @@ describe('XSS escaping in coach output', () => {
     const escaped = escapeHtml(malicious);
     expect(escaped).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
     expect(escaped).not.toContain('<script>');
-  });
-
-  it('escapes malicious topic IDs in interview', async () => {
-    const storage = new FakeStorageAdapter();
-    storage.setCompetencyMap({
-      entries: {
-        '<script>evil</script>': {
-          topicId: '<script>evil</script>',
-          proficiency: 0.5,
-          lastUpdated: '2026-09-06T12:00:00Z',
-        },
-      },
-    });
-
-    const provider = new FakeLlmProvider();
-    const handler = createCoachHandler({ storage, provider });
-    const res = await handler({ method: 'GET', url: '/coach' });
-
-    // Verify malicious topic ID is escaped in output
-    expect(res.body).not.toContain('<script>evil</script>');
-    expect(res.body).toContain('&lt;script&gt;');
   });
 });
 

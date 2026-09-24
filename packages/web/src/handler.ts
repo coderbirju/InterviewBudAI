@@ -1,10 +1,9 @@
 import type { StorageAdapter, SessionId, IsoTimestamp } from '@ibai/storage';
-import type { LlmProvider, CompletionRequest } from '@ibai/providers';
+import type { LlmProvider, PromptMessage } from '@ibai/providers';
 import { assess, plan, coach } from '@ibai/core';
 import type {
   AssessmentView,
   SessionPlan,
-  PlanTopic,
   CoachResult,
   TopicAnswer,
 } from '@ibai/core';
@@ -13,9 +12,6 @@ import {
   renderPlanJson,
   renderDashboardHtml,
   renderHomeHtml,
-  renderCoachResult,
-  renderInterviewStep,
-  renderNoTopicsState,
   renderProviderRequired,
   renderCatalogHtml,
   renderNotesEditorHtml,
@@ -24,9 +20,10 @@ import {
   renderSetupSuccessHtml,
   renderSetupErrorHtml,
   render404Html,
+  renderChat,
   escapeHtml,
 } from './render.js';
-import type { CompletedProblem } from './render.js';
+import type { CompletedProblem, ChatTurn } from './render.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
 import {
@@ -89,26 +86,6 @@ export interface HandlerRequest {
 }
 
 /**
- * A single entry in the interview transcript.
- * Tracks the interviewer question and user answer for each topic.
- * The model evaluates performance - no self-assessment.
- */
-export interface InterviewTranscriptEntry {
-  readonly topicId: string;
-  readonly question: string;
-  readonly answer: string;
-}
-
-/**
- * Parsed state from an interview POST form.
- * State is carried forward in hidden fields to maintain statelessness.
- */
-interface InterviewState {
-  readonly sessionId: string;
-  readonly step: number;
-  readonly transcript: InterviewTranscriptEntry[];
-}
-/**
  * Check if an error looks like a connection refused error (Ollama not running).
  */
 function isConnectionError(error: unknown): boolean {
@@ -141,72 +118,6 @@ function isAuthError(error: unknown): boolean {
     );
   }
   return false;
-}
-
-/**
- * Parse interview state from POST form body.
- * Hidden fields carry: sessionId, step, question_<topicId>, answer_<topicId>
- * No outcome fields - the model evaluates performance.
- */
-function parseInterviewState(body: string): InterviewState {
-  const params = new URLSearchParams(body);
-  const sessionId = params.get('sessionId') ?? generateSessionId();
-  const step = parseInt(params.get('step') ?? '0', 10);
-
-  const transcript: InterviewTranscriptEntry[] = [];
-
-  // Collect all completed topic entries (have question and answer)
-  for (const [key, value] of params.entries()) {
-    if (key.startsWith('question_')) {
-      const topicId = key.slice('question_'.length);
-      const answer = params.get(`answer_${topicId}`);
-
-      // Include if we have question and answer
-      if (answer !== null) {
-        transcript.push({
-          topicId,
-          question: value,
-          answer,
-        });
-      }
-    }
-  }
-
-  return { sessionId, step, transcript };
-}
-
-/**
- * Build a CompletionRequest for the interviewer to ask a question about a topic.
- * The provider ONLY asks probing questions — NEVER provides answers or solutions.
- */
-function buildInterviewQuestion(topic: PlanTopic): CompletionRequest {
-  const roleDescription =
-    topic.role === 'warmup'
-      ? 'warm-up (confidence builder)'
-      : topic.role === 'twist'
-        ? 'stretch/challenge'
-        : 'focus area';
-
-  return {
-    messages: [
-      {
-        role: 'system',
-        content: `You are a technical interviewer conducting a practice interview session. Your role is to ask ONE clear, focused question about the topic "${topic.topicId}" (this is a ${roleDescription} topic). 
-
-RULES:
-- Ask ONE question only
-- Be conversational but professional
-- Do NOT provide answers, hints, or solutions
-- Do NOT explain what a good answer would be
-- Keep the question concise (1-3 sentences)
-- Match difficulty to the role: ${topic.role === 'warmup' ? 'easier, confidence-building' : topic.role === 'twist' ? 'challenging, edge cases' : 'moderate, core concepts'}`,
-      },
-      {
-        role: 'user',
-        content: 'Please ask me an interview question.',
-      },
-    ],
-  };
 }
 
 /**
@@ -597,17 +508,7 @@ export function createCoachHandler(
       }
 
       if (isCoachForm) {
-        // GET /coach - start interactive interview at step 0
-        // Handle zero topics case
-        if (sessionPlan.topics.length === 0) {
-          return {
-            status: 200,
-            contentType: 'text/html; charset=utf-8',
-            body: renderNoTopicsState(deps.providerLabel),
-          };
-        }
-
-        // Check if provider is configured
+        // GET /coach - render the chat page INSTANTLY. No model call on load.
         if (!deps.provider) {
           return {
             status: 200,
@@ -616,72 +517,10 @@ export function createCoachHandler(
           };
         }
 
-        // Start at step 0 with a new session
-        const newSessionId = sessionId ?? generateSessionId();
-        const firstTopic = sessionPlan.topics[0];
-
-        // TypeScript narrowing: we already checked topics.length > 0 above
-        if (!firstTopic) {
-          return {
-            status: 500,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Error',
-              'No topics available for interview.',
-            ),
-          };
-        }
-
-        // Get interviewer question for first topic
-        let questionText: string;
-        try {
-          const questionRequest = buildInterviewQuestion(firstTopic);
-          const response = await deps.provider.complete(questionRequest);
-          questionText = response.content;
-        } catch (providerError) {
-          if (isConnectionError(providerError)) {
-            return {
-              status: 502,
-              contentType: 'text/html; charset=utf-8',
-              body: renderErrorHtml(
-                'Connection Error',
-                'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
-              ),
-            };
-          }
-          if (isAuthError(providerError)) {
-            return {
-              status: 502,
-              contentType: 'text/html; charset=utf-8',
-              body: renderErrorHtml(
-                'Authentication Error',
-                'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
-              ),
-            };
-          }
-          // Malformed output or other error
-          return {
-            status: 502,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Model Error',
-              'The model returned an unusable response. Please try again.',
-            ),
-          };
-        }
-
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderInterviewStep(
-            0,
-            sessionPlan.topics.length,
-            firstTopic,
-            questionText,
-            [],
-            newSessionId,
-            deps.providerLabel,
-          ),
+          body: renderChat([], deps.providerLabel),
         };
       }
 
@@ -810,7 +649,7 @@ export function createCoachHandler(
 
       // Handle POST /coach (interactive interview step progression)
       if (isCoachPost) {
-        // Check if provider is configured
+        // POST /coach - simple chat turn. Only here do we call the model.
         if (!deps.provider) {
           return {
             status: 200,
@@ -819,201 +658,94 @@ export function createCoachHandler(
           };
         }
 
-        // Parse interview state from form
-        let interviewState: InterviewState;
-        try {
-          interviewState = parseInterviewState(req.body ?? '');
-        } catch (parseError) {
-          return {
-            status: 400,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Parse Error',
-              parseError instanceof Error
-                ? parseError.message
-                : 'Invalid form data',
-            ),
-          };
-        }
-
-        // Get current answer from form (for the topic that was just answered)
         const formParams = new URLSearchParams(req.body ?? '');
-        const currentAnswer = formParams.get('current_answer') ?? '';
-        const currentQuestion = formParams.get('current_question') ?? '';
+        const message = (formParams.get('message') ?? '').trim();
 
-        // Validate current answer (must have non-empty answer)
-        if (!currentAnswer.trim()) {
-          return {
-            status: 400,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Incomplete Response',
-              'Please provide an answer before continuing.',
-            ),
-          };
-        }
-
-        // Get the current topic
-        const currentStep = interviewState.step;
-        if (currentStep >= sessionPlan.topics.length) {
-          return {
-            status: 400,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Invalid Step',
-              'Interview step out of range.',
-            ),
-          };
-        }
-
-        const currentTopic = sessionPlan.topics[currentStep];
-
-        // TypeScript narrowing: step is validated above but array access still returns T | undefined
-        if (!currentTopic) {
-          return {
-            status: 400,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml('Invalid Step', 'Current topic not found.'),
-          };
-        }
-
-        // Build updated transcript with current answer
-        const updatedTranscript: InterviewTranscriptEntry[] = [
-          ...interviewState.transcript,
-          {
-            topicId: currentTopic.topicId,
-            question: currentQuestion,
-            answer: currentAnswer.trim(),
-          },
-        ];
-
-        const nextStep = currentStep + 1;
-
-        // Check if interview is complete
-        if (nextStep >= sessionPlan.topics.length) {
-          // Interview complete - convert transcript to answers for AI evaluation
-          // Note: succeeded/feedback will come FROM the model, not from user self-assessment
-          const answers: TopicAnswer[] = updatedTranscript.map((entry) => ({
-            topicId: entry.topicId,
-            question: entry.question,
-            answer: entry.answer,
-          }));
-
-          const input = {
-            sessionId: interviewState.sessionId,
-            plan: sessionPlan,
-            answers,
-            assessment: view,
-            completedAt: new Date().toISOString() as IsoTimestamp,
-          };
-
-          let result: CoachResult;
+        // Parse prior transcript (untrusted); tolerate malformed -> empty.
+        let transcript: ChatTurn[] = [];
+        const rawTranscript = formParams.get('transcript');
+        if (rawTranscript) {
           try {
-            result = await coach({ storage, provider: deps.provider }, input);
-          } catch (coachError) {
-            if (isConnectionError(coachError)) {
-              return {
-                status: 502,
-                contentType: 'text/html; charset=utf-8',
-                body: renderErrorHtml(
-                  'Connection Error',
-                  'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
-                ),
-              };
+            const parsed: unknown = JSON.parse(rawTranscript);
+            if (Array.isArray(parsed)) {
+              transcript = parsed
+                .filter(
+                  (t): t is ChatTurn =>
+                    !!t &&
+                    typeof t === 'object' &&
+                    (t as ChatTurn).role !== undefined &&
+                    ((t as ChatTurn).role === 'user' ||
+                      (t as ChatTurn).role === 'assistant') &&
+                    typeof (t as ChatTurn).content === 'string',
+                )
+                .map((t) => ({ role: t.role, content: t.content }));
             }
-            if (isAuthError(coachError)) {
-              return {
-                status: 502,
-                contentType: 'text/html; charset=utf-8',
-                body: renderErrorHtml(
-                  'Authentication Error',
-                  'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
-                ),
-              };
-            }
-            // Malformed output or other error
-            return {
-              status: 502,
-              contentType: 'text/html; charset=utf-8',
-              body: renderErrorHtml(
-                'Model Error',
-                'The model returned an unusable response. Please try again.',
-              ),
-            };
+          } catch {
+            transcript = [];
           }
+        }
 
+        if (!message) {
+          // Nothing to send - just re-render the current transcript.
           return {
             status: 200,
             contentType: 'text/html; charset=utf-8',
-            body: renderCoachResult(
-              interviewState.sessionId,
-              sessionPlan,
-              result,
-            ),
+            body: renderChat(transcript, deps.providerLabel),
           };
         }
 
-        // More topics remain - get next question
-        const nextTopic = sessionPlan.topics[nextStep];
+        // Build the conversation: system persona + prior turns + new user message.
+        const messages: PromptMessage[] = [
+          {
+            role: 'system',
+            content:
+              'You are an interview coach for software engineering candidates. Hold a natural conversation: ask probing questions, help the candidate reason through problems, and give feedback on THEIR ideas. Elicit their own thinking. Do NOT dump full solutions or code unless they have worked through it themselves.',
+          },
+          ...transcript.map((t) => ({ role: t.role, content: t.content })),
+          { role: 'user', content: message },
+        ];
 
-        // TypeScript narrowing: nextStep is validated above but array access still returns T | undefined
-        if (!nextTopic) {
-          return {
-            status: 500,
-            contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml('Error', 'Next topic not found.'),
-          };
-        }
+        const transcriptWithUser: ChatTurn[] = [
+          ...transcript,
+          { role: 'user', content: message },
+        ];
 
-        let questionText: string;
+        let replyText: string;
         try {
-          const questionRequest = buildInterviewQuestion(nextTopic);
-          const response = await deps.provider.complete(questionRequest);
-          questionText = response.content;
+          const response = await deps.provider.complete({ messages });
+          replyText =
+            typeof response.content === 'string' ? response.content.trim() : '';
+          if (!replyText) {
+            replyText = '';
+            throw new Error('Empty response from model');
+          }
         } catch (providerError) {
+          let msg =
+            'The model returned an unusable response. Please try again.';
           if (isConnectionError(providerError)) {
-            return {
-              status: 502,
-              contentType: 'text/html; charset=utf-8',
-              body: renderErrorHtml(
-                'Connection Error',
-                'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
-              ),
-            };
+            msg =
+              'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.';
+          } else if (isAuthError(providerError)) {
+            msg =
+              'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).';
           }
-          if (isAuthError(providerError)) {
-            return {
-              status: 502,
-              contentType: 'text/html; charset=utf-8',
-              body: renderErrorHtml(
-                'Authentication Error',
-                'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
-              ),
-            };
-          }
-          // Malformed output or other error
+          // Re-render the chat inline with the error; keep the transcript + user turn.
           return {
-            status: 502,
+            status: 200,
             contentType: 'text/html; charset=utf-8',
-            body: renderErrorHtml(
-              'Model Error',
-              'The model returned an unusable response. Please try again.',
-            ),
+            body: renderChat(transcriptWithUser, deps.providerLabel, msg),
           };
         }
+
+        const updated: ChatTurn[] = [
+          ...transcriptWithUser,
+          { role: 'assistant', content: replyText },
+        ];
 
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderInterviewStep(
-            nextStep,
-            sessionPlan.topics.length,
-            nextTopic,
-            questionText,
-            updatedTranscript,
-            interviewState.sessionId,
-            deps.providerLabel,
-          ),
+          body: renderChat(updated, deps.providerLabel),
         };
       }
 
