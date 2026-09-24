@@ -6,12 +6,17 @@ import {
   escapeHtml,
   renderAssessmentJson,
   renderPlanJson,
-  renderDashboardHtml,
+  renderAnalyticsHtml,
+  computeProficiencyBars,
+  computeStatusCounts,
+  renderProficiencySvg,
+  renderStatusBreakdownSvg,
   renderAssessmentHtml,
   renderStatusBadge,
   renderCatalogTable,
   renderHomeHtml,
 } from './render.js';
+import type { StatusCounts } from './render.js';
 
 describe('escapeHtml', () => {
   it('escapes HTML special characters', () => {
@@ -81,7 +86,7 @@ describe('renderPlanJson', () => {
   });
 });
 
-describe('renderDashboardHtml', () => {
+describe('renderAnalyticsHtml', () => {
   const emptyView: AssessmentView = {
     topicsTracked: 0,
     topStrengths: [],
@@ -143,23 +148,23 @@ describe('renderDashboardHtml', () => {
   };
 
   it('contains page title', () => {
-    const html = renderDashboardHtml(emptyView, emptyPlan);
-    expect(html).toContain('<title>InterviewBudAI - Dashboard</title>');
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
+    expect(html).toContain('<title>InterviewBudAI - Analytics</title>');
     expect(html).toContain('InterviewBudAI');
   });
 
   it('contains Where You Stand section', () => {
-    const html = renderDashboardHtml(emptyView, emptyPlan);
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
     expect(html).toContain('Where You Stand');
   });
 
   it('contains Your Next Session section', () => {
-    const html = renderDashboardHtml(emptyView, emptyPlan);
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
     expect(html).toContain('Your Next Session');
   });
 
   it('shows friendly placeholders for empty state', () => {
-    const html = renderDashboardHtml(emptyView, emptyPlan);
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
     expect(html).toContain('No strengths identified yet');
     expect(html).toContain('No focus areas identified yet');
     expect(html).toContain('No recurring weaknesses identified yet');
@@ -167,13 +172,13 @@ describe('renderDashboardHtml', () => {
   });
 
   it('shows empty plan message', () => {
-    const html = renderDashboardHtml(emptyView, emptyPlan);
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
     expect(html).toContain('No history yet');
     expect(html).toContain('Start practicing');
   });
 
   it('renders populated view data', () => {
-    const html = renderDashboardHtml(populatedView, populatedPlan);
+    const html = renderAnalyticsHtml(populatedView, populatedPlan);
     expect(html).toContain('arrays');
     expect(html).toContain('90%');
     expect(html).toContain('graphs');
@@ -185,7 +190,7 @@ describe('renderDashboardHtml', () => {
   });
 
   it('renders topic cards with role badges', () => {
-    const html = renderDashboardHtml(populatedView, populatedPlan);
+    const html = renderAnalyticsHtml(populatedView, populatedPlan);
     expect(html).toContain('topic-card');
     expect(html).toContain('role-badge');
     expect(html).toContain('warmup');
@@ -194,26 +199,26 @@ describe('renderDashboardHtml', () => {
   });
 
   it('renders proficiency bars', () => {
-    const html = renderDashboardHtml(populatedView, populatedPlan);
+    const html = renderAnalyticsHtml(populatedView, populatedPlan);
     expect(html).toContain('proficiency-bar-container');
     expect(html).toContain('proficiency-bar');
   });
 
   it('renders rationale for each topic', () => {
-    const html = renderDashboardHtml(populatedView, populatedPlan);
+    const html = renderAnalyticsHtml(populatedView, populatedPlan);
     expect(html).toContain('strongest area');
     expect(html).toContain('lowest proficiency');
     expect(html).toContain('recurring weakness');
   });
 
   it('renders plan summary', () => {
-    const html = renderDashboardHtml(populatedView, populatedPlan);
+    const html = renderAnalyticsHtml(populatedView, populatedPlan);
     expect(html).toContain('plan-summary');
     expect(html).toContain('Focus on 1 gap topic');
   });
 
   it('renders JSON links in footer', () => {
-    const html = renderDashboardHtml(emptyView, emptyPlan);
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
     expect(html).toContain('/assess.json');
     expect(html).toContain('/plan.json');
   });
@@ -225,7 +230,7 @@ describe('renderDashboardHtml', () => {
         { topicId: '<script>alert(1)</script>', proficiency: 0.5 },
       ],
     };
-    const html = renderDashboardHtml(xssView, emptyPlan);
+    const html = renderAnalyticsHtml(xssView, emptyPlan);
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;');
   });
@@ -242,7 +247,7 @@ describe('renderDashboardHtml', () => {
       ],
       summary: 'test',
     };
-    const html = renderDashboardHtml(emptyView, xssPlan);
+    const html = renderAnalyticsHtml(emptyView, xssPlan);
     expect(html).not.toContain('<img onerror=alert(1)>');
     expect(html).toContain('&lt;img');
   });
@@ -259,7 +264,7 @@ describe('renderDashboardHtml', () => {
       ],
       summary: 'test',
     };
-    const html = renderDashboardHtml(emptyView, xssPlan);
+    const html = renderAnalyticsHtml(emptyView, xssPlan);
     expect(html).not.toContain('<script>evil()</script>');
     expect(html).toContain('&lt;script&gt;');
   });
@@ -276,7 +281,7 @@ describe('renderDashboardHtml', () => {
         },
       ],
     };
-    const html = renderDashboardHtml(xssView, emptyPlan);
+    const html = renderAnalyticsHtml(xssView, emptyPlan);
     expect(html).not.toContain('<script>hack()</script>');
     expect(html).toContain('&lt;script&gt;');
   });
@@ -415,5 +420,213 @@ describe('renderHomeHtml (A1/A2/A3)', () => {
     const html = renderHomeHtml(true, problems);
     expect(html).toContain('nav-wordmark');
     expect(html).toContain('>InterviewBudAI</a>');
+  });
+});
+
+// ===========================================================================
+// Milestone C2 — analytics charts
+// ===========================================================================
+
+describe('computeProficiencyBars (C2)', () => {
+  const base: AssessmentView = {
+    topicsTracked: 0,
+    topStrengths: [],
+    focusAreas: [],
+    recurringWeaknesses: [],
+    recentSession: null,
+  };
+
+  it('returns empty for an empty view', () => {
+    expect(computeProficiencyBars(base)).toEqual([]);
+  });
+
+  it('merges strengths and focus areas, sorted desc by proficiency', () => {
+    const view: AssessmentView = {
+      ...base,
+      topStrengths: [
+        { topicId: 'arrays', proficiency: 0.9 },
+        { topicId: 'strings', proficiency: 0.7 },
+      ],
+      focusAreas: [{ topicId: 'graphs', proficiency: 0.3 }],
+    };
+    const bars = computeProficiencyBars(view);
+    expect(bars.map((b) => b.topicId)).toEqual(['arrays', 'strings', 'graphs']);
+    expect(bars[0].proficiency).toBe(0.9);
+  });
+
+  it('dedupes by topicId (first occurrence wins)', () => {
+    const view: AssessmentView = {
+      ...base,
+      topStrengths: [{ topicId: 'dp', proficiency: 0.8 }],
+      focusAreas: [{ topicId: 'dp', proficiency: 0.2 }],
+    };
+    const bars = computeProficiencyBars(view);
+    expect(bars).toHaveLength(1);
+    expect(bars[0].proficiency).toBe(0.8);
+  });
+
+  it('clamps proficiency into [0,1]', () => {
+    const view: AssessmentView = {
+      ...base,
+      topStrengths: [{ topicId: 'a', proficiency: 1.5 }],
+      focusAreas: [{ topicId: 'b', proficiency: -0.4 }],
+    };
+    const bars = computeProficiencyBars(view);
+    const a = bars.find((x) => x.topicId === 'a');
+    const b = bars.find((x) => x.topicId === 'b');
+    expect(a?.proficiency).toBe(1);
+    expect(b?.proficiency).toBe(0);
+  });
+});
+
+describe('computeStatusCounts (C2)', () => {
+  it('counts each status correctly', () => {
+    const counts = computeStatusCounts([
+      'done',
+      'done',
+      'to_revisit',
+      'did_not_understand',
+      'none',
+      'none',
+      'none',
+    ]);
+    expect(counts).toEqual({
+      done: 2,
+      to_revisit: 1,
+      did_not_understand: 1,
+      none: 3,
+    });
+  });
+
+  it('returns all-zero for empty input', () => {
+    expect(computeStatusCounts([])).toEqual({
+      done: 0,
+      to_revisit: 0,
+      did_not_understand: 0,
+      none: 0,
+    });
+  });
+});
+
+describe('renderProficiencySvg (C2)', () => {
+  it('emits <svg> with a bar per topic, wider bar for higher proficiency', () => {
+    const svg = renderProficiencySvg([
+      { topicId: 'arrays', proficiency: 1.0 },
+      { topicId: 'graphs', proficiency: 0.25 },
+    ]);
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('arrays');
+    expect(svg).toContain('100%');
+    expect(svg).toContain('25%');
+    // Full-proficiency bar width (320) should be present; quarter (80) too.
+    expect(svg).toContain('width="320"');
+    expect(svg).toContain('width="80"');
+  });
+
+  it('returns a friendly empty state (no <svg>) when there are no bars', () => {
+    const out = renderProficiencySvg([]);
+    expect(out).not.toContain('<svg');
+    expect(out).toContain('No proficiency data yet');
+  });
+
+  it('escapes XSS in topic labels', () => {
+    const svg = renderProficiencySvg([
+      { topicId: '<script>alert(1)</script>', proficiency: 0.5 },
+    ]);
+    expect(svg).not.toContain('<script>alert(1)</script>');
+    expect(svg).toContain('&lt;script&gt;');
+  });
+});
+
+describe('renderStatusBreakdownSvg (C2)', () => {
+  it('emits <svg> with each status count when data exists', () => {
+    const svg = renderStatusBreakdownSvg({
+      done: 3,
+      to_revisit: 1,
+      did_not_understand: 2,
+      none: 4,
+    });
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('Done');
+    expect(svg).toContain('To revisit');
+    expect(svg).toContain('Did not understand');
+    expect(svg).toContain('Not started');
+  });
+
+  it('returns friendly empty state (no <svg>) when all counts are zero', () => {
+    const out = renderStatusBreakdownSvg({
+      done: 0,
+      to_revisit: 0,
+      did_not_understand: 0,
+      none: 0,
+    });
+    expect(out).not.toContain('<svg');
+    expect(out).toContain('No problems tracked yet');
+  });
+});
+
+describe('renderAnalyticsHtml charts + empty state (C2)', () => {
+  const emptyView: AssessmentView = {
+    topicsTracked: 0,
+    topStrengths: [],
+    focusAreas: [],
+    recurringWeaknesses: [],
+    recentSession: null,
+  };
+  const emptyPlan: SessionPlan = {
+    topics: [],
+    summary: 'No history yet — start with a broad baseline session.',
+  };
+  const populatedView: AssessmentView = {
+    ...emptyView,
+    topicsTracked: 2,
+    topStrengths: [{ topicId: 'arrays', proficiency: 0.9 }],
+    focusAreas: [{ topicId: 'graphs', proficiency: 0.3 }],
+  };
+
+  it('renders <svg> charts when proficiency data exists', () => {
+    const html = renderAnalyticsHtml(populatedView, emptyPlan);
+    expect(html).toContain('<svg');
+    expect(html).toContain('Proficiency by topic');
+  });
+
+  it('renders <svg> status chart + table when status counts exist', () => {
+    const counts: StatusCounts = {
+      done: 2,
+      to_revisit: 1,
+      did_not_understand: 0,
+      none: 5,
+    };
+    const html = renderAnalyticsHtml(emptyView, emptyPlan, [], counts);
+    expect(html).toContain('<svg');
+    expect(html).toContain('Status breakdown');
+    expect(html).toContain('analytics-table');
+    expect(html).toContain('Total tracked');
+  });
+
+  it('renders a safe empty state (no crash) when there is no data', () => {
+    const html = renderAnalyticsHtml(emptyView, emptyPlan);
+    expect(html).toContain('No data yet');
+    // Empty state must not blow up / emit chart SVG.
+    expect(html).not.toContain('<svg');
+    expect(html).toContain('<title>InterviewBudAI - Analytics</title>');
+  });
+
+  it('nav shows Analytics not Dashboard', () => {
+    const html = renderAnalyticsHtml(populatedView, emptyPlan);
+    expect(html).toContain('href="/analytics"');
+    expect(html).toContain('>Analytics<');
+    expect(html).not.toContain('>Dashboard<');
+  });
+
+  it('escapes XSS in topic labels inside the chart', () => {
+    const xssView: AssessmentView = {
+      ...emptyView,
+      topicsTracked: 1,
+      topStrengths: [{ topicId: '<img onerror=alert(1)>', proficiency: 0.5 }],
+    };
+    const html = renderAnalyticsHtml(xssView, emptyPlan);
+    expect(html).not.toContain('<img onerror=alert(1)>');
+    expect(html).toContain('&lt;img');
   });
 });

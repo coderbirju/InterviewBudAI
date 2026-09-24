@@ -1319,7 +1319,7 @@ export function getCommonStyles(): string {
 export function renderNav(activeRoute: string): string {
   const links = [
     { href: '/', label: 'Home' },
-    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/analytics', label: 'Analytics' },
     { href: '/coach', label: 'Interview' },
   ];
 
@@ -1509,27 +1509,283 @@ export function renderHomeHtml(
 </html>`;
 }
 
+// ===========================================================================
+// Analytics charts (Milestone C2)
+//
+// Pure helpers below compute chart data and emit hand-built INLINE SVG. No
+// external chart library, CDN, font, or network — local-first (charter §6.4).
+// Every dynamic value (topic labels, counts) is HTML-escaped, including inside
+// SVG <text>, so untrusted topic ids cannot inject markup.
+// ===========================================================================
+
+/** A single horizontal proficiency bar: a topic and its [0,1] proficiency. */
+export interface ProficiencyBar {
+  readonly topicId: string;
+  readonly proficiency: number;
+}
+
 /**
- * Render the full dashboard HTML with both AssessmentView and SessionPlan.
- * @param completedProblems - Optional list of completed problems to display (default empty).
+ * Aggregate per-topic proficiency for the proficiency chart from an
+ * {@link AssessmentView}. Merges `topStrengths` and `focusAreas` (deduped by
+ * topicId, first occurrence wins), clamps proficiency to `[0,1]`, and sorts
+ * descending by proficiency with a stable topicId tie-break. Pure and sync.
  */
-export function renderDashboardHtml(
+export function computeProficiencyBars(
+  view: AssessmentView,
+): readonly ProficiencyBar[] {
+  const byId = new Map<string, number>();
+  for (const t of [...view.topStrengths, ...view.focusAreas]) {
+    if (!byId.has(t.topicId)) {
+      const clamped = Math.max(0, Math.min(1, t.proficiency));
+      byId.set(t.topicId, clamped);
+    }
+  }
+  return [...byId.entries()]
+    .map(([topicId, proficiency]) => ({ topicId, proficiency }))
+    .sort((a, b) =>
+      b.proficiency !== a.proficiency
+        ? b.proficiency - a.proficiency
+        : a.topicId.localeCompare(b.topicId),
+    );
+}
+
+/**
+ * Counts of problems by resolved {@link NoteStatus}. The four keys always
+ * exist (default 0) so the chart and table render deterministically.
+ */
+export interface StatusCounts {
+  readonly done: number;
+  readonly to_revisit: number;
+  readonly did_not_understand: number;
+  readonly none: number;
+}
+
+/**
+ * Tally resolved note statuses into a {@link StatusCounts}. Input is the list
+ * of already-resolved statuses (one per problem the caller iterated). Pure and
+ * sync; the handler does the storage reads and resolution.
+ */
+export function computeStatusCounts(
+  statuses: readonly NoteStatus[],
+): StatusCounts {
+  const counts = { done: 0, to_revisit: 0, did_not_understand: 0, none: 0 };
+  for (const s of statuses) {
+    counts[s] += 1;
+  }
+  return counts;
+}
+
+/** Map an [0,1] proficiency to a bar width in SVG user units. */
+function barWidthFor(proficiency: number, maxWidth: number): number {
+  const clamped = Math.max(0, Math.min(1, proficiency));
+  return Math.round(clamped * maxWidth);
+}
+
+/**
+ * Emit an inline-SVG horizontal bar chart of per-topic proficiency. Returns a
+ * friendly empty-state paragraph (no `<svg>`) when there are no bars.
+ */
+export function renderProficiencySvg(bars: readonly ProficiencyBar[]): string {
+  if (bars.length === 0) {
+    return `<p class="empty-state">No proficiency data yet — complete a coaching session to build your competency map.</p>`;
+  }
+
+  const rowH = 34;
+  const gap = 10;
+  const labelW = 150;
+  const barMax = 320;
+  const valueW = 52;
+  const width = labelW + barMax + valueW + 20;
+  const height = bars.length * (rowH + gap) + gap;
+
+  const rows = bars
+    .map((bar, i) => {
+      const y = gap + i * (rowH + gap);
+      const w = barWidthFor(bar.proficiency, barMax);
+      const color = proficiencyColor(bar.proficiency);
+      const pct = Math.round(Math.max(0, Math.min(1, bar.proficiency)) * 100);
+      const label = escapeHtml(bar.topicId);
+      const barX = labelW + 8;
+      return `<g>
+      <text x="0" y="${y + rowH / 2 + 5}" class="svg-label">${label}</text>
+      <rect x="${barX}" y="${y}" width="${barMax}" height="${rowH}" rx="4" class="svg-track" />
+      <rect x="${barX}" y="${y}" width="${w}" height="${rowH}" rx="4" fill="${color}" />
+      <text x="${barX + barMax + 8}" y="${y + rowH / 2 + 5}" class="svg-value">${pct}%</text>
+    </g>`;
+    })
+    .join('\n    ');
+
+  return `<svg class="chart" role="img" aria-label="Per-topic proficiency bar chart" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet">
+    ${rows}
+  </svg>`;
+}
+
+/** Display metadata (label + color) for each status bar/segment. */
+const STATUS_CHART_META: ReadonlyArray<{
+  readonly key: keyof StatusCounts;
+  readonly label: string;
+  readonly color: string;
+}> = [
+  { key: 'done', label: 'Done', color: '#22c55e' },
+  { key: 'to_revisit', label: 'To revisit', color: '#eab308' },
+  { key: 'did_not_understand', label: 'Did not understand', color: '#ef4444' },
+  { key: 'none', label: 'Not started', color: '#6b7280' },
+];
+
+/**
+ * Emit an inline-SVG vertical bar chart of the status breakdown. Returns a
+ * friendly empty-state paragraph (no `<svg>`) when every count is zero.
+ */
+export function renderStatusBreakdownSvg(counts: StatusCounts): string {
+  const total =
+    counts.done + counts.to_revisit + counts.did_not_understand + counts.none;
+  if (total === 0) {
+    return `<p class="empty-state">No problems tracked yet — start practicing to see your status breakdown.</p>`;
+  }
+
+  const max = Math.max(
+    counts.done,
+    counts.to_revisit,
+    counts.did_not_understand,
+    counts.none,
+    1,
+  );
+  const barW = 90;
+  const gap = 28;
+  const chartH = 180;
+  const topPad = 12;
+  const labelH = 46;
+  const width = STATUS_CHART_META.length * (barW + gap) + gap;
+  const height = topPad + chartH + labelH;
+
+  const bars = STATUS_CHART_META.map((meta, i) => {
+    const value = counts[meta.key];
+    const x = gap + i * (barW + gap);
+    const h = Math.round((value / max) * chartH);
+    const y = topPad + chartH - h;
+    const label = escapeHtml(meta.label);
+    return `<g>
+      <rect x="${x}" y="${topPad}" width="${barW}" height="${chartH}" rx="4" class="svg-track" />
+      <rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="4" fill="${meta.color}" />
+      <text x="${x + barW / 2}" y="${y - 6}" class="svg-value" text-anchor="middle">${value}</text>
+      <text x="${x + barW / 2}" y="${topPad + chartH + 22}" class="svg-label" text-anchor="middle">${label}</text>
+    </g>`;
+  }).join('\n    ');
+
+  return `<svg class="chart" role="img" aria-label="Problem status breakdown bar chart" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet">
+    ${bars}
+  </svg>`;
+}
+
+/**
+ * Render a compact table of status counts (label + count). Complements the
+ * status chart with exact numbers. All labels are constants, escaped anyway.
+ */
+function renderStatusTable(counts: StatusCounts): string {
+  const rows = STATUS_CHART_META.map(
+    (meta) =>
+      `<tr><td>${escapeHtml(meta.label)}</td><td class="num">${counts[meta.key]}</td></tr>`,
+  ).join('\n        ');
+  const total =
+    counts.done + counts.to_revisit + counts.did_not_understand + counts.none;
+  return `<table class="analytics-table">
+      <thead><tr><th>Status</th><th class="num">Problems</th></tr></thead>
+      <tbody>
+        ${rows}
+        <tr class="total-row"><td>Total tracked</td><td class="num">${total}</td></tr>
+      </tbody>
+    </table>`;
+}
+
+/**
+ * Extra CSS for the Analytics page charts + table. Kept local to this page.
+ */
+function getAnalyticsStyles(): string {
+  return `
+    .chart {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 0.5rem 0 0.25rem;
+    }
+    .svg-track { fill: var(--bg-primary); }
+    .svg-label {
+      fill: var(--text-secondary);
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    }
+    .svg-value {
+      fill: var(--text-primary);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    }
+    .analytics-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+    }
+    .analytics-table th,
+    .analytics-table td {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-primary);
+    }
+    .analytics-table th { color: var(--text-secondary); font-weight: 600; }
+    .analytics-table .num { text-align: right; }
+    .analytics-table .total-row td {
+      font-weight: 700;
+      border-top: 2px solid var(--border-color);
+      border-bottom: none;
+    }
+  `;
+}
+
+/**
+ * Render the full Analytics HTML page: proficiency chart, status breakdown
+ * chart + table, and (formerly) the completed list — now folded into the
+ * status table. Renders a safe empty-state when there is no tracked data.
+ *
+ * @param completedProblems - Completed problems (drives the completed count and
+ *   the aggregate status counts when explicit `statusCounts` is not provided).
+ * @param statusCounts - Optional pre-aggregated status counts from the handler
+ *   (across the whole catalog via resolveNoteStatus). When omitted, a minimal
+ *   breakdown is derived from `completedProblems` alone.
+ */
+export function renderAnalyticsHtml(
   view: AssessmentView,
   plan: SessionPlan,
   completedProblems: readonly CompletedProblem[] = [],
+  statusCounts?: StatusCounts,
 ): string {
-  // Render completed section
-  const completedSection =
-    completedProblems.length > 0
-      ? `<section class="dashboard-section">
-        <h2 class="section-title">Completed (${completedProblems.length})</h2>
-        <ul class="completed-list">
-          ${completedProblems.map((p) => `<li>${escapeHtml(p.title)}</li>`).join('')}
-        </ul>
+  const bars = computeProficiencyBars(view);
+  const counts: StatusCounts = statusCounts ?? {
+    done: completedProblems.length,
+    to_revisit: 0,
+    did_not_understand: 0,
+    none: 0,
+  };
+  const totalTracked =
+    counts.done + counts.to_revisit + counts.did_not_understand + counts.none;
+
+  // Empty state: no competency data AND nothing tracked in the catalog.
+  const hasData = bars.length > 0 || totalTracked > 0;
+
+  const body = !hasData
+    ? `<section class="dashboard-section empty-analytics">
+        <h2 class="section-title">Analytics</h2>
+        <p class="empty-state">No data yet — start practicing to see your proficiency and status charts. Head to the <a href="/">catalog</a> to pick a problem, or <a href="/coach">start a session</a>.</p>
       </section>`
-      : `<section class="dashboard-section">
-        <h2 class="section-title">Completed (0)</h2>
-        <p class="empty-state">No problems marked as complete yet. Visit the <a href="/catalog">catalog</a> to track your progress.</p>
+    : `<section class="dashboard-section">
+        <h2 class="section-title">Proficiency by topic</h2>
+        ${renderProficiencySvg(bars)}
+      </section>
+
+    <section class="dashboard-section">
+        <h2 class="section-title">Status breakdown</h2>
+        ${renderStatusBreakdownSvg(counts)}
+        ${renderStatusTable(counts)}
       </section>`;
 
   return `<!DOCTYPE html>
@@ -1537,38 +1793,23 @@ export function renderDashboardHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>InterviewBudAI - Dashboard</title>
+  <title>InterviewBudAI - Analytics</title>
   <style>
     ${getCommonStyles()}
-    
-    .completed-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    
-    .completed-list li {
-      padding: 0.5rem 0;
-      border-bottom: 1px solid var(--border-color);
-      color: var(--text-primary);
-    }
-    
-    .completed-list li:last-child {
-      border-bottom: none;
-    }
+    ${getAnalyticsStyles()}
   </style>
 </head>
 <body>
   <div class="container">
-    ${renderNav('/dashboard')}
+    ${renderNav('/analytics')}
     <header>
-      <h1>InterviewBudAI</h1>
+      <h1>Analytics</h1>
       <p class="tagline">Your AI-powered interview preparation companion</p>
     </header>
     
     ${renderWhereYouStand(view)}
     ${renderYourNextSession(plan)}
-    ${completedSection}
+    ${body}
     
     <footer>
       <p>InterviewBudAI &mdash; Local-first, privacy-focused interview prep</p>
@@ -1581,7 +1822,7 @@ export function renderDashboardHtml(
 
 /**
  * Render AssessmentView as a standalone HTML page.
- * @deprecated Use renderDashboardHtml for the full dashboard.
+ * @deprecated Use renderAnalyticsHtml for the full analytics page.
  */
 export function renderAssessmentHtml(view: AssessmentView): string {
   return `<!DOCTYPE html>
@@ -1685,7 +1926,7 @@ export function renderCoachResult(
     </section>
     
     <footer>
-      <p><a href="/">← Back to Dashboard</a> &bull; <a href="/coach">Start New Session</a></p>
+      <p><a href="/analytics">← Back to Analytics</a> &bull; <a href="/coach">Start New Session</a></p>
     </footer>
   </div>
 </body>
@@ -1905,8 +2146,8 @@ export function renderNoTopicsState(providerLabel?: string): string {
     <section class="dashboard-section no-topics-state">
       <div class="icon">📚</div>
       <h2>No Topics Yet</h2>
-      <p>Build up your practice history first to get personalized interview questions. Start by using the dashboard to track your progress.</p>
-      <a href="/dashboard" class="dashboard-link">Go to Dashboard</a>
+      <p>Build up your practice history first to get personalized interview questions. Start by tracking your progress on the analytics page.</p>
+      <a href="/analytics" class="dashboard-link">Go to Analytics</a>
     </section>
     
     <footer>
@@ -2055,7 +2296,7 @@ export IBAI_OLLAMA_MODEL=llama2</pre>
       
       <div class="nav-links">
         <a href="/" class="dashboard-link">← Home</a>
-        <a href="/dashboard" class="dashboard-link">Dashboard</a>
+        <a href="/analytics" class="dashboard-link">Analytics</a>
       </div>
     </section>
     
@@ -2115,7 +2356,7 @@ export function renderCatalogHtml(
 
   // Build CTA for new users
   const ctaHtml = hasCookie
-    ? `<div class="cta-banner"><a href="/dashboard" class="cta-link">Go to Dashboard</a></div>`
+    ? `<div class="cta-banner"><a href="/analytics" class="cta-link">Go to Analytics</a></div>`
     : `<div class="cta-banner highlight">
         <strong>New here?</strong> 
         <a href="/setup" class="cta-link">Create your database</a> to start tracking your progress!
@@ -2765,7 +3006,7 @@ export function renderSetupSuccessHtml(dataDir: string): string {
       <p>Your progress data will be stored at:</p>
       <div class="path-display">${escapeHtml(dataDir)}</div>
       <p>This path has been saved in a browser cookie and will be remembered for future visits.</p>
-      <a href="/dashboard" class="continue-link">Go to Dashboard</a>
+      <a href="/analytics" class="continue-link">Go to Analytics</a>
     </div>
     
     <footer>
