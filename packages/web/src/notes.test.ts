@@ -319,7 +319,7 @@ describe('notes editor routes', () => {
     expect(res.status).toBe(405);
   });
 
-  it('GET /notes/<id> with empty note renders unchecked checkbox and empty complexity inputs', async () => {
+  it('GET /notes/<id> with empty note renders status selector (None selected) and empty complexity inputs', async () => {
     const createStorage = (dataDir: string) =>
       new LocalFileStorageAdapter(dataDir);
 
@@ -340,16 +340,21 @@ describe('notes editor routes', () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    // Should have checkbox input (unchecked - no 'checked' attribute)
-    expect(res.body).toContain('name="completed"');
-    expect(res.body).toContain('type="checkbox"');
+    // Should have a status selector with all tag options
+    expect(res.body).toContain('name="status"');
+    expect(res.body).toContain('<select');
+    expect(res.body).toContain('value="none"');
+    expect(res.body).toContain('value="done"');
+    expect(res.body).toContain('value="to_revisit"');
+    // Empty note -> None selected
+    expect(res.body).toMatch(/value="none"[^>]*selected/);
     // Should have complexity inputs with empty values
     expect(res.body).toContain('name="timeComplexity"');
     expect(res.body).toContain('name="spaceComplexity"');
     expect(res.body).toContain('value=""');
   });
 
-  it('GET /notes/<id> with completed note shows checked checkbox', async () => {
+  it('GET /notes/<id> with completed note pre-selects Done (back-compat from completed)', async () => {
     const adapter = new LocalFileStorageAdapter(tempDir);
     await adapter.writeIntuitionNote({
       problemId: 'lc-3',
@@ -380,14 +385,22 @@ describe('notes editor routes', () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    // Checkbox should be checked
-    expect(res.body).toMatch(/name="completed"[^>]*checked/);
+    // Done option should be selected
+    expect(res.body).toMatch(/value="done"[^>]*selected/);
     // Complexity inputs should have values
     expect(res.body).toContain('value="O(n)"');
     expect(res.body).toContain('value="O(1)"');
   });
 
-  it('POST /notes/<id> saves completed + complexity and round-trips via GET', async () => {
+  it('GET /notes/<id> with to_revisit note pre-selects To revisit', async () => {
+    const adapter = new LocalFileStorageAdapter(tempDir);
+    await adapter.writeIntuitionNote({
+      problemId: 'lc-3',
+      content: 'Need another look',
+      lastUpdated: new Date().toISOString(),
+      status: 'to_revisit',
+    });
+
     const createStorage = (dataDir: string) =>
       new LocalFileStorageAdapter(dataDir);
 
@@ -398,10 +411,34 @@ describe('notes editor routes', () => {
     };
     const handler = createCoachHandler(deps);
 
-    // POST with completed checkbox and complexity values
+    const req: HandlerRequest = {
+      method: 'GET',
+      url: '/notes/lc-3',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatch(/value="to_revisit"[^>]*selected/);
+  });
+
+  it('POST /notes/<id> saves status=done + complexity and round-trips via GET (completed stays true)', async () => {
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    // POST with status=done and complexity values
     const postBody = new URLSearchParams({
       content: 'My solution notes',
-      completed: 'on',
+      status: 'done',
       timeComplexity: 'O(n log n)',
       spaceComplexity: 'O(n)',
     }).toString();
@@ -420,7 +457,7 @@ describe('notes editor routes', () => {
     expect(postRes.status).toBe(200);
     expect(postRes.body).toContain('Saved successfully');
     // POST response should show the values
-    expect(postRes.body).toMatch(/name="completed"[^>]*checked/);
+    expect(postRes.body).toMatch(/value="done"[^>]*selected/);
     expect(postRes.body).toContain('value="O(n log n)"');
     expect(postRes.body).toContain('value="O(n)"');
 
@@ -436,27 +473,63 @@ describe('notes editor routes', () => {
 
     expect(getRes.status).toBe(200);
     expect(getRes.body).toContain('My solution notes');
-    expect(getRes.body).toMatch(/name="completed"[^>]*checked/);
+    expect(getRes.body).toMatch(/value="done"[^>]*selected/);
     expect(getRes.body).toContain('value="O(n log n)"');
     expect(getRes.body).toContain('value="O(n)"');
 
-    // Also verify via adapter directly
+    // Also verify via adapter directly: status persisted and completed kept consistent
     const adapter = new LocalFileStorageAdapter(tempDir);
     const note = await adapter.readIntuitionNote('lc-3');
     expect(note).not.toBeNull();
+    expect(note!.status).toBe('done');
     expect(note!.completed).toBe(true);
     expect(note!.timeComplexity).toBe('O(n log n)');
     expect(note!.spaceComplexity).toBe('O(n)');
   });
 
-  it('POST /notes/<id> without checkbox unchecks completed', async () => {
-    // First write a completed note
+  it('POST /notes/<id> saves status=to_revisit and round-trips (completed false)', async () => {
+    const createStorage = (dataDir: string) =>
+      new LocalFileStorageAdapter(dataDir);
+
+    const deps: CoachHandlerDeps = {
+      storage: createMockStorage(),
+      catalog: createCatalogSource(),
+      createStorage,
+    };
+    const handler = createCoachHandler(deps);
+
+    const postBody = new URLSearchParams({
+      content: 'Come back to this',
+      status: 'to_revisit',
+    }).toString();
+
+    const postReq: HandlerRequest = {
+      method: 'POST',
+      url: '/notes/lc-3',
+      body: postBody,
+      contentType: 'application/x-www-form-urlencoded',
+      headers: {
+        cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
+      },
+    };
+    const postRes = await handler(postReq);
+    expect(postRes.status).toBe(200);
+    expect(postRes.body).toMatch(/value="to_revisit"[^>]*selected/);
+
+    const adapter = new LocalFileStorageAdapter(tempDir);
+    const note = await adapter.readIntuitionNote('lc-3');
+    expect(note!.status).toBe('to_revisit');
+    expect(note!.completed).toBe(false);
+  });
+
+  it('POST /notes/<id> with status=none clears a previously-done note (completed false)', async () => {
+    // First write a done note
     const adapter = new LocalFileStorageAdapter(tempDir);
     await adapter.writeIntuitionNote({
       problemId: 'lc-3',
-      content: 'Was completed',
+      content: 'Was done',
       lastUpdated: new Date().toISOString(),
-      completed: true,
+      status: 'done',
     });
 
     const createStorage = (dataDir: string) =>
@@ -469,11 +542,14 @@ describe('notes editor routes', () => {
     };
     const handler = createCoachHandler(deps);
 
-    // POST without completed checkbox (simulating unchecked)
+    // POST with status=none
     const postReq: HandlerRequest = {
       method: 'POST',
       url: '/notes/lc-3',
-      body: 'content=' + encodeURIComponent('Not completed anymore'),
+      body: new URLSearchParams({
+        content: 'Not done anymore',
+        status: 'none',
+      }).toString(),
       contentType: 'application/x-www-form-urlencoded',
       headers: {
         cookie: `ibai_data_dir=${encodeURIComponent(tempDir)}`,
@@ -481,8 +557,8 @@ describe('notes editor routes', () => {
     };
     await handler(postReq);
 
-    // Verify note now has completed=false
     const note = await adapter.readIntuitionNote('lc-3');
+    expect(note!.status).toBeUndefined();
     expect(note!.completed).toBe(false);
   });
 
