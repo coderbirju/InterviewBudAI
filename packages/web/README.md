@@ -4,7 +4,7 @@ Locally-hosted web front-end for InterviewBudAI's ASSESS, PLAN, and COACH capabi
 
 ## Overview
 
-This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished dashboard UI. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
+This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
 
 ## Provider Required
 
@@ -35,7 +35,7 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 
 ## Features
 
-- **Navigation bar** — Shared top nav on all pages. The **InterviewBudAI wordmark** sits on the left (appears on every page); nav links (Home, Dashboard, Interview) sit on the right. Catalog is no longer a separate nav item — the Home page surfaces the catalog directly (see below).
+- **Navigation bar** — Shared top nav on all pages. The **InterviewBudAI wordmark** sits on the left (appears on every page); nav links (Home, Analytics, Interview) sit on the right. Catalog is no longer a separate nav item — the Home page surfaces the catalog directly (see below).
 - **Home page = the catalog** — The landing page at `/` has two states:
   - **No database**: Shows a "Create your database" start CTA linking to `/setup`.
   - **Database configured**: The home page **is** the problem catalog — the grouped-by-topic table is rendered directly on `/`, with a **"Continue practicing"** button in a top action bar. There is no separate "database ready" interstitial; you land straight on the problems.
@@ -52,9 +52,9 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 - **Local-first** — All data stays on your machine; no telemetry, no cloud dependencies
 - **Cookie-based directory persistence** — Browser remembers your data directory across visits (no login required)
 - **Notes editor** — Capture your intuition, solution approach, time/space complexity, and set a **status tag** for each problem
-- **Status tags** — Each note carries a status: **None**, **Done**, **To revisit**, or **Did not understand**. `Done` keeps the legacy `completed` flag consistent, so the dashboard count and catalog ✓ markers keep working
-- **Completion tracking** — Dashboard shows completed problems count and list; catalog shows ✓ done markers (driven by the `Done` status)
-- **Per-request data resolution** — Home and dashboard honor the cookie-specified data directory
+- **Status tags** — Each note carries a status: **None**, **Done**, **To revisit**, or **Did not understand**. `Done` keeps the legacy `completed` flag consistent, so the analytics count and catalog ✓ markers keep working
+- **Analytics charts** — The **Analytics** page (`/analytics`) renders real, hand-built **inline-SVG** visualizations (no external chart library, CDN, font, or network): a **proficiency bar chart** (per-topic proficiency from your competency map) and a **status breakdown** bar chart + table (problem counts by note status — Done / To revisit / Did not understand / Not started — aggregated across the catalog via `resolveNoteStatus`). Shows a friendly **empty state** ("No data yet — start practicing") when there is no data. All dynamic labels are HTML-escaped, including inside SVG text.
+- **Per-request data resolution** — Home and analytics honor the cookie-specified data directory
 
 ## Quick Start
 
@@ -113,8 +113,9 @@ Precedence: CLI flag > environment variable > default.
 | Path | Method | Format | Description |
 |------|--------|--------|-------------|
 | `/` | GET | HTML | Home page. With a database configured it renders the problem catalog directly (grouped table + per-row status + "Continue practicing"); with no database it shows the create-database CTA. |
-| `/dashboard` | GET | HTML | Full dashboard with Where You Stand and Your Next Session sections |
-| `/assess` | GET | HTML | Alias for `/dashboard` |
+| `/analytics` | GET | HTML | Analytics page: Where You Stand, Your Next Session, and inline-SVG proficiency + status-breakdown charts (with a table). Friendly empty state when no data. |
+| `/dashboard` | GET | 302 | Back-compat redirect to `/analytics` (the page was renamed from Dashboard → Analytics). Old bookmarks keep working. |
+| `/assess` | GET | HTML | Alias for `/analytics` |
 | `/catalog` | GET | HTML | Standalone problem catalog grouped by topic (same table as home) with status, LeetCode, and Notes links |
 | `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. |
 | `/notes/<id>` | POST | HTML | Save notes content, status tag, and complexity. Shows 'Saved' banner on success. |
@@ -166,7 +167,7 @@ Returns the full `CoachResult` object with evaluations, summary, and updated com
 | Malformed model output | 502 | "The model returned an unusable response..." |
 | Invalid request | 400 | Specific validation error |
 
-## Dashboard Sections
+## Analytics Sections
 
 ### Where You Stand
 
@@ -182,6 +183,13 @@ Shows the AI-derived session plan with:
 - Topic cards with role badges (warmup/focus/twist)
 - Proficiency indicators
 - Rationale for each topic selection
+
+### Charts (inline SVG, local-first)
+
+- **Proficiency by topic** — a horizontal bar chart of per-topic proficiency, derived from the AssessmentView competency map (strengths + focus areas). Empty state when there is no competency data yet.
+- **Status breakdown** — a vertical bar chart plus a compact table counting problems by resolved note status (Done / To revisit / Did not understand / Not started), aggregated across the catalog via `resolveNoteStatus`.
+
+Both charts are hand-built inline `<svg>` — no chart library, no CDN, no network. All labels are HTML-escaped, including SVG `<text>`. When there is neither competency data nor tracked problems, the page shows a single friendly empty state instead of charts.
 
 ## Privacy & Security
 

@@ -16,7 +16,8 @@ import type {
 import {
   renderAssessmentJson,
   renderPlanJson,
-  renderDashboardHtml,
+  renderAnalyticsHtml,
+  computeStatusCounts,
   renderHomeHtml,
   renderProviderRequired,
   renderCatalogHtml,
@@ -157,7 +158,9 @@ export function createCoachHandler(
     const isAssessJson = isGet && pathname === '/assess.json';
     const isPlanJson = isGet && pathname === '/plan.json';
     const isHome = isGet && pathname === '/';
-    const isDashboard = isGet && pathname === '/dashboard';
+    const isAnalytics = isGet && pathname === '/analytics';
+    // Back-compat: old /dashboard URL 302-redirects to /analytics (C1).
+    const isDashboardRedirect = isGet && pathname === '/dashboard';
     const isHtml = isGet && pathname === '/assess';
     const isCoachForm = isGet && pathname === '/coach';
     const isCatalog = isGet && pathname === '/catalog';
@@ -180,6 +183,7 @@ export function createCoachHandler(
       '/coach.json',
       '/catalog',
       '/setup',
+      '/analytics',
       '/dashboard',
     ];
     // Also handle /notes/<id> routes
@@ -202,6 +206,7 @@ export function createCoachHandler(
         pathname === '/assess' ||
         pathname === '/assess.json' ||
         pathname === '/plan.json' ||
+        pathname === '/analytics' ||
         pathname === '/dashboard')
     ) {
       return {
@@ -216,7 +221,8 @@ export function createCoachHandler(
       !isAssessJson &&
       !isPlanJson &&
       !isHome &&
-      !isDashboard &&
+      !isAnalytics &&
+      !isDashboardRedirect &&
       !isHtml &&
       !isCoachForm &&
       !isCoachPost &&
@@ -231,6 +237,17 @@ export function createCoachHandler(
         status: 404,
         contentType: 'text/html; charset=utf-8',
         body: render404Html(),
+      };
+    }
+
+    // Back-compat redirect: GET /dashboard -> 302 /analytics (C1 rename).
+    // Keeps any old bookmarks/links working instead of 404ing.
+    if (isDashboardRedirect) {
+      return {
+        status: 302,
+        contentType: 'text/html; charset=utf-8',
+        body: '',
+        headers: { Location: '/analytics' },
       };
     }
 
@@ -513,15 +530,20 @@ export function createCoachHandler(
         };
       }
 
-      if (isHtml || isDashboard) {
-        // Gather completed problems for display
+      if (isHtml || isAnalytics) {
+        // Aggregate across the whole catalog (read-only, safe to fail per
+        // problem). We collect both the completed list (back-compat) and the
+        // per-problem resolved status for the status-breakdown chart.
         const completedProblems: CompletedProblem[] = [];
+        const statuses: NoteStatus[] = [];
         const problems = catalog.list();
 
         if (storage.readIntuitionNote) {
           for (const problem of problems) {
             try {
               const note = await storage.readIntuitionNote(problem.id);
+              const status = note ? resolveNoteStatus(note) : 'none';
+              statuses.push(status);
               if (note?.completed) {
                 completedProblems.push({
                   id: problem.id,
@@ -529,15 +551,23 @@ export function createCoachHandler(
                 });
               }
             } catch {
-              // Ignore errors - safe empty state
+              // Ignore per-problem read errors - count as 'none'.
+              statuses.push('none');
             }
           }
         }
 
+        const statusCounts = computeStatusCounts(statuses);
+
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderDashboardHtml(view, sessionPlan, completedProblems),
+          body: renderAnalyticsHtml(
+            view,
+            sessionPlan,
+            completedProblems,
+            statusCounts,
+          ),
         };
       }
 
@@ -864,7 +894,7 @@ function renderErrorHtml(title: string, message: string): string {
   <div class="error-card">
     <h1>${escapeHtml(title)}</h1>
     <p>${escapeHtml(message)}</p>
-    <p style="margin-top: 1rem;"><a href="/">← Back to Dashboard</a></p>
+    <p style="margin-top: 1rem;"><a href="/">← Home</a></p>
   </div>
 </body>
 </html>`;
