@@ -6,19 +6,38 @@ Locally-hosted web front-end for InterviewBudAI's ASSESS, PLAN, and COACH capabi
 
 This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
 
-## React SPA (M0 scaffold — ADR 0006)
+## React SPA (ADR 0006)
 
-A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0 is a toolchain scaffold only** — a styled shell (top nav + `InterviewBudAI` wordmark), no product features yet. It is served by the **same** local Node server at a **new `/app` route**, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged.
+A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0** delivered the toolchain scaffold + styled shell (top nav + `InterviewBudAI` wordmark). **M2** ships the first real feature — the **Home page** (categorized problem list + progress banner) — rendered at the SPA root of `/app`. It is served by the **same** local Node server at the `/app` route, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged. (M6 will make the SPA the real `/`.)
+
+### Home page (M2)
+
+At `/app` the SPA consumes the M1 JSON API and renders:
+
+- **Global progress banner** — `GET /api/progress`: an "Overall Progress" fraction (e.g. `12 / 175`) with a linear **emerald** progress bar and a done / to-revisit / didn't-understand / not-started breakdown.
+- **Categorized accordion problem list** — `GET /api/catalog`: problems grouped by topic. Each category header has a chevron (expand/collapse) and a per-category `done / total` badge. Expanding shows a spreadsheet-style table:
+  - **Status** — an interactive 4-state control (menu: Done / To revisit / Didn't understand / Not started). Selecting a value **optimistically** updates the row, the category badge, and the global bar, then `POST`s to `/api/notes/:id`. On failure it reverts and shows a subtle error. Done rows get an emerald highlight.
+  - **Problem** — links out to the LeetCode URL (`target="_blank" rel="noopener noreferrer"`).
+  - **Difficulty** — Easy/Medium/Hard badge in the strict token colors.
+  - **Notes** — links to the notes editor at `/notes/<id>` (server-rendered for now; M3 replaces it with the React notes page).
+
+  No Solution/Video/Code columns — the project ships no answers (charter §6.2).
+- **States** — if `GET /api/config` reports `dbConfigured:false`, a "Create your database" call-to-action links to `/setup` instead of the list. Loading and API-error states render friendly messages (no crash).
+
+All status is client-side React state (`useState`/`useEffect`) — no router or state library added.
 
 ### Where the UI lives
 
 ```
 packages/web/
   src/          existing Node server (tsc build → dist/)  ← unchanged pipeline
-  web-ui/       React SPA source (Vite build → dist-ui/)  ← new, separate pipeline
+  web-ui/       React SPA source (Vite build → dist-ui/)  ← separate pipeline
     index.html
     src/main.tsx, src/App.tsx, src/index.css
-    vite.config.ts, tailwind.config.cjs, postcss.config.cjs, tsconfig.json
+    src/components/  ProgressBanner, CategoryAccordion, ProblemRow,
+                     StatusControl, DifficultyBadge, Home
+    src/lib/         api.ts (typed M1 client), home.ts (pure helpers)
+    vite.config.ts, vitest.config.ts, tailwind.config.cjs, postcss.config.cjs
   dist-ui/      built SPA bundle (generated, git-ignored)
 ```
 
@@ -36,6 +55,16 @@ npm run build                        # tsc --build && build:ui  → server + dis
 ```
 
 `npm run build` (and therefore `npm run verify`) produces the servable bundle. After a clean `npm ci`, `npm run verify` compiles the SPA as part of the build step and stays green.
+
+### Test the UI
+
+React component/unit tests run under Vitest + jsdom + React Testing Library:
+
+```bash
+npm --workspace @ibai/web run test:ui   # jsdom component tests (web-ui)
+```
+
+The root `npm test` (and `npm run verify`) runs both the Node test suite and this UI suite.
 
 ### Run (single server serves /app)
 
