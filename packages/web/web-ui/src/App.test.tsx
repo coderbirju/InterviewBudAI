@@ -108,4 +108,35 @@ describe('App shell', () => {
       await screen.findByRole('heading', { name: /^Analytics$/ }),
     ).toBeInTheDocument();
   });
+
+  it('renders an Interview nav link pointing at the SPA interview route', () => {
+    render(<App />);
+    const link = screen.getByRole('link', { name: /^Interview$/ });
+    expect(link).toHaveAttribute('href', '/app/interview');
+  });
+
+  it('navigates to the interview page via the nav link (client-side)', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('link', { name: /^Interview$/ }));
+
+    // The Interview view heading appears (no full reload).
+    expect(
+      await screen.findByRole('heading', { name: /^Interview$/ }),
+    ).toBeInTheDocument();
+    // The active nav link reflects the interview route.
+    expect(screen.getByRole('link', { name: /^Interview$/ })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('renders the interview page on a direct /app/interview load', async () => {
+    window.history.pushState({}, '', '/app/interview');
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', { name: /^Interview$/ }),
+    ).toBeInTheDocument();
+  });
 });
