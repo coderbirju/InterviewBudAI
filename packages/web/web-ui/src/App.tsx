@@ -5,9 +5,15 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { Home } from './components/Home';
+import { Notes } from './components/Notes';
+import { useRoute } from './lib/router';
 
 /**
- * App shell (nav + wordmark, ADR 0006) hosting the M2 Home view at the SPA root.
+ * App shell (nav + wordmark, ADR 0006) hosting the SPA views.
+ *
+ * M2 rendered the Home (catalog) view only. M3 adds a second view — the notes
+ * editor at `/app/notes/<id>` — selected by a tiny client-side router
+ * (`lib/router`, React built-ins + History API only, no routing dependency).
  *
  * The nav links point at the existing server-rendered surfaces for now
  * (Interview → /coach, Analytics → /analytics); later milestones (M4/M5) move
@@ -20,6 +26,8 @@ const NAV_LINKS = [
 ] as const;
 
 export default function App(): JSX.Element {
+  const route = useRoute();
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-900/80">
@@ -61,14 +69,20 @@ export default function App(): JSX.Element {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-10">
-        <h1 className="text-2xl font-bold tracking-tight">Problems</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Track your progress across the catalog. Set a status on each problem;
-          it saves as you go.
-        </p>
-        <div className="mt-8">
-          <Home />
-        </div>
+        {route.kind === 'notes' ? (
+          <Notes problemId={route.problemId} />
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold tracking-tight">Problems</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Track your progress across the catalog. Set a status on each
+              problem; it saves as you go.
+            </p>
+            <div className="mt-8">
+              <Home />
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
