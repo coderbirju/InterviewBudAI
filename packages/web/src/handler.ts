@@ -4,7 +4,7 @@ import type {
   IsoTimestamp,
   NoteStatus,
 } from '@ibai/storage';
-import { isNoteStatus } from '@ibai/storage';
+import { isNoteStatus, resolveNoteStatus } from '@ibai/storage';
 import type { LlmProvider, PromptMessage } from '@ibai/providers';
 import { assess, plan, coach } from '@ibai/core';
 import type {
@@ -444,24 +444,45 @@ export function createCoachHandler(
       ? deps.createStorage(resolvedDataDir)
       : deps.storage;
 
-    // Handle / (home page) - three states: no-db, empty-db, has-data
+    // Handle / (home page) — Milestone A.
+    // Two states: (1) no db → create-database CTA; (2) db configured → the
+    // home page IS the catalog: grouped problem table with per-row status.
     if (isHome) {
       const dbExists = directoryExists(resolvedDataDir);
-      try {
-        const view = await assess(storage);
+
+      if (!dbExists) {
         return {
           status: 200,
           contentType: 'text/html; charset=utf-8',
-          body: renderHomeHtml(view, dbExists),
-        };
-      } catch {
-        // On error, pass null view but preserve dbExists signal
-        return {
-          status: 200,
-          contentType: 'text/html; charset=utf-8',
-          body: renderHomeHtml(null, dbExists),
+          body: renderHomeHtml(false),
         };
       }
+
+      // DB configured — load the catalog and resolve each problem's status.
+      // Read-only and safe: per-problem read failures degrade to 'none'.
+      const problems = catalog.list();
+      const statusById = new Map<string, NoteStatus>();
+      if (storage.readIntuitionNote) {
+        for (const problem of problems) {
+          try {
+            const note = await storage.readIntuitionNote(problem.id);
+            if (note) {
+              const status = resolveNoteStatus(note);
+              if (status !== 'none') {
+                statusById.set(problem.id, status);
+              }
+            }
+          } catch {
+            // Ignore per-problem read errors - safe empty status.
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: renderHomeHtml(true, problems, statusById),
+      };
     }
 
     // Extract optional sessionId from query
