@@ -4,13 +4,18 @@ import { fileURLToPath } from 'node:url';
 import type { HandlerResponse } from './handler.js';
 
 /**
- * Serves the built React SPA (ADR 0006) under the /app route.
+ * Serves the built React SPA (ADR 0006) at the site ROOT.
  *
- * The SPA is built by Vite (`npm run build:ui`) into packages/web/dist-ui with
- * `base: '/app/'`, so all emitted asset URLs are already /app-prefixed. This
- * module maps request paths to files in that directory, all local — no runtime
- * network. If the bundle is absent (UI not built), it degrades gracefully with
- * a clear message and never throws, so other routes keep working.
+ * M6: the SPA is the whole app. It is built by Vite (`npm run build:ui`) into
+ * packages/web/dist-ui with `base: '/'`, so all emitted asset URLs are
+ * root-relative (e.g. `/assets/index-*.js`). This module maps request paths to
+ * files in that directory — all local, no runtime network. For any GET path
+ * that is not a real asset file it serves `index.html`, so client-side routing
+ * (`/notes/:id`, `/analytics`, `/interview`, …) works on a hard refresh.
+ *
+ * The handler routes `/api/*` and `/setup` BEFORE consulting this module, so
+ * those surfaces are never shadowed by the SPA. If the bundle is absent (UI not
+ * built), it degrades gracefully with a clear message and never throws.
  */
 
 /** Resolve the built-bundle directory: packages/web/dist-ui.
@@ -37,9 +42,16 @@ function contentTypeFor(filePath: string): string {
   return CONTENT_TYPES[ext] ?? 'application/octet-stream';
 }
 
-/** True if this request targets the SPA route (`/app` or `/app/...`). */
-export function isAppRoute(pathname: string): boolean {
-  return pathname === '/app' || pathname.startsWith('/app/');
+/**
+ * True if this GET request should be served by the SPA. The SPA owns the site
+ * root: everything except the `/api/*` and `/setup` surfaces (which the handler
+ * routes first) is either a bundle asset or a client-side route that resolves
+ * to `index.html`. Callers MUST route `/api` and `/setup` before this.
+ */
+export function isSpaRequest(pathname: string): boolean {
+  if (pathname === '/api' || pathname.startsWith('/api/')) return false;
+  if (pathname === '/setup') return false;
+  return true;
 }
 
 /** True if the built bundle (index.html) exists on disk. */
@@ -63,24 +75,22 @@ function notBuiltResponse(): HandlerResponse {
       '<h1>Web UI not built yet</h1>',
       '<p>The React SPA bundle was not found. Build it locally with:</p>',
       '<pre style="background:#1e293b;padding:1rem;border-radius:8px">npm run build:ui</pre>',
-      '<p>Then reload <code>/app</code>. Other pages work without the bundle.</p>',
+      '<p>Then reload the page.</p>',
       '</body></html>',
     ].join(''),
   };
 }
 
 /**
- * Resolve a request pathname under /app to a file inside the bundle directory,
- * guarding against path traversal. Returns an absolute path inside BUNDLE_DIR,
- * or null if the resolved path escapes the bundle.
+ * Resolve a request pathname to a file inside the bundle directory, guarding
+ * against path traversal. Returns an absolute path inside BUNDLE_DIR, or null
+ * if the resolved path escapes the bundle. `/` maps to index.html.
  */
 function resolveBundleFile(pathname: string): string | null {
-  // Strip the leading '/app'; '/app' and '/app/' both mean index.html.
-  let rel = pathname.slice('/app'.length);
+  let rel = pathname;
   if (rel === '' || rel === '/') {
     rel = '/index.html';
   }
-  // Normalize and join, then verify containment (no traversal outside bundle).
   const resolved = path.resolve(BUNDLE_DIR, '.' + rel);
   const bundleRoot = path.resolve(BUNDLE_DIR);
   if (resolved !== bundleRoot && !resolved.startsWith(bundleRoot + path.sep)) {
@@ -89,12 +99,27 @@ function resolveBundleFile(pathname: string): string | null {
   return resolved;
 }
 
+/** Read and serve index.html, or the not-built message if it is missing. */
+function serveIndexHtml(): HandlerResponse {
+  try {
+    return {
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: fs.readFileSync(path.join(BUNDLE_DIR, 'index.html'), 'utf8'),
+    };
+  } catch {
+    return notBuiltResponse();
+  }
+}
+
 /**
- * Handle a GET request under the /app route. Assumes `isAppRoute(pathname)` is
- * already true. Never throws: missing bundle or missing file degrade to a
- * friendly 200/404 so the rest of the server stays healthy.
+ * Handle a GET request for the SPA. Assumes `isSpaRequest(pathname)` is already
+ * true. Never throws: a missing bundle degrades to a friendly message, a real
+ * asset is served with its content type, and any other (extensionless) path
+ * falls back to index.html so client-side routing works on refresh. A missing
+ * asset-looking path (has an extension) 404s.
  */
-export function handleAppRoute(pathname: string): HandlerResponse {
+export function handleSpaRequest(pathname: string): HandlerResponse {
   if (!bundleExists()) {
     return notBuiltResponse();
   }
@@ -121,18 +146,10 @@ export function handleAppRoute(pathname: string): HandlerResponse {
     // fall through to SPA fallback
   }
 
-  // SPA fallback: unknown sub-path under /app returns index.html so client-side
-  // routing (added in later milestones) works. Asset-looking paths 404.
+  // SPA fallback: an extensionless path is a client-side route -> index.html.
+  // Asset-looking paths (with an extension) that do not exist are a real 404.
   if (path.extname(pathname) === '') {
-    try {
-      return {
-        status: 200,
-        contentType: 'text/html; charset=utf-8',
-        body: fs.readFileSync(path.join(BUNDLE_DIR, 'index.html'), 'utf8'),
-      };
-    } catch {
-      return notBuiltResponse();
-    }
+    return serveIndexHtml();
   }
 
   return {

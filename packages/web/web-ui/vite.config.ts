@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 /**
  * Vite build for the @ibai/web React SPA (ADR 0006).
  *
- * - `base: '/app/'` — the server serves the SPA under the /app route, so all
- *   emitted asset URLs are prefixed with /app/ (local, same-origin).
+ * - `base: '/'` — M6: the SPA is the whole app, served at the site root, so all
+ *   emitted asset URLs are prefixed with /assets/ (local, same-origin).
  * - `build.outDir` — emits to packages/web/dist-ui (SEPARATE from the server's
  *   tsc `dist/` output so both builds coexist).
  * - No dev server / proxy config is used at runtime: the built static bundle is
@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
  */
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
-  base: '/app/',
+  base: '/',
   plugins: [react()],
   build: {
     outDir: fileURLToPath(new URL('../dist-ui', import.meta.url)),

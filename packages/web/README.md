@@ -6,63 +6,28 @@ Locally-hosted web front-end for InterviewBudAI's ASSESS, PLAN, and COACH capabi
 
 This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
 
-## React SPA (ADR 0006)
+## React SPA (ADR 0006) — the app
 
-A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0** delivered the toolchain scaffold + styled shell (top nav + `InterviewBudAI` wordmark). **M2** ships the first real feature — the **Home page** (categorized problem list + progress banner) — rendered at the SPA root of `/app`. **M3** adds the **Notes / intuition editor** at `/app/notes/<id>`, replacing the server-rendered `/notes/<id>` for SPA users. **M4** adds the **Analytics page** at `/app/analytics` — real, hand-built inline-SVG progress charts. It is served by the **same** local Node server at the `/app` route, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged. (M6 will make the SPA the real `/`.)
+The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, served at the **site root (`/`)** by the existing localhost-only Node server. It was migrated in incremental milestones (M0–M6, see `context-files/decisions/0006-web-react-toolchain.md`); **M6 completed the migration** — the SPA is now the whole UI and the old server-rendered HTML pages were retired.
 
-### Home page (M2)
+### Server surface (M6)
 
-At `/app` the SPA consumes the M1 JSON API and renders:
+The server is intentionally small — three surfaces:
 
-- **Global progress banner** — `GET /api/progress`: an "Overall Progress" fraction (e.g. `12 / 175`) with a linear **emerald** progress bar and a done / to-revisit / didn't-understand / not-started breakdown.
-- **Categorized accordion problem list** — `GET /api/catalog`: problems grouped by topic. Each category header has a chevron (expand/collapse) and a per-category `done / total` badge. Expanding shows a spreadsheet-style table:
-  - **Status** — an interactive 4-state control (menu: Done / To revisit / Didn't understand / Not started). Selecting a value **optimistically** updates the row, the category badge, and the global bar, then `POST`s to `/api/notes/:id`. On failure it reverts and shows a subtle error. Done rows get an emerald highlight.
-  - **Problem** — links out to the LeetCode URL (`target="_blank" rel="noopener noreferrer"`).
-  - **Difficulty** — Easy/Medium/Hard badge in the strict token colors.
-  - **Notes** — links to the React notes editor at `/app/notes/<id>` (M3). Navigation is client-side (History API), so it opens without a full page reload.
+- **`/` (and all other non-API, non-`/setup` GET paths)** — the React SPA bundle + assets. Client-side routing (History API, no routing library) handles `/notes/:id`, `/analytics`, and `/interview`; deep links and refreshes fall back to `index.html`. Vite `base` is `/`, so assets are served at `/assets/*` (local, same-origin — no CDN).
+- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/config`, `/api/chat`). The server remains the storage owner; the browser is UI + cookie.
+- **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory and sets the persistent `ibai_data_dir` cookie (`Max-Age=31536000`), then links back to the SPA at `/`. The SPA's no-DB states link here.
 
-  No Solution/Video/Code columns — the project ships no answers (charter §6.2).
-- **States** — if `GET /api/config` reports `dbConfigured:false`, a "Create your database" call-to-action links to `/setup` instead of the list. Loading and API-error states render friendly messages (no crash).
+Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed** — those surfaces now live entirely in the SPA.
 
-All Home status is client-side React state (`useState`/`useEffect`). Switching between the Home and Notes views is handled by a tiny in-repo router (`src/lib/router.ts`) built on React built-ins + the History API — **no routing/state library added**.
+### SPA views
 
-### Notes editor (M3)
+- **Home** (`/`) — global progress banner (`GET /api/progress`) + categorized accordion problem list (`GET /api/catalog`) with an interactive 4-state Status control that optimistically updates and `POST`s to `/api/notes/:id`. No Solution/Video/Code columns (the project ships no answers, charter §6.2).
+- **Notes** (`/notes/:id`) — the intuition editor: status control + free-text intuition + time/space complexity, saved via `POST /api/notes/:id`.
+- **Analytics** (`/analytics`) — hand-built inline-SVG progress charts (status breakdown + per-topic completion) driven by pure geometry helpers — no external chart library/CDN.
+- **Interview** (`/interview`) — the interview-coach chat: transcript + composer over `POST /api/chat`; the model is the only source of assistant text (§6.2). Provider **required**; friendly "Configure a model" and inline-error states.
 
-At `/app/notes/<id>` the SPA renders the intuition editor for a single problem, replacing the server-rendered `/notes/<id>` for SPA users:
-
-- **Problem title** — links out to the LeetCode URL (`target="_blank" rel="noopener noreferrer"`) when the catalog lookup resolves; falls back to the problem id as a plain heading otherwise.
-- **Status** — the same interactive 4-state control as Home (Done / To revisit / Didn't understand / Not started), pre-filled from the saved note.
-- **Intuition & approach** — a free-text `textarea`, pre-filled from the saved note.
-- **Time / Space complexity** — two text inputs, pre-filled from the saved note.
-- **Save** — `POST /api/notes/:id` with `{ content, status, timeComplexity, spaceComplexity }`; on success shows a **"Saved"** confirmation, reconciling local state with the server's response. Editing any field clears a stale confirmation.
-- **Back to problems** — a link back to the SPA Home (client-side nav).
-- **States** — no DB configured → a "Create your database" CTA linking `/setup`; unknown problem id (`404`) → a friendly "Problem not found" message; a network/API error → an inline error. None of these crash the page.
-
-Data comes from the M1 API only (`GET /api/notes/:id` for the note, `GET /api/catalog` for the title/url) — the server stays the storage owner. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`.
-
-### Analytics page (M4)
-
-At `/app/analytics` the SPA renders real, **hand-built inline-SVG** visualizations of your progress. There is **no external chart library, CDN, font, or network** — the charts are plain `<svg>`/`<rect>`/`<text>` driven by pure geometry helpers, so the page stays local-first and Vite-bundled. It consumes the M1 API (`GET /api/config` + `GET /api/progress` + `GET /api/catalog`) and shows:
-
-- **Overall summary** — the completed / total fraction and percent done, plus a small **per-status table** (Done / To revisit / Didn't understand / Not started) with counts and each status's share.
-- **Status breakdown chart** — a vertical SVG **bar chart** of the four note statuses from `GET /api/progress` `byStatus`, using the design-system **status colors** (done = emerald, to_revisit = amber, did_not_understand = red, none = neutral slate).
-- **Per-topic completion chart** — one horizontal SVG bar per topic from `GET /api/catalog`, with an **emerald** fill proportional to that topic's `done / total` completion, labelled with the fraction and percent.
-- **States** — a safe **empty state** ("No data yet — start practicing", linking to the catalog/`/setup`) when no DB is configured or nothing is tracked yet; friendly loading and API-error states. None of these crash the page.
-
-The chart geometry (status slices, bar lengths, per-topic bars, completion percent) lives in pure, unit-tested helpers (`src/lib/analytics.ts`); the SVG components (`StatusBreakdownChart`, `TopicCompletionChart`) only map that geometry to shapes. Navigation to `/app/analytics` uses the same in-repo History-API router (no routing library). All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`.
-
-> This React Analytics page is separate from the **existing server-rendered `/analytics`** HTML page, which keeps working unchanged until M6 retires the server-rendered surfaces.
-
-### Interview chat (M5)
-
-At `/app/interview` the SPA renders the **interview coach chat**, moving the conversation into the SPA (the **Interview** nav link now points here instead of the server-rendered `/coach`, which remains until M6). It renders a running transcript (your turns vs the coach's) + a message composer and consumes the new **`POST /api/chat`** JSON endpoint:
-
-- **Send** — optimistically appends your turn, `POST`s the whole transcript to `/api/chat`, and appends the model's `{ reply }`. **The model is the only source of assistant text** (charter §6.2) — the app ships **no canned answers**; `Enter` sends, `Shift+Enter` inserts a newline.
-- **Thinking indicator** — a "Your coach is thinking…" spinner while the reply is in flight.
-- **Provider required** — if no model is configured (checked via `GET /api/config`, and defensively again if a send returns the provider-required `400`), the page shows a **"Configure a model to start"** state naming `ANTHROPIC_API_KEY` + `IBAI_ANTHROPIC_MODEL` or `IBAI_OLLAMA_MODEL`.
-- **Errors** — a failed turn shows a friendly **inline banner** and **preserves the transcript** (auth / connection / malformed messages surfaced from the server's JSON `error`); it never crashes or fabricates a reply.
-
-All turns render via JSX (auto-escaped) with `whitespace-pre-wrap` — no `dangerouslySetInnerHTML`. Navigation uses the same in-repo History-API router (no routing library). Only outbound call is the user-configured provider, made **server-side** inside `POST /api/chat`.
+All no-DB states link to `/setup`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. Only outbound call is the user-configured LLM provider, made **server-side** inside `POST /api/chat`.
 
 ### Where the UI lives
 
@@ -108,15 +73,15 @@ npm --workspace @ibai/web run test:ui   # jsdom component tests (web-ui)
 
 The root `npm test` (and `npm run verify`) runs both the Node test suite and this UI suite.
 
-### Run (single server serves /app)
+### Run (single server serves the SPA at `/`)
 
 ```bash
 npm run build                                   # ensure dist/ and dist-ui/ exist
-npm --workspace @ibai/web run start             # existing server, now also serves /app
-# open http://127.0.0.1:4173/app
+npm --workspace @ibai/web run start             # existing server, serves the SPA at /
+# open http://127.0.0.1:4173/
 ```
 
-If the SPA bundle is absent (you ran the server without `build:ui`), `/app` **degrades gracefully** with a short "run `npm run build:ui`" message and does **not** crash any other route.
+If the SPA bundle is absent (you ran the server without `build:ui`), `/` **degrades gracefully** with a short "run `npm run build:ui`" message; `/api/*` and `/setup` still work.
 
 ### Local-first guarantee
 
