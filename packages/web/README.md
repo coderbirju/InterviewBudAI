@@ -8,7 +8,7 @@ This package provides a thin, localhost-only web server that exposes the ASSESS,
 
 ## React SPA (ADR 0006)
 
-A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0** delivered the toolchain scaffold + styled shell (top nav + `InterviewBudAI` wordmark). **M2** ships the first real feature — the **Home page** (categorized problem list + progress banner) — rendered at the SPA root of `/app`. **M3** adds the **Notes / intuition editor** at `/app/notes/<id>`, replacing the server-rendered `/notes/<id>` for SPA users. It is served by the **same** local Node server at the `/app` route, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged. (M6 will make the SPA the real `/`.)
+A React + Vite + Tailwind + lucide-react front-end is being adopted incrementally (see `context-files/decisions/0006-web-react-toolchain.md`). **M0** delivered the toolchain scaffold + styled shell (top nav + `InterviewBudAI` wordmark). **M2** ships the first real feature — the **Home page** (categorized problem list + progress banner) — rendered at the SPA root of `/app`. **M3** adds the **Notes / intuition editor** at `/app/notes/<id>`, replacing the server-rendered `/notes/<id>` for SPA users. **M4** adds the **Analytics page** at `/app/analytics` — real, hand-built inline-SVG progress charts. It is served by the **same** local Node server at the `/app` route, so all existing server-rendered pages (`/`, `/catalog`, `/analytics`, `/notes/*`, `/coach`, …) keep working unchanged. (M6 will make the SPA the real `/`.)
 
 ### Home page (M2)
 
@@ -40,6 +40,19 @@ At `/app/notes/<id>` the SPA renders the intuition editor for a single problem, 
 
 Data comes from the M1 API only (`GET /api/notes/:id` for the note, `GET /api/catalog` for the title/url) — the server stays the storage owner. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`.
 
+### Analytics page (M4)
+
+At `/app/analytics` the SPA renders real, **hand-built inline-SVG** visualizations of your progress. There is **no external chart library, CDN, font, or network** — the charts are plain `<svg>`/`<rect>`/`<text>` driven by pure geometry helpers, so the page stays local-first and Vite-bundled. It consumes the M1 API (`GET /api/config` + `GET /api/progress` + `GET /api/catalog`) and shows:
+
+- **Overall summary** — the completed / total fraction and percent done, plus a small **per-status table** (Done / To revisit / Didn't understand / Not started) with counts and each status's share.
+- **Status breakdown chart** — a vertical SVG **bar chart** of the four note statuses from `GET /api/progress` `byStatus`, using the design-system **status colors** (done = emerald, to_revisit = amber, did_not_understand = red, none = neutral slate).
+- **Per-topic completion chart** — one horizontal SVG bar per topic from `GET /api/catalog`, with an **emerald** fill proportional to that topic's `done / total` completion, labelled with the fraction and percent.
+- **States** — a safe **empty state** ("No data yet — start practicing", linking to the catalog/`/setup`) when no DB is configured or nothing is tracked yet; friendly loading and API-error states. None of these crash the page.
+
+The chart geometry (status slices, bar lengths, per-topic bars, completion percent) lives in pure, unit-tested helpers (`src/lib/analytics.ts`); the SVG components (`StatusBreakdownChart`, `TopicCompletionChart`) only map that geometry to shapes. Navigation to `/app/analytics` uses the same in-repo History-API router (no routing library). All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`.
+
+> This React Analytics page is separate from the **existing server-rendered `/analytics`** HTML page, which keeps working unchanged until M6 retires the server-rendered surfaces.
+
 ### Where the UI lives
 
 ```
@@ -49,8 +62,10 @@ packages/web/
     index.html
     src/main.tsx, src/App.tsx, src/index.css
     src/components/  ProgressBanner, CategoryAccordion, ProblemRow,
-                     StatusControl, DifficultyBadge, Home, Notes
+                     StatusControl, DifficultyBadge, Home, Notes,
+                     Analytics, StatusBreakdownChart, TopicCompletionChart
     src/lib/         api.ts (typed M1 client), home.ts (pure helpers),
+                     analytics.ts (pure chart geometry),
                      router.ts (minimal History-API router)
     vite.config.ts, vitest.config.ts, tailwind.config.cjs, postcss.config.cjs
   dist-ui/      built SPA bundle (generated, git-ignored)

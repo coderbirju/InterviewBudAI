@@ -1,0 +1,111 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import App from './App';
+import * as api from './lib/api';
+import type {
+  CatalogResponse,
+  ConfigResponse,
+  ProgressResponse,
+} from './lib/api';
+
+vi.mock('./lib/api', async () => {
+  const actual = await vi.importActual<typeof import('./lib/api')>('./lib/api');
+  return {
+    ...actual,
+    fetchConfig: vi.fn(),
+    fetchProgress: vi.fn(),
+    fetchCatalog: vi.fn(),
+  };
+});
+
+const mockedApi = vi.mocked(api);
+
+const CONFIG: ConfigResponse = {
+  dbConfigured: true,
+  dataDir: '/home/me/.ibai',
+  provider: 'ollama',
+};
+
+const PROGRESS: ProgressResponse = {
+  completed: 1,
+  total: 2,
+  byStatus: { none: 0, done: 1, to_revisit: 1, did_not_understand: 0 },
+};
+
+const CATALOG: CatalogResponse = {
+  topics: [
+    {
+      topic: 'Arrays & Hashing',
+      problems: [
+        {
+          id: 'a',
+          title: 'A',
+          url: 'https://x/a',
+          difficulty: 'Easy',
+          status: 'done',
+          completed: true,
+        },
+        {
+          id: 'b',
+          title: 'B',
+          url: 'https://x/b',
+          difficulty: 'Medium',
+          status: 'to_revisit',
+          completed: false,
+        },
+      ],
+    },
+  ],
+  totals: {
+    total: 2,
+    byStatus: { none: 0, done: 1, to_revisit: 1, did_not_understand: 0 },
+  },
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockedApi.fetchConfig.mockResolvedValue(CONFIG);
+  mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
+  mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+  // Start each test from the SPA root.
+  window.history.pushState({}, '', '/app');
+});
+
+describe('App shell', () => {
+  it('renders an Analytics nav link pointing at the SPA analytics route', () => {
+    render(<App />);
+    const link = screen.getByRole('link', { name: /Analytics/i });
+    expect(link).toHaveAttribute('href', '/app/analytics');
+  });
+
+  it('navigates to the analytics page via the nav link (client-side)', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('link', { name: /Analytics/i }));
+
+    // The Analytics view heading + its status chart appear (no full reload).
+    expect(
+      await screen.findByRole('heading', { name: /^Analytics$/ }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('img', { name: /problems by status/i }),
+      ).toBeInTheDocument(),
+    );
+    // The active nav link reflects the analytics route.
+    expect(screen.getByRole('link', { name: /Analytics/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('renders the analytics page on a direct /app/analytics load', async () => {
+    window.history.pushState({}, '', '/app/analytics');
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', { name: /^Analytics$/ }),
+    ).toBeInTheDocument();
+  });
+});
