@@ -8,20 +8,28 @@ import type { LucideIcon } from 'lucide-react';
 import { Home } from './components/Home';
 import { Notes } from './components/Notes';
 import { Analytics } from './components/Analytics';
-import { analyticsHref, homeHref, navigate, useRoute } from './lib/router';
+import { Interview } from './components/Interview';
+import {
+  analyticsHref,
+  homeHref,
+  interviewHref,
+  navigate,
+  useRoute,
+} from './lib/router';
 import type { Route } from './lib/router';
 
 /**
  * App shell (nav + wordmark, ADR 0006) hosting the SPA views.
  *
  * M2 rendered Home only; M3 added the notes editor at `/app/notes/<id>`; M4
- * adds the analytics/charts page at `/app/analytics`. Views are selected by the
- * tiny client-side router (`lib/router`, React built-ins + History API only, no
- * routing dependency).
+ * adds the analytics/charts page at `/app/analytics`; M5 adds the interview
+ * chat at `/app/interview`. Views are selected by the tiny client-side router
+ * (`lib/router`, React built-ins + History API only, no routing dependency).
  *
- * Nav: Home and Analytics are SPA routes (client-side nav, active-state from the
- * current route); Interview still points at the existing server-rendered
- * `/coach` (M5 moves it into the SPA). M6 makes the SPA the real `/`.
+ * Nav: Home, Analytics, and Interview are all SPA routes now (client-side nav,
+ * active-state from the current route). M5 moved Interview off the
+ * server-rendered `/coach` (which stays until M6). M6 makes the SPA the real
+ * `/`.
  */
 interface NavLink {
   readonly label: string;
@@ -44,9 +52,9 @@ const NAV_LINKS: readonly NavLink[] = [
   {
     label: 'Interview',
     icon: MessageSquare,
-    href: '/coach',
-    spa: false,
-    isCurrent: () => false,
+    href: interviewHref(),
+    spa: true,
+    isCurrent: (r) => r.kind === 'interview',
   },
   {
     label: 'Analytics',
@@ -139,6 +147,18 @@ export default function App(): JSX.Element {
             </p>
             <div className="mt-8">
               <Analytics />
+            </div>
+          </>
+        ) : route.kind === 'interview' ? (
+          <>
+            <h1 className="text-2xl font-bold tracking-tight">Interview</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Talk through problems with your AI interview coach. It asks
+              probing questions and gives feedback on your reasoning — it
+              won&apos;t hand you the answer.
+            </p>
+            <div className="mt-8">
+              <Interview />
             </div>
           </>
         ) : (

@@ -188,6 +188,7 @@ export function createCoachHandler(
           createStorage: deps.createStorage,
           storage: deps.storage,
           defaultDataDir: deps.defaultDataDir,
+          provider: deps.provider,
           providerLabel: deps.providerLabel,
           env: deps.env,
           argv: deps.argv,

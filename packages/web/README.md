@@ -53,6 +53,17 @@ The chart geometry (status slices, bar lengths, per-topic bars, completion perce
 
 > This React Analytics page is separate from the **existing server-rendered `/analytics`** HTML page, which keeps working unchanged until M6 retires the server-rendered surfaces.
 
+### Interview chat (M5)
+
+At `/app/interview` the SPA renders the **interview coach chat**, moving the conversation into the SPA (the **Interview** nav link now points here instead of the server-rendered `/coach`, which remains until M6). It renders a running transcript (your turns vs the coach's) + a message composer and consumes the new **`POST /api/chat`** JSON endpoint:
+
+- **Send** — optimistically appends your turn, `POST`s the whole transcript to `/api/chat`, and appends the model's `{ reply }`. **The model is the only source of assistant text** (charter §6.2) — the app ships **no canned answers**; `Enter` sends, `Shift+Enter` inserts a newline.
+- **Thinking indicator** — a "Your coach is thinking…" spinner while the reply is in flight.
+- **Provider required** — if no model is configured (checked via `GET /api/config`, and defensively again if a send returns the provider-required `400`), the page shows a **"Configure a model to start"** state naming `ANTHROPIC_API_KEY` + `IBAI_ANTHROPIC_MODEL` or `IBAI_OLLAMA_MODEL`.
+- **Errors** — a failed turn shows a friendly **inline banner** and **preserves the transcript** (auth / connection / malformed messages surfaced from the server's JSON `error`); it never crashes or fabricates a reply.
+
+All turns render via JSX (auto-escaped) with `whitespace-pre-wrap` — no `dangerouslySetInnerHTML`. Navigation uses the same in-repo History-API router (no routing library). Only outbound call is the user-configured provider, made **server-side** inside `POST /api/chat`.
+
 ### Where the UI lives
 
 ```
@@ -63,7 +74,8 @@ packages/web/
     src/main.tsx, src/App.tsx, src/index.css
     src/components/  ProgressBanner, CategoryAccordion, ProblemRow,
                      StatusControl, DifficultyBadge, Home, Notes,
-                     Analytics, StatusBreakdownChart, TopicCompletionChart
+                     Analytics, StatusBreakdownChart, TopicCompletionChart,
+                     Interview
     src/lib/         api.ts (typed M1 client), home.ts (pure helpers),
                      analytics.ts (pure chart geometry),
                      router.ts (minimal History-API router)
@@ -130,9 +142,17 @@ emits HTML (`404` for unknown `/api` paths, `405` for wrong methods).
 | `POST /api/notes/:id` | Upsert a note. Body `{ content?, status?, timeComplexity?, spaceComplexity? }` (untrusted → validated). Keeps `completed` consistent with `status: 'done'`. | `200` saved note; `400` malformed body / invalid status; `404` unknown id. | `400 { error: 'no database configured' }` (does not crash). |
 | `GET /api/progress` | Overall counts for the banner: `{ completed, total, byStatus: { done, to_revisit, did_not_understand, none } }`. | `200` | Safe empty (all `none`). |
 | `GET /api/config` | `{ dbConfigured, dataDir?, provider }` so the SPA can choose create-db vs show-catalog and show the provider banner. `dataDir` is display-only and omitted when no DB. | `200` | `{ dbConfigured: false, provider }`. |
+| `POST /api/chat` | One interview-coach chat turn. Body `{ messages: [{ role: 'user'\|'assistant', content }, …] }` — the prior transcript **plus** the new user turn (untrusted → validated; must be a non-empty array ending with a `user` turn). Prepends the coach persona as a `system` message, calls the provider, returns `{ reply }` (the model's text — the only source of assistant text, §6.2). | `200 { reply }` | `400 { error: 'no model configured', … }` (provider REQUIRED). |
 
 Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
-`ApiNoteResponse`, `ApiProgressResponse`, `ApiConfigResponse`).
+`ApiNoteResponse`, `ApiProgressResponse`, `ApiConfigResponse`, `ApiChatResponse`).
+
+`POST /api/chat` never crashes on a provider failure: it returns a JSON error
+with an appropriate status distinguishing the failure mode — **auth** and
+**connection** errors (and any malformed/empty model output) map to `502` with a
+clear message; a malformed request body or invalid `messages` array maps to
+`400`; a wrong method maps to `405`. The only outbound network call is to the
+user-configured provider, made server-side inside `complete()`.
 
 Example:
 
@@ -143,6 +163,11 @@ curl -s http://127.0.0.1:4173/api/config
 curl -s -X POST http://127.0.0.1:4173/api/notes/lc-3 \
   -H 'Content-Type: application/json' -d '{"status":"done","content":"…"}'
 # {"problemId":"lc-3","content":"…","status":"done","completed":true,…}
+
+curl -s -X POST http://127.0.0.1:4173/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"How should I start Two Sum?"}]}'
+# {"reply":"What data structure lets you look up a complement in O(1)?"}
 ```
 
 ## Overview
@@ -267,9 +292,10 @@ Precedence: CLI flag > environment variable > default.
 | `/setup` | POST | HTML | Create data directory and set cookie |
 | `/assess.json` | GET | JSON | AssessmentView as JSON |
 | `/plan.json` | GET | JSON | SessionPlan as JSON |
-| `/coach` | GET | HTML | Start turn-by-turn AI interview (requires provider) |
+| `/coach` | GET | HTML | Start turn-by-turn AI interview (requires provider). SPA users get the React chat at `/app/interview` — M5; this server-rendered route remains until M6. |
 | `/coach` | POST | HTML | Submit answer, get next question or final evaluation |
 | `/coach.json` | POST | JSON | Execute coaching session with JSON API |
+| `/api/chat` | POST | JSON | One interview-coach chat turn for the React chat page. Body `{ messages: [...] }` (transcript + new user turn); returns `{ reply }`. Provider REQUIRED (no provider → `400`). |
 
 Optional query parameter: `?sessionId=<id>` to assess/plan/coach for a specific session.
 
