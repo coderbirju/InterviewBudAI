@@ -180,13 +180,35 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('InterviewBudAI');
     });
 
-    it('shows action buttons for catalog and interview', async () => {
+    it('shows Continue practicing top action when db configured', async () => {
       const { handler } = createFakeHandler();
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.body).toContain('Continue practicing');
-      expect(res.body).toContain('href="/catalog"');
-      expect(res.body).toContain('Interview with AI');
       expect(res.body).toContain('href="/coach"');
+      expect(res.body).toContain('home-actions');
+    });
+
+    it('does NOT show Interview with AI body button (nav-only)', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).not.toContain('Interview with AI');
+    });
+
+    it('does NOT show the big body header/tagline (A1)', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).not.toContain(
+        'Your AI-powered interview preparation companion',
+      );
+      // No hero <h1> in the body; wordmark lives in nav.
+      expect(res.body).not.toContain('<div class="hero">');
+    });
+
+    it('nav contains the InterviewBudAI wordmark', async () => {
+      const { handler } = createFakeHandler();
+      const res = await handler(withCookie({ method: 'GET', url: '/' }));
+      expect(res.body).toContain('nav-wordmark');
+      expect(res.body).toContain('>InterviewBudAI</a>');
     });
 
     it('does NOT show dashboard sections on home page', async () => {
@@ -196,27 +218,21 @@ describe('createAssessHandler', () => {
       expect(res.body).not.toContain('Your Next Session');
     });
 
-    it('shows empty state CTA when no data', async () => {
+    it('shows empty state CTA when no db', async () => {
       const { handler } = createFakeHandler();
       const res = await handler({ method: 'GET', url: '/' });
       expect(res.body).toContain('Create your database');
       expect(res.body).toContain('href="/setup"');
     });
 
-    it('shows progress when data exists', async () => {
-      const { storage, handler } = createFakeHandler();
-      storage.setCompetencyMap({
-        entries: {
-          arrays: {
-            topicId: 'arrays',
-            proficiency: 0.9,
-            lastUpdated: '2026-09-06T12:00:00Z',
-          },
-        },
-      });
+    it('shows the catalog table directly when db configured (A3)', async () => {
+      const { handler } = createFakeHandler();
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
-      expect(res.body).toContain('Topics tracked');
-      expect(res.body).toContain('arrays');
+      expect(res.body).toContain('catalog-table');
+      expect(res.body).toContain('>Notes</a>');
+      expect(res.body).toContain('difficulty-badge');
+      // Topic grouping present (a known catalog topic).
+      expect(res.body).toContain('binary-search');
     });
 
     it('includes navigation with Home active', async () => {
@@ -225,6 +241,101 @@ describe('createAssessHandler', () => {
       expect(res.body).toContain('class="main-nav"');
       expect(res.body).toContain('href="/"');
       expect(res.body).toContain('aria-current="page"');
+    });
+  });
+
+  describe('GET / home catalog per-row status (A4)', () => {
+    it('shows a status badge for a note with status to_revisit', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+      const { createCatalogSource } = await import('@ibai/curriculum');
+
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-3',
+        content: 'Revisit sliding window',
+        lastUpdated: new Date().toISOString(),
+        status: 'to_revisit',
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        catalog: createCatalogSource(),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('status-badge');
+      expect(res.body).toContain('status-revisit');
+      expect(res.body).toContain('To revisit');
+    });
+
+    it('shows a Done badge for a legacy completed note', async () => {
+      const { LocalFileStorageAdapter } = await import('@ibai/storage');
+      const { createCatalogSource } = await import('@ibai/curriculum');
+
+      const adapter = new LocalFileStorageAdapter(testDataDir!);
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-3',
+        content: 'Solved',
+        lastUpdated: new Date().toISOString(),
+        completed: true,
+      });
+
+      const handler = createCoachHandler({
+        storage: adapter,
+        catalog: createCatalogSource(),
+        createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.body).toContain('status-done');
+      expect(res.body).toContain('>Done<');
+    });
+
+    it('escapes XSS in problem titles on the home catalog', async () => {
+      const { createCatalogSource } = await import('@ibai/curriculum');
+      const xssCatalog = createCatalogSource([
+        {
+          id: 'xss-home',
+          title: '<script>alert("xss")</script>',
+          url: 'https://example.com/x',
+          difficulty: 'easy',
+          topics: ['test-topic'],
+        },
+      ]);
+
+      const { storage } = createFakeHandler();
+      const handler = createCoachHandler({
+        storage,
+        createStorage: () => storage,
+        catalog: xssCatalog,
+      });
+
+      const res = await handler({
+        method: 'GET',
+        url: '/',
+        headers: {
+          cookie: `ibai_data_dir=${encodeURIComponent(testDataDir!)}`,
+        },
+      });
+
+      expect(res.body).not.toContain('<script>alert("xss")</script>');
+      expect(res.body).toContain('&lt;script&gt;');
     });
   });
 
@@ -506,15 +617,16 @@ describe('createAssessHandler', () => {
   });
 
   describe('error handling', () => {
-    it('returns 200 with ready state on home page when storage errors and db exists', async () => {
+    it('returns 200 with catalog table on home page when db exists (read-only, resilient)', async () => {
       const { storage, handler } = createFakeHandler();
       storage.setShouldThrow(true);
 
-      // withCookie points to testDataDir which exists, so dbExists=true
-      // On storage error with dbExists=true, should show "ready" state (State 2)
+      // withCookie points to testDataDir which exists, so dbExists=true.
+      // Home is read-only over the catalog + note status; a storage that
+      // throws on assess() does not break the home catalog render.
       const res = await handler(withCookie({ method: 'GET', url: '/' }));
       expect(res.status).toBe(200);
-      expect(res.body).toContain('Your database is ready');
+      expect(res.body).toContain('catalog-table');
     });
 
     it('returns 500 with readable message on storage error for dashboard', async () => {
@@ -603,8 +715,8 @@ describe('createAssessHandler', () => {
     });
   });
 
-  describe('catalog done marker', () => {
-    it('shows done marker for completed problems', async () => {
+  describe('catalog status badge', () => {
+    it('shows a Done status badge for completed problems', async () => {
       const { LocalFileStorageAdapter } = await import('@ibai/storage');
       const { createCatalogSource } = await import('@ibai/curriculum');
 
@@ -632,18 +744,18 @@ describe('createAssessHandler', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(res.body).toContain('done-marker');
-      expect(res.body).toContain('\u2713 done');
+      expect(res.body).toContain('status-done');
+      expect(res.body).toContain('>Done<');
     });
 
-    it('does not show done marker when no notes', async () => {
+    it('does not show a Done badge when no notes', async () => {
       const { handler } = createFakeHandler();
 
       const res = await handler({ method: 'GET', url: '/catalog' });
 
       expect(res.status).toBe(200);
-      // Check that no actual done marker spans are rendered (CSS class in styles is OK)
-      expect(res.body).not.toContain('\u2713 done');
+      // No Done status badge span should be rendered without any completed notes.
+      expect(res.body).not.toContain('status-done">Done');
     });
   });
 
@@ -736,7 +848,7 @@ describe('createAssessHandler', () => {
       expect(setCookie).not.toContain('Secure');
     });
 
-    it('GET / with cookie shows progress state (not empty state)', async () => {
+    it('GET / with cookie (existing dir) shows the catalog table, not the create CTA', async () => {
       const { LocalFileStorageAdapter } = await import('@ibai/storage');
 
       // Create storage with data in temp dir
@@ -765,8 +877,8 @@ describe('createAssessHandler', () => {
       });
 
       expect(res.status).toBe(200);
-      // Should show progress data, not empty state CTA
-      expect(res.body).toContain('linked-lists');
+      // Home IS the catalog when a db is configured (A3), not the create CTA.
+      expect(res.body).toContain('catalog-table');
       expect(res.body).not.toContain('Create your database');
     });
 
@@ -791,7 +903,7 @@ describe('createAssessHandler', () => {
     });
   });
 
-  describe('home three-state behavior (empty-vs-nodb regression)', () => {
+  describe('home two-state behavior (A3: no-db CTA vs catalog table)', () => {
     it('STATE 1: no cookie AND default dir does not exist shows Create your database', async () => {
       const { LocalFileStorageAdapter } = await import('@ibai/storage');
 
@@ -812,9 +924,10 @@ describe('createAssessHandler', () => {
       expect(res.status).toBe(200);
       expect(res.body).toContain('Create your database');
       expect(res.body).toContain('href="/setup"');
+      expect(res.body).not.toContain('<table class="catalog-table"');
     });
 
-    it('STATE 2: cookie set to existing but EMPTY dir shows ready state (REGRESSION TEST)', async () => {
+    it('STATE 2: cookie set to existing but EMPTY dir shows the catalog table (A3)', async () => {
       const { LocalFileStorageAdapter } = await import('@ibai/storage');
 
       // testDataDir is created by beforeEach (exists but empty - no competency.json)
@@ -837,14 +950,13 @@ describe('createAssessHandler', () => {
       });
 
       expect(res.status).toBe(200);
-      // Should show the ready state message, NOT the create database prompt
-      expect(res.body).toContain('Your database is ready');
-      expect(res.body).toContain('Start practicing');
-      expect(res.body).toContain('href="/catalog"');
+      // Home IS the catalog when a db is configured, even if empty (A3).
+      expect(res.body).toContain('catalog-table');
+      expect(res.body).toContain('Continue practicing');
       expect(res.body).not.toContain('Create your database');
     });
 
-    it('STATE 3: cookie set to dir WITH data shows progress summary', async () => {
+    it('STATE 3: cookie set to dir WITH data still shows the catalog table (A3)', async () => {
       const { LocalFileStorageAdapter } = await import('@ibai/storage');
 
       const adapter = new LocalFileStorageAdapter(testDataDir!);
@@ -873,8 +985,8 @@ describe('createAssessHandler', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(res.body).toContain('Your Progress');
-      expect(res.body).toContain('Topics tracked');
+      // Catalog table on home; 'dynamic-programming' is a catalog topic heading.
+      expect(res.body).toContain('catalog-table');
       expect(res.body).toContain('dynamic-programming');
       expect(res.body).not.toContain('Create your database');
     });
