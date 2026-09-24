@@ -1,25 +1,30 @@
 /**
- * Minimal client-side router for the SPA (ADR 0006, M3).
+ * Minimal client-side router for the SPA (ADR 0006).
  *
- * M2 rendered a single view (`<Home />`) with no router. M3 introduces a second
- * view (the notes editor), so we need to switch views by URL — but a full
- * routing library would be a new heavy dependency (charter §7.1 / M3 no-new-deps
+ * M2 rendered a single view (`<Home />`) with no router. M3 introduced a second
+ * view (the notes editor), so we switch views by URL — but a full routing
+ * library would be a new heavy dependency (charter §7.1 / no-new-deps
  * constraint). Instead this is a tiny path parser + `navigate` helper built on
  * React built-ins and the History API only.
  *
- * The SPA is served under `/app` (Vite `base: '/app/'`), and the server does a
- * SPA fallback for extensionless deep paths under `/app` (see `spa.ts`), so
- * `/app/notes/<id>` loads `index.html` and this router picks the view.
+ * M6 makes the SPA the whole app: it is served at the site ROOT (Vite
+ * `base: '/'`), and the server does a SPA fallback for extensionless,
+ * non-API, non-/setup GET paths (see `spa.ts`), so `/notes/<id>`,
+ * `/analytics`, and `/interview` all load `index.html` and this router picks
+ * the view.
  */
 
 import { useEffect, useState } from 'react';
 
-/** The base path the SPA is mounted at on the server (matches Vite `base`). */
-export const APP_BASE = '/app';
+/**
+ * The base path the SPA is mounted at on the server (matches Vite `base`).
+ * M6: the SPA owns the site root, so the base is empty ('' = '/').
+ */
+export const APP_BASE = '';
 
 /**
  * A parsed SPA route. `home` is the default; `notes` carries the problem id;
- * `analytics` is the M4 analytics/charts page; `interview` is the M5 interview
+ * `analytics` is the analytics/charts page; `interview` is the interview
  * chat page.
  */
 export type Route =
@@ -29,20 +34,13 @@ export type Route =
   | { readonly kind: 'interview' };
 
 /**
- * Parse a full pathname (e.g. `/app/notes/two-sum`) into a `Route`. Anything
- * that is not a recognized path resolves to `home`, so unknown/legacy paths
- * degrade to the catalog rather than a blank screen.
+ * Parse a full pathname (e.g. `/notes/two-sum`) into a `Route`. Anything that
+ * is not a recognized path resolves to `home`, so unknown/legacy paths degrade
+ * to the catalog rather than a blank screen.
  */
 export function parseRoute(pathname: string): Route {
-  // Strip the app base, tolerating a trailing slash.
-  let rest = pathname;
-  if (rest === APP_BASE) {
-    rest = '';
-  } else if (rest.startsWith(APP_BASE + '/')) {
-    rest = rest.slice(APP_BASE.length + 1);
-  }
-  // Trim leading/trailing slashes.
-  rest = rest.replace(/^\/+/, '').replace(/\/+$/, '');
+  // Trim leading/trailing slashes; the SPA lives at the root.
+  const rest = pathname.replace(/^\/+/, '').replace(/\/+$/, '');
 
   const segments = rest.length > 0 ? rest.split('/') : [];
   if (segments[0] === 'notes' && segments[1]) {
@@ -59,22 +57,22 @@ export function parseRoute(pathname: string): Route {
 
 /** Build the SPA URL for the notes editor of a given problem. */
 export function notesHref(problemId: string): string {
-  return `${APP_BASE}/notes/${encodeURIComponent(problemId)}`;
+  return `/notes/${encodeURIComponent(problemId)}`;
 }
 
 /** The SPA analytics (charts) URL. */
 export function analyticsHref(): string {
-  return `${APP_BASE}/analytics`;
+  return '/analytics';
 }
 
 /** The SPA interview chat URL. */
 export function interviewHref(): string {
-  return `${APP_BASE}/interview`;
+  return '/interview';
 }
 
 /** The SPA home (catalog) URL. */
 export function homeHref(): string {
-  return APP_BASE;
+  return '/';
 }
 
 /**

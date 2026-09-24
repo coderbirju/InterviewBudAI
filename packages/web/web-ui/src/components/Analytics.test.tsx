@@ -152,7 +152,7 @@ describe('Analytics page', () => {
     expect(await screen.findByText(/no data yet/i)).toBeInTheDocument();
     // Links back to the catalog (Home), not a crash.
     const link = screen.getByRole('link', { name: /go to the catalog/i });
-    expect(link).toHaveAttribute('href', '/app');
+    expect(link).toHaveAttribute('href', '/');
     // No chart rendered in the empty state.
     expect(
       screen.queryByRole('img', { name: /problems by status/i }),

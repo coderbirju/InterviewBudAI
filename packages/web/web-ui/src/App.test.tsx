@@ -69,14 +69,14 @@ beforeEach(() => {
   mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
   mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
   // Start each test from the SPA root.
-  window.history.pushState({}, '', '/app');
+  window.history.pushState({}, '', '/');
 });
 
 describe('App shell', () => {
   it('renders an Analytics nav link pointing at the SPA analytics route', () => {
     render(<App />);
     const link = screen.getByRole('link', { name: /Analytics/i });
-    expect(link).toHaveAttribute('href', '/app/analytics');
+    expect(link).toHaveAttribute('href', '/analytics');
   });
 
   it('navigates to the analytics page via the nav link (client-side)', async () => {
@@ -102,7 +102,7 @@ describe('App shell', () => {
   });
 
   it('renders the analytics page on a direct /app/analytics load', async () => {
-    window.history.pushState({}, '', '/app/analytics');
+    window.history.pushState({}, '', '/analytics');
     render(<App />);
     expect(
       await screen.findByRole('heading', { name: /^Analytics$/ }),
@@ -112,7 +112,7 @@ describe('App shell', () => {
   it('renders an Interview nav link pointing at the SPA interview route', () => {
     render(<App />);
     const link = screen.getByRole('link', { name: /^Interview$/ });
-    expect(link).toHaveAttribute('href', '/app/interview');
+    expect(link).toHaveAttribute('href', '/interview');
   });
 
   it('navigates to the interview page via the nav link (client-side)', async () => {
@@ -133,7 +133,7 @@ describe('App shell', () => {
   });
 
   it('renders the interview page on a direct /app/interview load', async () => {
-    window.history.pushState({}, '', '/app/interview');
+    window.history.pushState({}, '', '/interview');
     render(<App />);
     expect(
       await screen.findByRole('heading', { name: /^Interview$/ }),
