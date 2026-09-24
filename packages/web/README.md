@@ -51,8 +51,9 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 - **Dark theme** — Modern, accessible UI with dark color scheme
 - **Local-first** — All data stays on your machine; no telemetry, no cloud dependencies
 - **Cookie-based directory persistence** — Browser remembers your data directory across visits (no login required)
-- **Notes editor** — Capture your intuition, solution approach, time/space complexity, and mark problems as complete
-- **Completion tracking** — Dashboard shows completed problems count and list; catalog shows ✓ done markers
+- **Notes editor** — Capture your intuition, solution approach, time/space complexity, and set a **status tag** for each problem
+- **Status tags** — Each note carries a status: **None**, **Done**, **To revisit**, or **Did not understand**. `Done` keeps the legacy `completed` flag consistent, so the dashboard count and catalog ✓ markers keep working
+- **Completion tracking** — Dashboard shows completed problems count and list; catalog shows ✓ done markers (driven by the `Done` status)
 - **Per-request data resolution** — Home and dashboard honor the cookie-specified data directory
 
 ## Quick Start
@@ -116,7 +117,7 @@ Precedence: CLI flag > environment variable > default.
 | `/assess` | GET | HTML | Alias for `/dashboard` |
 | `/catalog` | GET | HTML | Browse all 175 problems grouped by topic with LeetCode and Notes links |
 | `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. |
-| `/notes/<id>` | POST | HTML | Save notes content. Shows 'Saved' banner on success. |
+| `/notes/<id>` | POST | HTML | Save notes content, status tag, and complexity. Shows 'Saved' banner on success. |
 | `/setup` | GET | HTML | Form to create/select data directory |
 | `/setup` | POST | HTML | Create data directory and set cookie |
 | `/assess.json` | GET | JSON | AssessmentView as JSON |

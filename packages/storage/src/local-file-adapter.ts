@@ -25,8 +25,10 @@ import type {
   CompetencyEntry,
   WeaknessEntry,
   IntuitionNote,
+  NoteStatus,
   IsoTimestamp,
 } from './index.js';
+import { resolveNoteStatus, isNoteStatus } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Type Guards (validate untrusted JSON)
@@ -305,8 +307,19 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     if (note.attempts !== undefined) {
       frontmatter += `\nattempts: ${note.attempts}`;
     }
-    if (note.completed !== undefined) {
-      frontmatter += `\ncompleted: ${note.completed}`;
+    // Resolve the effective status (back-compat: completed:true -> 'done').
+    // status is the primary signal; keep the legacy `completed` boolean
+    // consistent with it ('done' <=> completed true).
+    const resolvedStatus = resolveNoteStatus(note);
+    const resolvedCompleted =
+      note.completed !== undefined || note.status !== undefined
+        ? resolvedStatus === 'done'
+        : undefined;
+    if (resolvedStatus !== 'none') {
+      frontmatter += `\nstatus: ${resolvedStatus}`;
+    }
+    if (resolvedCompleted !== undefined) {
+      frontmatter += `\ncompleted: ${resolvedCompleted}`;
     }
     if (note.timeComplexity !== undefined) {
       // Quote the value and escape embedded quotes/newlines
@@ -344,6 +357,7 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       new Date().toISOString() as IsoTimestamp;
     let parsedAttempts: number | undefined;
     let parsedCompleted: boolean | undefined;
+    let parsedStatus: NoteStatus | undefined;
     let parsedTimeComplexity: string | undefined;
     let parsedSpaceComplexity: string | undefined;
 
@@ -384,6 +398,12 @@ export class LocalFileStorageAdapter implements StorageAdapter {
               } else if (value === 'false') {
                 parsedCompleted = false;
               }
+            } else if (key === 'status' && value) {
+              // Tolerant: only accept a known NoteStatus, else ignore.
+              const stripped = stripQuotes(value);
+              if (isNoteStatus(stripped)) {
+                parsedStatus = stripped;
+              }
             } else if (key === 'timeComplexity' && value) {
               // Strip surrounding quotes if present
               parsedTimeComplexity = stripQuotes(value) || undefined;
@@ -409,6 +429,15 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       body = body.slice(0, -1);
     }
 
+    // Resolve effective status with back-compat: an explicit parsed status
+    // wins; otherwise a legacy completed:true resolves to 'done'. Only include
+    // `status` when it is meaningful (not 'none') to keep notes minimal and to
+    // read a truly-empty note as undefined.
+    const effectiveStatus = resolveNoteStatus({
+      status: parsedStatus,
+      completed: parsedCompleted,
+    });
+
     // Build result with all fields, only including optional fields when defined
     const result: IntuitionNote = {
       problemId: requestedId,
@@ -416,6 +445,7 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       lastUpdated: parsedLastUpdated,
       ...(parsedAttempts !== undefined && { attempts: parsedAttempts }),
       ...(parsedCompleted !== undefined && { completed: parsedCompleted }),
+      ...(effectiveStatus !== 'none' && { status: effectiveStatus }),
       ...(parsedTimeComplexity !== undefined && {
         timeComplexity: parsedTimeComplexity,
       }),
