@@ -496,7 +496,9 @@ describe('existing routes still work', () => {
     expect(res.status).toBe(200);
     expect(res.contentType).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('Continue practicing');
-    expect(res.body).toContain('Interview with AI');
+    // Home IS the catalog when a db is configured (A3); Interview is nav-only (A2).
+    expect(res.body).toContain('catalog-table');
+    expect(res.body).not.toContain('Interview with AI');
   });
 
   it('GET / returns 200 with home page when no cookie (empty state)', async () => {

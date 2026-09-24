@@ -35,13 +35,13 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 
 ## Features
 
-- **Navigation bar** — Shared top nav on all pages with links to Home, Catalog, Dashboard, and Interview
-- **Home page** — Landing page at `/` with action buttons and three distinct states:
-  - **No database**: Shows "Create your database" CTA linking to `/setup`
-  - **Database ready but empty**: Shows "Your database is ready — start practicing" message with catalog link
-  - **Database with data**: Shows progress summary with topics tracked, top strengths, and focus areas
-- **Problem Catalog** — Browse 175 curated problems grouped by topic with difficulty badges, LeetCode links, and Notes links
-- **Catalog-first onboarding** — New users start by exploring the catalog, then create their database to start tracking progress
+- **Navigation bar** — Shared top nav on all pages. The **InterviewBudAI wordmark** sits on the left (appears on every page); nav links (Home, Dashboard, Interview) sit on the right. Catalog is no longer a separate nav item — the Home page surfaces the catalog directly (see below).
+- **Home page = the catalog** — The landing page at `/` has two states:
+  - **No database**: Shows a "Create your database" start CTA linking to `/setup`.
+  - **Database configured**: The home page **is** the problem catalog — the grouped-by-topic table is rendered directly on `/`, with a **"Continue practicing"** button in a top action bar. There is no separate "database ready" interstitial; you land straight on the problems.
+- **Per-row status** — Each problem row on the home catalog shows its **status badge** (resolved via `resolveNoteStatus`): **Done** (green), **To revisit** (amber), **Did not understand** (red), or none. Read-only and safe when no database is configured.
+- **Problem Catalog** — Browse curated problems grouped by topic with a status column, difficulty badges, LeetCode links, and Notes links. Available directly on the home page and at the standalone `/catalog` route (same grouped table).
+- **Catalog-first onboarding** — New users see the create-database CTA; once a database exists, the home page shows the full catalog to explore and track.
 - **Create database** — Simple setup flow to create and remember your data directory via browser cookie
 - **Where You Stand** — View your current proficiency across topics, top strengths, focus areas, and recurring weaknesses
 - **Your Next Session** — AI-derived session plan with warmup, focus, and twist topics displayed as cards with role badges and proficiency bars
@@ -112,10 +112,10 @@ Precedence: CLI flag > environment variable > default.
 
 | Path | Method | Format | Description |
 |------|--------|--------|-------------|
-| `/` | GET | HTML | Home/landing page with action buttons and progress summary |
+| `/` | GET | HTML | Home page. With a database configured it renders the problem catalog directly (grouped table + per-row status + "Continue practicing"); with no database it shows the create-database CTA. |
 | `/dashboard` | GET | HTML | Full dashboard with Where You Stand and Your Next Session sections |
 | `/assess` | GET | HTML | Alias for `/dashboard` |
-| `/catalog` | GET | HTML | Browse all 175 problems grouped by topic with LeetCode and Notes links |
+| `/catalog` | GET | HTML | Standalone problem catalog grouped by topic (same table as home) with status, LeetCode, and Notes links |
 | `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. |
 | `/notes/<id>` | POST | HTML | Save notes content, status tag, and complexity. Shows 'Saved' banner on success. |
 | `/setup` | GET | HTML | Form to create/select data directory |
