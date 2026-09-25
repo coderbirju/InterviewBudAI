@@ -236,6 +236,85 @@ describe('Home search & filters', () => {
     expect(screen.getByText('1 of 4 problems')).toBeInTheDocument();
   });
 
+  it('a row whose status changes under a status filter stays until the filter changes', async () => {
+    const user = userEvent.setup();
+    mockedApi.postNoteStatus.mockResolvedValue({
+      problemId: 'group-anagrams',
+      status: 'done',
+      completed: true,
+    });
+    await renderBig();
+    await user.click(screen.getByRole('button', { name: /To revisit/ }));
+    expect(screen.getByText('2 of 4 problems')).toBeInTheDocument();
+
+    // Mark Group Anagrams (to_revisit) as Done while filtering by To revisit.
+    const row = screen.getByText('Group Anagrams').closest('tr');
+    expect(row).not.toBeNull();
+    await user.click(
+      within(row as HTMLElement).getByRole('button', {
+        name: /Status: To revisit/i,
+      }),
+    );
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: /Done/i }),
+    );
+    await waitFor(() =>
+      expect(mockedApi.postNoteStatus).toHaveBeenCalledWith(
+        'group-anagrams',
+        'done',
+      ),
+    );
+
+    // Still visible (pinned), now showing Done.
+    expect(screen.getByText('Group Anagrams')).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).getByRole('button', { name: /Status: Done/i }),
+    ).toBeInTheDocument();
+
+    // Changing the filter re-applies it: the row now drops out.
+    await user.type(screen.getByLabelText(/search problems/i), 'a');
+    expect(screen.queryByText('Group Anagrams')).not.toBeInTheDocument();
+  });
+
+  it('Clear restores the pre-filter expanded topics', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    // User opens Stack before filtering.
+    await user.click(screen.getByRole('button', { name: /Stack/ }));
+    await user.type(screen.getByLabelText(/search problems/i), 'sum');
+    // Stack hidden (no matches), Arrays auto-expanded.
+    expect(screen.queryByText('Stack')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /clear filters/i }));
+
+    expect(screen.getByRole('button', { name: /Stack/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(
+      screen.getByRole('button', { name: /Arrays & Hashing/ }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('a topic collapsed while filtering stays collapsed as the user keeps typing', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    const search = screen.getByLabelText(/search problems/i);
+    await user.type(search, 's');
+    const arrays = screen.getByRole('button', { name: /Arrays & Hashing/ });
+    expect(arrays).toHaveAttribute('aria-expanded', 'true');
+    await user.click(arrays);
+    expect(arrays).toHaveAttribute('aria-expanded', 'false');
+
+    // Narrow to nothing in Arrays, then back: it must not re-open.
+    await user.type(search, 'zzz');
+    expect(screen.queryByText('Arrays & Hashing')).not.toBeInTheDocument();
+    await user.type(search, '{Backspace>3/}u');
+    expect(search).toHaveValue('su');
+    expect(
+      screen.getByRole('button', { name: /Arrays & Hashing/ }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('in-app navigate to bare / clears an active filter (URL stays in sync)', async () => {
     const user = userEvent.setup();
     await renderBig();

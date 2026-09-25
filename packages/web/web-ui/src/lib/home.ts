@@ -183,15 +183,23 @@ export interface FilteredCatalog {
  * within a topic is preserved. `matched` counts distinct problem ids so a
  * problem listed under two topics is counted once (matching the API's
  * de-duplicated `totals.total`).
+ *
+ * `pinned` ids stay visible even if they no longer match: Home pins a row
+ * whose status the user just changed under an active filter, so it doesn't
+ * vanish (taking keyboard focus with it) until the filter itself changes.
+ * Pinned rows count toward `matched`, so the count always equals what's shown.
  */
 export function filterCatalog(
   topics: readonly CatalogTopic[],
   filter: CatalogFilter,
+  pinned: ReadonlySet<string> = new Set(),
 ): FilteredCatalog {
   const ids = new Set<string>();
   const out: FilteredTopic[] = [];
   for (const topic of topics) {
-    const matches = topic.problems.filter((p) => matchesFilter(p, filter));
+    const matches = topic.problems.filter(
+      (p) => pinned.has(p.id) || matchesFilter(p, filter),
+    );
     for (const p of matches) {
       ids.add(p.id);
     }
@@ -226,9 +234,10 @@ function parseList<T extends string>(
   if (!raw) {
     return [];
   }
-  const parts = raw.split(',').map((s) => s.trim());
-  // Unknown values are dropped; canonical order, no duplicates.
-  return allowed.filter((v) => parts.includes(v));
+  const parts = raw.split(',').map((s) => s.trim().toLowerCase());
+  // Case-insensitive (hand-edited `difficulty=easy` works); unknown values are
+  // dropped; canonical order, no duplicates.
+  return allowed.filter((v) => parts.includes(v.toLowerCase()));
 }
 
 /**
@@ -265,6 +274,8 @@ export function searchWithFilter(
   setOrDelete(PARAM_QUERY, filter.query.trim().length > 0 ? filter.query : '');
   setOrDelete(PARAM_DIFFICULTY, filter.difficulties.join(','));
   setOrDelete(PARAM_STATUS, filter.statuses.join(','));
-  const out = params.toString();
+  // Commas are valid in a query string; keep list values readable
+  // (`difficulty=Easy,Hard`, not `Easy%2CHard`). Parsing decodes either form.
+  const out = params.toString().replace(/%2C/gi, ',');
   return out.length > 0 ? `?${out}` : '';
 }
