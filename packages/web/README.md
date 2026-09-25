@@ -1,10 +1,10 @@
 # @ibai/web
 
-Locally-hosted web front-end for InterviewBudAI's ASSESS, PLAN, and COACH capabilities.
+Locally-hosted web front-end for InterviewBudAI: problem catalog, notes, analytics, and the Quickfire Quiz Master.
 
 ## Overview
 
-This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
+This package provides a thin, localhost-only Node server that serves a React SPA and a same-origin JSON API. It does not currently expose `assess`/`plan` (CLI-only since M6), and the Quiz Master engine lives in this package rather than `core`, so the CLI has no quiz — both are tracked parity gaps in `context-files/progress/status.md`.
 
 ## React SPA (ADR 0006) — the app
 
@@ -18,7 +18,7 @@ The server is intentionally small — three surfaces:
 - **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, `/api/chat`, and the Quiz Master routes `/api/quiz/start|new|session|answer` plus session-management `/api/quiz/sessions` GET, `/api/quiz/end` POST, `/api/quiz/resume` POST, `/api/quiz/delete` POST + `DELETE /api/quiz/session/:id`). The server remains the storage owner; the browser is UI + cookie.
 - **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory and sets the persistent `ibai_data_dir` cookie (`Max-Age=31536000`), then links back to the SPA at `/`. The SPA's no-DB states link here.
 
-Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed** — those surfaces now live entirely in the SPA.
+Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed**. Home/notes/analytics/interview now live in the SPA; the assess/plan views (Where You Stand / Next Session) were not ported and are CLI-only for now.
 
 ### SPA views
 
@@ -88,15 +88,13 @@ If the SPA bundle is absent (you ran the server without `build:ui`), `/` **degra
 
 ### Local-first guarantee
 
-Tailwind is compiled to a **static CSS file at build time** and lucide-react icons are **bundled into the JS**. The served `/app` HTML references only local, same-origin `/app/assets/*` files — **no CDN, no remote fonts, no runtime network**. The SPA is served by the existing localhost-only Node server.
+Tailwind is compiled to a **static CSS file at build time** and lucide-react icons are **bundled into the JS**. The served `/` HTML references only local, same-origin `/assets/*` files — **no CDN, no remote fonts, no runtime network**. The SPA is served by the existing localhost-only Node server.
 
 ## JSON API (M1 — ADR 0006 D4)
 
 The server exposes a same-origin, **localhost-only JSON API** under `/api` for
 the React SPA to consume. The server remains the **storage owner** (the browser
-is UI + cookie; the server is the filesystem authority). These routes are
-**additive** — the existing server-rendered pages and `/app` keep working
-unchanged. There is **no auth** (local-first).
+is UI + cookie; the server is the filesystem authority). There is **no auth** (local-first).
 
 Every `/api` route returns `application/json`, resolves the data directory
 per-request via the same **cookie `ibai_data_dir` > `IBAI_DATA_DIR` env >
@@ -123,8 +121,10 @@ The **Quickfire Quiz Master** engine (`quiz.ts`) drives a resumable,
 shuffled, one-shot quiz over the user's `status: 'done'` problems. The MODEL is
 the sole source of both the **question wording** and the **verdict** —
 the app ships **no** canonical answers and the Quiz Master **never reveals the
-answer** (§6.2). All four routes require a configured **provider** and the
-server as storage owner.
+answer** (§6.2). The four routes below require a configured **provider**;
+session-management routes (`GET /api/quiz/sessions`, `POST /api/quiz/end`,
+`POST /api/quiz/resume`, `POST /api/quiz/delete`, `DELETE /api/quiz/session/:id`)
+are described under SPA views above.
 
 | Method & path | Purpose | Success | Errors |
 |---|---|---|---|
@@ -168,13 +168,9 @@ curl -s -X POST http://127.0.0.1:4173/api/chat \
 # {"reply":"What data structure lets you look up a complement in O(1)?"}
 ```
 
-## Overview
-
-This package provides a thin, localhost-only web server that exposes the ASSESS, PLAN, and COACH functionality through a polished UI, including an **Analytics** page with hand-built inline-SVG charts. It maintains **front-end parity** with the CLI—the same engine capabilities are available through both interfaces.
-
 ## Provider Required
 
-The AI interview **requires a configured LLM provider**. All processing is local-first; your data never leaves your machine. The only outbound call is to your configured provider.
+The Quiz Master (and `POST /api/chat`) **require a configured LLM provider**. Everything else is local-first; the only outbound call is to your configured provider.
 
 ### Option 1: Anthropic (Claude)
 
@@ -199,29 +195,6 @@ export IBAI_OLLAMA_MODEL=llama2
 export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 ```
 
-## Features
-
-- **Navigation bar** — Shared top nav on all pages. The **InterviewBudAI wordmark** sits on the left (appears on every page); nav links (Home, Analytics, Interview) sit on the right. Catalog is no longer a separate nav item — the Home page surfaces the catalog directly (see below).
-- **Home page = the catalog** — The landing page at `/` has two states:
-  - **No database**: Shows a "Create your database" start CTA linking to `/setup`.
-  - **Database configured**: The home page **is** the problem catalog — the grouped-by-topic table is rendered directly on `/`, with a **"Continue practicing"** button in a top action bar. There is no separate "database ready" interstitial; you land straight on the problems.
-- **Per-row status** — Each problem row on the home catalog shows its **status badge** (resolved via `resolveNoteStatus`): **Done** (green), **To revisit** (amber), **Did not understand** (red), or none. Read-only and safe when no database is configured.
-- **Problem Catalog** — Browse curated problems grouped by topic with a status column, difficulty badges, LeetCode links, and Notes links. Available directly on the home page and at the standalone `/catalog` route (same grouped table).
-- **Catalog-first onboarding** — New users see the create-database CTA; once a database exists, the home page shows the full catalog to explore and track.
-- **Create database** — Simple setup flow to create and remember your data directory via browser cookie
-- **Where You Stand** — View your current proficiency across topics, top strengths, focus areas, and recurring weaknesses
-- **Your Next Session** — AI-derived session plan with warmup, focus, and twist topics displayed as cards with role badges and proficiency bars
-- **Turn-by-turn AI Interview** — Conduct mock interviews where the AI asks questions and evaluates your answers
-- **AI-Evaluation** — The model evaluates your performance; no self-assessment required
-- **JSON APIs** — Machine-readable endpoints for integration with other tools
-- **Dark theme** — Modern, accessible UI with dark color scheme
-- **Local-first** — All data stays on your machine; no telemetry, no cloud dependencies
-- **Cookie-based directory persistence** — Browser remembers your data directory across visits (no login required)
-- **Notes editor** — Capture your intuition, solution approach, time/space complexity, and set a **status tag** for each problem
-- **Status tags** — Each note carries a status: **None**, **Done**, **To revisit**, or **Did not understand**. `Done` keeps the legacy `completed` flag consistent, so the analytics count and catalog ✓ markers keep working
-- **Analytics charts** — The **Analytics** page (`/analytics`) renders real, hand-built **inline-SVG** visualizations (no external chart library, CDN, font, or network): a **proficiency bar chart** (per-topic proficiency from your competency map) and a **status breakdown** bar chart + table (problem counts by note status — Done / To revisit / Did not understand / Not started — aggregated across the catalog via `resolveNoteStatus`). Shows a friendly **empty state** ("No data yet — start practicing") when there is no data. All dynamic labels are HTML-escaped, including inside SVG text.
-- **Per-request data resolution** — Home and analytics honor the cookie-specified data directory
-
 ## Quick Start
 
 ```bash
@@ -229,7 +202,7 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 npm run build
 
 # Configure a provider (choose one)
-export IBAI_OLLAMA_MODEL=llama2  # For Ollama
+export IBAI_OLLAMA_MODEL=llama3  # For Ollama
 # OR
 export ANTHROPIC_API_KEY=sk-ant-... && export IBAI_ANTHROPIC_MODEL=claude-sonnet-4-20250514  # For Anthropic
 
@@ -237,7 +210,7 @@ export ANTHROPIC_API_KEY=sk-ant-... && export IBAI_ANTHROPIC_MODEL=claude-sonnet
 npm --workspace @ibai/web run start
 ```
 
-Open http://127.0.0.1:4173/coach and start your AI-powered interview!
+Open http://127.0.0.1:4173/ — mark problems Done on Home, then take a quiz under **Interview**.
 
 ## Building
 
@@ -273,91 +246,6 @@ node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 | Anthropic Model | — | `IBAI_ANTHROPIC_MODEL` | *(required for Anthropic)* |
 
 Precedence: CLI flag > environment variable > default.
-
-## Endpoints
-
-| Path | Method | Format | Description |
-|------|--------|--------|-------------|
-| `/app` | GET | HTML/asset | React SPA (M0 scaffold, ADR 0006). Serves the Vite-built shell + local `/app/assets/*` JS/CSS. Graceful message if the bundle is not built. |
-| `/` | GET | HTML | Home page. With a database configured it renders the problem catalog directly (grouped table + per-row status + "Continue practicing"); with no database it shows the create-database CTA. |
-| `/analytics` | GET | HTML | Analytics page: Where You Stand, Your Next Session, and inline-SVG proficiency + status-breakdown charts (with a table). Friendly empty state when no data. |
-| `/dashboard` | GET | 302 | Back-compat redirect to `/analytics` (the page was renamed from Dashboard → Analytics). Old bookmarks keep working. |
-| `/assess` | GET | HTML | Alias for `/analytics` |
-| `/catalog` | GET | HTML | Standalone problem catalog grouped by topic (same table as home) with status, LeetCode, and Notes links |
-| `/notes/<id>` | GET | HTML | View/edit notes for a problem. Shows setup CTA if no database exists. (SPA users get the React editor at `/app/notes/<id>` — M3; this server-rendered route remains until M6.) |
-| `/notes/<id>` | POST | HTML | Save notes content, status tag, and complexity. Shows 'Saved' banner on success. |
-| `/setup` | GET | HTML | Form to create/select data directory |
-| `/setup` | POST | HTML | Create data directory and set cookie |
-| `/assess.json` | GET | JSON | AssessmentView as JSON |
-| `/plan.json` | GET | JSON | SessionPlan as JSON |
-| `/coach` | GET | HTML | Start turn-by-turn AI interview (requires provider). SPA users get the React chat at `/app/interview` — M5; this server-rendered route remains until M6. |
-| `/coach` | POST | HTML | Submit answer, get next question or final evaluation |
-| `/coach.json` | POST | JSON | Execute coaching session with JSON API |
-| `/api/chat` | POST | JSON | One interview-coach chat turn for the React chat page. Body `{ messages: [...] }` (transcript + new user turn); returns `{ reply }`. Provider REQUIRED (no provider → `400`). |
-
-Optional query parameter: `?sessionId=<id>` to assess/plan/coach for a specific session.
-
-## AI Interview Flow
-
-### GET /coach
-
-Starts a turn-by-turn AI interview. The model generates interviewer questions for each topic in your session plan. Requires a configured provider.
-
-### POST /coach
-
-Submits your answer to the current question. If more topics remain, returns the next question. When all topics are complete, the model evaluates your answers and returns:
-- AI-generated coaching narrative
-- Per-topic evaluations (succeeded/failed with feedback)
-- Updated competency map and weakness register
-
-### POST /coach.json
-
-JSON API for programmatic access. Accepts:
-```json
-{
-  "sessionId": "optional-session-id",
-  "answers": [
-    { "topicId": "arrays", "question": "What is...", "answer": "My answer..." },
-    { "topicId": "graphs", "answer": "My answer..." }
-  ]
-}
-```
-
-Returns the full `CoachResult` object with evaluations, summary, and updated competency/weakness data.
-
-### Error Handling
-
-| Scenario | Status | Message |
-|----------|--------|---------|
-| No provider configured | 200 (HTML) / 400 (JSON) | Configuration instructions |
-| Provider connection error | 502 | "Could not reach the model provider..." |
-| Authentication error | 502 | "The model rejected the request..." |
-| Malformed model output | 502 | "The model returned an unusable response..." |
-| Invalid request | 400 | Specific validation error |
-
-## Analytics Sections
-
-### Where You Stand
-
-Displays your current proficiency across topics with:
-- Proficiency bars for each topic
-- Top 3 strengths highlighted
-- Focus areas that need work
-- Recurring weaknesses from the weakness register
-
-### Your Next Session
-
-Shows the AI-derived session plan with:
-- Topic cards with role badges (warmup/focus/twist)
-- Proficiency indicators
-- Rationale for each topic selection
-
-### Charts (inline SVG, local-first)
-
-- **Proficiency by topic** — a horizontal bar chart of per-topic proficiency, derived from the AssessmentView competency map (strengths + focus areas). Empty state when there is no competency data yet.
-- **Status breakdown** — a vertical bar chart plus a compact table counting problems by resolved note status (Done / To revisit / Did not understand / Not started), aggregated across the catalog via `resolveNoteStatus`.
-
-Both charts are hand-built inline `<svg>` — no chart library, no CDN, no network. All labels are HTML-escaped, including SVG `<text>`. When there is neither competency data nor tracked problems, the page shows a single friendly empty state instead of charts.
 
 ## Privacy & Security
 

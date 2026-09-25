@@ -39,3 +39,10 @@ and only green, reviewed PRs get merged.** Do this once.
 Until this is enabled, the platform does not enforce these rules; the charter
 still does. This item is tracked as **blocked (founder action)** in
 `context-files/progress/status.md`.
+
+## Availability (checked 2026-09-25)
+
+The GitHub API returns `403 — Upgrade to GitHub Pro or make this repository
+public` for both branch protection and rulesets on this repo. Protection
+cannot be enabled while the repo is private on GitHub Free: make it public,
+upgrade the plan, or accept charter-only enforcement.

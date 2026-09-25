@@ -1,6 +1,6 @@
 # ADR 0004 — Built-in Deterministic Demo Provider
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR 0005 (D6) — `EchoDemoProvider` removed in PR #33
 - **Date:** 2026-09-13
 - **Deciders:** Founder + Architect
 - **Supersedes:** —
