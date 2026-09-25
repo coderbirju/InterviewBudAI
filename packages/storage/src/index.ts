@@ -210,6 +210,203 @@ export function isNoteStatus(value: unknown): value is NoteStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Quiz Session Types (ADR 0007 — Quickfire Quiz Master)
+// ---------------------------------------------------------------------------
+
+/** Opaque identifier for a quiz session. */
+export type QuizSessionId = string;
+
+/**
+ * The lifecycle state of a quiz session.
+ *  - `'active'`   — the session is in progress (resumable).
+ *  - `'complete'` — the deck is exhausted; a new session must be started.
+ */
+export type QuizSessionStatus = 'active' | 'complete';
+
+/**
+ * The Quiz Master's verdict on the user's answer to a single question.
+ *
+ * A binary, one-shot outcome per question (ADR 0007): the persona evaluates the
+ * DIRECTION of the user's reasoning against the well-known problem and the
+ * user's own saved intuition. `'correct'` accepts a semi-optimal-or-better
+ * approach; `'incorrect'` records a miss (which also flips the problem's note
+ * status to `'to_revisit'` — done by a higher layer, not this storage type).
+ */
+export type QuizVerdict = 'correct' | 'incorrect';
+
+/**
+ * A recorded outcome for one question within a quiz session.
+ *
+ * One-shot per question per session: exactly one of these is appended when the
+ * user answers, and the session advances (no retries within the same session).
+ */
+export interface QuizAnswerRecord {
+  /** Curriculum problem ID the question was drawn from (e.g. 'lc-1'). */
+  readonly problemId: string;
+  /** The Quiz Master's binary verdict for this question. */
+  readonly verdict: QuizVerdict;
+  /** When the verdict was recorded. */
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * A single turn in a quiz session's transcript.
+ *
+ * Role-tagged so the full conversation can be reconstructed on resume. The
+ * `assistant` turns are the Quiz Master's wrapped prompts / evaluations
+ * (MODEL-generated, never shipped canonical answers — §6.2); `user` turns are
+ * the candidate's typed reasoning.
+ */
+export interface QuizTranscriptEntry {
+  /** Who produced this turn. */
+  readonly role: 'user' | 'assistant' | 'system';
+  /** The turn's textual content. */
+  readonly content: string;
+  /** When the turn occurred. */
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * A persisted, RESUMABLE Quiz Master session (ADR 0007).
+ *
+ * The deck is the user's `status: 'done'` set, shuffled once at creation, with
+ * NO repeats within a session. `currentIndex` points at the next unanswered
+ * problem in `deck`. Leaving and returning continues the SAME session (full
+ * transcript + progress preserved) until it is `'complete'`, at which point a
+ * new session reshuffles a fresh deck from the current done-set.
+ *
+ * PROGRESS layer (user-owned): persisted in the user's data directory, NEVER
+ * committed to the repo. Stores the user's OWN outcomes/transcript only — no
+ * canonical solutions (§6.2).
+ */
+export interface QuizSession {
+  /** Opaque session identifier (also the on-disk filename stem). */
+  readonly sessionId: QuizSessionId;
+  /** When the session (and its shuffled deck) was created. */
+  readonly createdAt: IsoTimestamp;
+  /**
+   * The shuffled deck of curriculum problem IDs for this session. Fixed at
+   * creation; no repeats within a session.
+   */
+  readonly deck: readonly string[];
+  /** Index into {@link QuizSession.deck} of the next unanswered problem. */
+  readonly currentIndex: number;
+  /** One-shot outcomes recorded so far, in answer order. */
+  readonly answered: readonly QuizAnswerRecord[];
+  /** The full chronological conversation for resume. */
+  readonly transcript: readonly QuizTranscriptEntry[];
+  /** Lifecycle state. */
+  readonly status: QuizSessionStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Competency Signal Types (ADR 0007 — competency intelligence)
+// ---------------------------------------------------------------------------
+
+/**
+ * A derived qualitative strength band for a topic, computed from the
+ * correct/incorrect tallies. A convenience label for Analytics; the raw counts
+ * remain the source of truth.
+ *  - `'weak'`      — mostly missed.
+ *  - `'improving'` — mixed.
+ *  - `'strong'`    — mostly correct.
+ *  - `'unknown'`   — too little data to judge.
+ */
+export type TopicStrength = 'unknown' | 'weak' | 'improving' | 'strong';
+
+/**
+ * Per-topic competency tally accumulated from quiz-session outcomes.
+ *
+ * This is the weak/strong-topics dataset that feeds Analytics. It records the
+ * user's OWN outcomes (correct/incorrect counts) — not any shipped answer.
+ */
+export interface TopicCompetency {
+  /** Curriculum/competency topic reference (aligns with {@link TopicId}). */
+  readonly topicId: TopicId;
+  /** Number of correct verdicts observed for this topic. */
+  readonly correct: number;
+  /** Number of incorrect verdicts observed for this topic. */
+  readonly incorrect: number;
+  /** When this topic was last seen in a quiz session. */
+  readonly lastSeen: IsoTimestamp;
+  /** Derived strength band (see {@link TopicStrength}). */
+  readonly strength: TopicStrength;
+}
+
+/**
+ * A recurring MISS pattern detected across sessions (the "where the user goes
+ * wrong" signal).
+ *
+ * Captures a short, human-readable description of a recurring mistake plus the
+ * topics it spans and how often it has recurred. Descriptions summarise the
+ * USER'S own errors/intuition gaps — they are NOT solutions (§6.2).
+ */
+export interface PatternSignal {
+  /** Stable key for de-duplicating/merging the same recurring pattern. */
+  readonly id: string;
+  /** Short, human-readable description of the recurring mistake. */
+  readonly description: string;
+  /** Topics this pattern spans. */
+  readonly topics: readonly TopicId[];
+  /** How many times this pattern has recurred. */
+  readonly occurrences: number;
+  /** When this pattern was last observed. */
+  readonly lastObserved: IsoTimestamp;
+}
+
+/**
+ * The competency-intelligence dataset (ADR 0007).
+ *
+ * Aggregates per-topic tallies + recurring miss patterns derived from quiz
+ * outcomes and the user's intuition notes. Persisted as a single
+ * human-readable/diffable JSON document in the user's data directory
+ * (`competency-signals.json`), PROGRESS layer, NEVER committed.
+ *
+ * Kept SEPARATE from the engine's existing {@link CompetencyMap} (normalised
+ * proficiency in [0,1], written by the Coach job) and {@link WeaknessRegister}
+ * (session-summary weaknesses): this dataset is the quiz-derived signal source
+ * that FEEDS those and Analytics, tracking raw quiz tallies + patterns rather
+ * than replacing the engine's derived proficiency.
+ */
+export interface CompetencySignals {
+  /** Per-topic tallies, keyed by {@link TopicId}. */
+  readonly topics: Readonly<Record<TopicId, TopicCompetency>>;
+  /** Recurring miss patterns. */
+  readonly patterns: readonly PatternSignal[];
+  /** When this dataset was last updated. */
+  readonly lastUpdated: IsoTimestamp;
+}
+
+/**
+ * Derive a {@link TopicStrength} band from correct/incorrect tallies.
+ *
+ * Rules (deliberately simple and stable):
+ *  - fewer than 3 total observations → `'unknown'`.
+ *  - correct ratio ≥ 0.75 → `'strong'`.
+ *  - correct ratio ≤ 0.40 → `'weak'`.
+ *  - otherwise → `'improving'`.
+ *
+ * Exported so front-ends/Analytics share one derivation rule.
+ */
+export function deriveTopicStrength(
+  correct: number,
+  incorrect: number,
+): TopicStrength {
+  const total = correct + incorrect;
+  if (total < 3) {
+    return 'unknown';
+  }
+  const ratio = correct / total;
+  if (ratio >= 0.75) {
+    return 'strong';
+  }
+  if (ratio <= 0.4) {
+    return 'weak';
+  }
+  return 'improving';
+}
+
+// ---------------------------------------------------------------------------
 // Storage Adapter Contract
 // ---------------------------------------------------------------------------
 
@@ -283,6 +480,67 @@ export interface StorageAdapter {
    * @param note - The intuition note to persist, including problemId and content
    */
   writeIntuitionNote?(note: IntuitionNote): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Quiz Session Methods (ADR 0007 — Quickfire Quiz Master)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read the current ACTIVE quiz session, if one exists.
+   *
+   * Enables RESUMABILITY: leaving and returning continues the same session
+   * (full transcript + progress). Returns `null` when there is no active
+   * session (none started, or the last one is `'complete'`).
+   *
+   * @remarks
+   * OPTIONAL/additive (like the intuition-note methods) so existing adapters
+   * keep compiling. Tolerant: a missing/malformed pointer or session file
+   * resolves to `null` and never throws.
+   */
+  readActiveQuizSession?(): Promise<QuizSession | null>;
+
+  /**
+   * Read a specific quiz session by its ID.
+   *
+   * @param sessionId - The quiz session ID.
+   * @returns The session if found and well-formed, or `null`.
+   */
+  readQuizSession?(sessionId: QuizSessionId): Promise<QuizSession | null>;
+
+  /**
+   * Persist a quiz session and update the active-session pointer.
+   *
+   * Writing an `'active'` session marks it as the current/active one (so
+   * {@link StorageAdapter.readActiveQuizSession} returns it). Writing a
+   * `'complete'` session clears the active pointer if it referenced this
+   * session (a new session must be started next).
+   *
+   * @param session - The quiz session to persist.
+   */
+  writeQuizSession?(session: QuizSession): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Competency Signal Methods (ADR 0007 — competency intelligence)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read the competency-signals dataset (weak/strong topics + recurring
+   * patterns). Returns an empty dataset when none exists.
+   *
+   * @remarks
+   * OPTIONAL/additive. Tolerant: missing/malformed → an empty dataset, never
+   * throws.
+   */
+  readCompetencySignals?(): Promise<CompetencySignals>;
+
+  /**
+   * Persist the competency-signals dataset. The caller computes the new
+   * dataset (from session outcomes + intuition notes); the adapter only stores
+   * it as a human-readable/diffable JSON document.
+   *
+   * @param signals - The competency-signals dataset to persist.
+   */
+  writeCompetencySignals?(signals: CompetencySignals): Promise<void>;
 }
 
 export * from './local-file-adapter.js';
