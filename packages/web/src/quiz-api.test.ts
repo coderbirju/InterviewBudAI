@@ -819,9 +819,7 @@ describe('POST /api/quiz/resume (session management)', () => {
     expect(active?.sessionId).toBe(sessionId);
     // The current question is re-presented from the catalog.
     expect(body.question?.problemId).toBe(active?.deck[0]);
-    expect(body.question?.title).toBe(
-      CATALOG.getById(active!.deck[0]!)?.title,
-    );
+    expect(body.question?.title).toBe(CATALOG.getById(active!.deck[0]!)?.title);
   });
 
   it('resuming an exhausted session does NOT re-activate it (no empty active view)', async () => {

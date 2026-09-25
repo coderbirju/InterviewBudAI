@@ -540,7 +540,11 @@ function toQuizQuestion(
 function presentCurrent(
   deps: ApiDeps,
   session: QuizSession,
-): { session: QuizSession; problem: Problem; question: ApiQuizQuestion } | null {
+): {
+  session: QuizSession;
+  problem: Problem;
+  question: ApiQuizQuestion;
+} | null {
   const currentId = currentProblemId(session);
   const problem = currentId ? deps.catalog.getById(currentId) : undefined;
   if (!problem) {
