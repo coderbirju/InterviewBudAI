@@ -53,6 +53,34 @@ class FakeQuizProvider implements LlmProvider {
   }
 }
 
+/**
+ * A fake provider that returns wrapped presentations for `wrap` prompts and a
+ * QUEUE of verdict JSON strings for successive `evaluate` prompts (one per
+ * answer). Lets a test drive multi-turn nudge scenarios deterministically.
+ */
+class SequencedQuizProvider implements LlmProvider {
+  wrapCalls = 0;
+  evalCalls = 0;
+  private queue: string[];
+  constructor(evaluateVerdicts: string[]) {
+    this.queue = [...evaluateVerdicts];
+  }
+  async complete(request: CompletionRequest): Promise<CompletionResponse> {
+    const last = request.messages[request.messages.length - 1]?.content ?? '';
+    const isEvaluate = last.includes('"verdict"');
+    if (isEvaluate) {
+      const next = this.queue.shift();
+      this.evalCalls += 1;
+      return {
+        content:
+          next ?? '```json\n{"verdict":"correct","feedback":"fallback"}\n```',
+      };
+    }
+    this.wrapCalls += 1;
+    return { content: 'Two Sum. Find two numbers that add to a target.' };
+  }
+}
+
 function makeQuizDeps(
   provider: LlmProvider | undefined,
   extra: Partial<ApiDeps> = {},
@@ -450,6 +478,161 @@ describe('POST /api/quiz/answer', () => {
       undefined,
     );
     expect(res.status).toBe(405);
+  });
+});
+
+describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () => {
+  const ON_TRACK =
+    '```json\n{"verdict":"on_track","feedback":"What is the time complexity?"}\n```';
+  const CORRECT =
+    '```json\n{"verdict":"correct","feedback":"good, semi-optimal"}\n```';
+  const INCORRECT =
+    '```json\n{"verdict":"incorrect","feedback":"wrong direction"}\n```';
+
+  async function startWith(deps: ApiDeps): Promise<void> {
+    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+  }
+
+  it('first on_track stays on the same question and records the nudge', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new SequencedQuizProvider([ON_TRACK]);
+    const deps = makeQuizDeps(provider);
+    await startWith(deps);
+
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: 'a partial idea' }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as {
+      verdict: string;
+      terminal: boolean;
+      session: { index: number; answered: number };
+    };
+    expect(body.verdict).toBe('on_track');
+    expect(body.terminal).toBe(false);
+    // Same question — no advance, no recorded outcome.
+    expect(body.session.index).toBe(0);
+    expect(body.session.answered).toBe(0);
+
+    // The nudge is recorded in the transcript (survives resume).
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const active = await adapter.readActiveQuizSession();
+    const userTurns = (active?.transcript ?? []).filter(
+      (t) => t.role === 'user',
+    ).length;
+    expect(userTurns).toBe(1);
+    expect(active?.answered).toHaveLength(0);
+  });
+
+  it('a SECOND on_track from the model is COERCED to incorrect → to_revisit + advance', async () => {
+    await seedDone(DONE_IDS);
+    // Model tries to nudge twice; the engine must coerce the second.
+    const provider = new SequencedQuizProvider([ON_TRACK, ON_TRACK]);
+    const deps = makeQuizDeps(provider);
+    await startWith(deps);
+
+    // First answer → on_track (allowed).
+    const first = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: 'partial 1' }),
+    );
+    expect(JSON.parse(first.body).verdict).toBe('on_track');
+
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const firstId = (await adapter.readActiveQuizSession())?.deck[0] as string;
+
+    // Second answer → model says on_track again → COERCED to incorrect.
+    const second = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: 'partial 2' }),
+    );
+    expect(second.status).toBe(200);
+    const body = JSON.parse(second.body) as {
+      verdict: string;
+      terminal: boolean;
+      session: { index: number; answered: number };
+    };
+    expect(body.verdict).toBe('incorrect');
+    expect(body.terminal).toBe(true);
+    // Advanced (deck moved on), outcome recorded.
+    expect(body.session.index).toBe(1);
+    expect(body.session.answered).toBe(1);
+
+    // Note flipped to to_revisit (terminal incorrect behavior).
+    const note = await adapter.readIntuitionNote(firstId);
+    expect(note?.status).toBe('to_revisit');
+  });
+
+  it('correct after one nudge → terminal correct + advance (note stays done)', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new SequencedQuizProvider([ON_TRACK, CORRECT]);
+    const deps = makeQuizDeps(provider);
+    await startWith(deps);
+
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const firstId = (await adapter.readActiveQuizSession())?.deck[0] as string;
+
+    await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: 'partial' }),
+    );
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: 'now the full approach' }),
+    );
+    const body = JSON.parse(res.body) as {
+      verdict: string;
+      terminal: boolean;
+      session: { index: number; answered: number };
+    };
+    expect(body.verdict).toBe('correct');
+    expect(body.terminal).toBe(true);
+    expect(body.session.index).toBe(1);
+    expect(body.session.answered).toBe(1);
+    // Correct → note NOT flipped.
+    const note = await adapter.readIntuitionNote(firstId);
+    expect(note?.status).toBe('done');
+  });
+
+  it('a clearly-wrong FIRST answer → incorrect immediately (no nudge owed)', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new SequencedQuizProvider([INCORRECT]);
+    const deps = makeQuizDeps(provider);
+    await startWith(deps);
+
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: 'no idea at all' }),
+    );
+    const body = JSON.parse(res.body) as {
+      verdict: string;
+      terminal: boolean;
+      session: { index: number; answered: number };
+    };
+    expect(body.verdict).toBe('incorrect');
+    expect(body.terminal).toBe(true);
+    // Advanced on the very first answer — no probe was used.
+    expect(body.session.index).toBe(1);
+    expect(body.session.answered).toBe(1);
   });
 });
 

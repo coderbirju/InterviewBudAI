@@ -285,3 +285,75 @@ changed in this PR; their replacement is scoped to Q3 (D9).
   PR); they MAY become required once all adapters implement them.
 
 Any change to these decisions requires a new ADR.
+
+## Amendment (quiz-fix-a, 2026-09-24) — founder feedback on the live quiz
+
+After the first hands-on use of the Quiz Master surface (Q1–Q4 merged), the
+founder reported three problems. This amendment records the corrected policy.
+It supersedes the affected parts of **D1** (presentation) and **D2** (nudge
+behavior); the data shapes (D5–D7), session lifecycle (D3), and competency
+signals (D4) are UNCHANGED.
+
+### A1 — Present the RAW problem directly (supersedes D1 "wrapped")
+
+The "wrapped story/rephrasing" presentation of D1 confused users and risked
+drifting from the actual problem. The Quiz Master now presents each problem
+**directly**: it states the **real problem title** and MAY add one neutral line
+restating the standard problem it knows. It authors **no invented story**, **no
+disguised scenario**, and **no hints**. Still ships **no answer/solution**
+(§6.2 intact — the model uses only its own general knowledge + the user's own
+intuition note). The `wrap` prompt mode and the `question.wrapped` field names
+are retained for wire/type stability, but their CONTENT is now the direct
+presentation.
+
+### A2 — Never-reveal + at-most-one-nudge (refines D2)
+
+The persona is hardened to be **model-agnostic** so a weaker model still
+complies:
+
+- **NEVER REVEAL:** the Quiz Master MUST NEVER reveal, state, describe, hint at,
+  or write out the solution / answer / optimal approach / pseudocode / code —
+  not when the candidate is close, not when wrong, **not even on direct
+  request**. If asked for the answer it refuses and tells them to work it out.
+- **Verdict policy** (evaluated against the model's own knowledge + the user's
+  saved intuition):
+  - Clearly reaches at least a **semi-optimal** correct approach → `correct`
+    (if a materially more optimal approach exists, set `optimalNudge` pointing
+    them to go read/figure it out, WITHOUT revealing it).
+  - **Near / on the right track** but incomplete → `on_track` with **exactly
+    one** probing question (never the answer). **At most one nudge per
+    question.**
+  - Clearly wrong → `incorrect` immediately (no nudge owed).
+  - After a single `on_track` nudge, the candidate's **next answer is
+    TERMINAL** (`correct` | `incorrect`) — never a second `on_track`.
+
+### A3 — Engine enforcement of the one-nudge cap (do not trust the model alone)
+
+`POST /api/quiz/answer` enforces the cap independently of the model:
+
+- Whether a nudge was already spent on the current question is derived from
+  existing `QuizSession` state — **no new storage field**. Each terminal answer
+  appends exactly one `user` transcript turn (via `advanceSession`, counted in
+  `answered`); each `on_track` probe appends exactly one `user` turn WITHOUT
+  incrementing `answered`. Therefore `#user-turns − answered.length` is the
+  number of nudges spent on the current question (`nudgeCountForCurrentQuestion`
+  / `nudgeAlreadyUsed`, pure helpers). This survives resume (reads only the
+  persisted transcript).
+- If the model returns `on_track` **and** a nudge was already given for this
+  question, the engine **COERCES** the verdict to a terminal `incorrect` (note
+  → `to_revisit`, advance) so the at-most-one-nudge guarantee holds even if the
+  model misbehaves. `correct` → correct + advance; `incorrect` → `to_revisit` +
+  advance; the first `on_track` → stay, record the probe. Fail-closed parsing is
+  unchanged.
+
+**Storage impact:** none. No `StorageAdapter` or `QuizSession` type change; the
+nudge count is derived from the existing transcript + `answered`.
+
+### A4 — Verdict-card render fix (UI, no contract change)
+
+The SPA (`Interview.tsx`) cleared the per-answer verdict card too late, so the
+previous answer's `correct`/`incorrect` card lingered over the freshly rendered
+next question. Fixed: on a terminal advance the prior `verdictCard` is cleared
+before the next question renders, and it is cleared on session completion; an
+`on_track` verdict keeps the same question and shows its probe card. No API or
+type change.
