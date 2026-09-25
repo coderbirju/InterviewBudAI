@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Database, Loader2 } from 'lucide-react';
-import { fetchCatalog, fetchConfig, fetchProgress } from '../lib/api';
+import {
+  AlertTriangle,
+  BarChart3,
+  Brain,
+  Database,
+  Loader2,
+} from 'lucide-react';
+import {
+  fetchCatalog,
+  fetchCompetency,
+  fetchConfig,
+  fetchProgress,
+} from '../lib/api';
 import type {
   CatalogResponse,
+  CompetencyResponse,
   ConfigResponse,
   ProgressResponse,
 } from '../lib/api';
@@ -11,9 +23,11 @@ import {
   hasTrackedData,
   statusSlices,
 } from '../lib/analytics';
-import { homeHref } from '../lib/router';
+import { hasCompetencyData } from '../lib/competency';
+import { homeHref, interviewHref } from '../lib/router';
 import { StatusBreakdownChart } from './StatusBreakdownChart';
 import { TopicCompletionChart } from './TopicCompletionChart';
+import { CompetencyChart } from './CompetencyChart';
 
 /**
  * The M4 Analytics view (ADR 0006). A React SPA page at `/app/analytics` that
@@ -24,6 +38,10 @@ import { TopicCompletionChart } from './TopicCompletionChart';
  *     did_not_understand / none) using the design-system status colors.
  *  2. A per-topic completion chart (horizontal emerald bars, done/total).
  *  3. A concise summary (overall completed/total + a per-status count table).
+ *  4. A COMPETENCY section (ADR 0007 Q4) fed by `GET /api/competency`:
+ *     per-topic strength bars (weak=red / improving=amber / strong=emerald)
+ *     with correct/incorrect tallies + a recurring miss-patterns list, with its
+ *     own safe empty state ("Take a quiz session to build your competency map").
  *
  * States mirror Home/Notes: friendly loading + API-error; and a safe empty
  * state (no DB configured, or zero tracked problems) that points back to Home
@@ -39,6 +57,7 @@ type LoadState =
       readonly config: ConfigResponse;
       readonly progress: ProgressResponse;
       readonly catalog: CatalogResponse | null;
+      readonly competency: CompetencyResponse;
     };
 
 /** Zero progress used for the no-DB state (server returns all-none there too). */
@@ -47,6 +66,9 @@ const EMPTY_PROGRESS: ProgressResponse = {
   total: 0,
   byStatus: { none: 0, done: 0, to_revisit: 0, did_not_understand: 0 },
 };
+
+/** Empty competency signals used for the no-DB state. */
+const EMPTY_COMPETENCY: CompetencyResponse = { topics: [], patterns: [] };
 
 export function Analytics(): JSX.Element {
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
@@ -67,17 +89,19 @@ export function Analytics(): JSX.Element {
             config,
             progress: EMPTY_PROGRESS,
             catalog: null,
+            competency: EMPTY_COMPETENCY,
           });
           return;
         }
-        const [progress, catalog] = await Promise.all([
+        const [progress, catalog, competency] = await Promise.all([
           fetchProgress(),
           fetchCatalog(),
+          fetchCompetency(),
         ]);
         if (cancelled) {
           return;
         }
-        setLoad({ kind: 'ready', config, progress, catalog });
+        setLoad({ kind: 'ready', config, progress, catalog, competency });
       } catch {
         if (!cancelled) {
           setLoad({ kind: 'error' });
@@ -123,7 +147,7 @@ export function Analytics(): JSX.Element {
     );
   }
 
-  const { config, progress, catalog } = load;
+  const { config, progress, catalog, competency } = load;
 
   // Safe empty state: no DB configured, or a DB with nothing tracked yet.
   if (!hasTrackedData(config.dbConfigured, progress.byStatus)) {
@@ -249,6 +273,46 @@ export function Analytics(): JSX.Element {
           </div>
         </section>
       )}
+
+      {/* Competency intelligence (ADR 0007 Q4): weak/strong topics + patterns. */}
+      <section
+        aria-label="Competency intelligence"
+        className="rounded-xl border border-slate-800 bg-slate-800/40 p-6"
+      >
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-emerald-400" aria-hidden />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Competency
+          </h2>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          Quiz-derived signals: the topics you&apos;re strong on, the ones to
+          focus next, and the mistakes that keep recurring.
+        </p>
+        <div className="mt-4">
+          {hasCompetencyData(competency) ? (
+            <CompetencyChart data={competency} />
+          ) : (
+            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-6 text-center">
+              <Brain className="mx-auto h-8 w-8 text-emerald-500" aria-hidden />
+              <p className="mt-3 text-sm text-slate-300">
+                Take a quiz session to build your competency map.
+              </p>
+              <p className="mx-auto mt-1 max-w-sm text-xs text-slate-500">
+                As the Quiz Master evaluates your answers, we track which topics
+                you&apos;re strong on and where you recurringly go wrong.
+              </p>
+              <a
+                href={interviewHref()}
+                className="mt-4 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
+              >
+                <Brain className="h-4 w-4" aria-hidden />
+                Start a quiz
+              </a>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

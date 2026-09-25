@@ -4,6 +4,7 @@ import { Analytics } from './Analytics';
 import * as api from '../lib/api';
 import type {
   CatalogResponse,
+  CompetencyResponse,
   ConfigResponse,
   ProgressResponse,
 } from '../lib/api';
@@ -16,6 +17,7 @@ vi.mock('../lib/api', async () => {
     fetchConfig: vi.fn(),
     fetchProgress: vi.fn(),
     fetchCatalog: vi.fn(),
+    fetchCompetency: vi.fn(),
   };
 });
 
@@ -87,8 +89,40 @@ const CATALOG: CatalogResponse = {
   },
 };
 
+const COMPETENCY: CompetencyResponse = {
+  topics: [
+    {
+      topicId: 'Dynamic Programming',
+      correct: 1,
+      incorrect: 4,
+      strength: 'weak',
+      lastSeen: '2026-09-24T12:00:00.000Z',
+    },
+    {
+      topicId: 'Arrays & Hashing',
+      correct: 5,
+      incorrect: 1,
+      strength: 'strong',
+      lastSeen: '2026-09-24T12:00:00.000Z',
+    },
+  ],
+  patterns: [
+    {
+      id: 'miss:lc-322',
+      description: 'Missed "Coin Change"; you reached for greedy first.',
+      topics: ['Dynamic Programming'],
+      occurrences: 3,
+      lastObserved: '2026-09-24T12:00:00.000Z',
+    },
+  ],
+};
+
+const COMPETENCY_EMPTY: CompetencyResponse = { topics: [], patterns: [] };
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: no competency signals unless a test overrides it.
+  mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY_EMPTY);
 });
 
 describe('Analytics page', () => {
@@ -189,5 +223,65 @@ describe('Analytics page', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       /loading your analytics/i,
     );
+  });
+
+  it('renders the competency section: weak topic (red), strong topic (emerald), and a pattern', async () => {
+    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
+    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+    mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY);
+
+    render(<Analytics />);
+
+    const section = await screen.findByRole('region', {
+      name: /competency intelligence/i,
+    });
+
+    // Weak topic bar present + colored red (#ef4444).
+    const weak = within(section).getByRole('img', {
+      name: /Dynamic Programming: Weak, 1 correct, 4 incorrect/i,
+    });
+    expect(weak).toBeInTheDocument();
+    const weakFill = weak.querySelector('rect[fill="#ef4444"]');
+    expect(weakFill).not.toBeNull();
+
+    // Strong topic bar present + colored emerald (#22c55e).
+    const strong = within(section).getByRole('img', {
+      name: /Arrays & Hashing: Strong, 5 correct, 1 incorrect/i,
+    });
+    expect(strong).toBeInTheDocument();
+    const strongFill = strong.querySelector('rect[fill="#22c55e"]');
+    expect(strongFill).not.toBeNull();
+
+    // The recurring miss pattern appears (escaped text, verbatim).
+    expect(
+      within(section).getByText(
+        /Missed "Coin Change"; you reached for greedy/i,
+      ),
+    ).toBeInTheDocument();
+    // Occurrence count badge.
+    expect(within(section).getByText('×3')).toBeInTheDocument();
+  });
+
+  it('shows the competency empty state (with a quiz link) when there are no signals', async () => {
+    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
+    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+    mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY_EMPTY);
+
+    render(<Analytics />);
+
+    const section = await screen.findByRole('region', {
+      name: /competency intelligence/i,
+    });
+    expect(
+      within(section).getByText(
+        /take a quiz session to build your competency map/i,
+      ),
+    ).toBeInTheDocument();
+    const quizLink = within(section).getByRole('link', {
+      name: /start a quiz/i,
+    });
+    expect(quizLink).toHaveAttribute('href', '/interview');
   });
 });
