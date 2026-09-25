@@ -1102,6 +1102,55 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
     expect(second.terminal).toBe(true);
   });
 
+  it('common legacy orphan (Q1 nudged → Q1 answered → Q2 unpresented) gets a fresh nudge on Q2', async () => {
+    await seedDone(DONE_IDS);
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const t0 = '2026-09-24T11:00:00.000Z' as IsoTimestamp;
+    const t1 = '2026-09-24T11:01:00.000Z' as IsoTimestamp;
+    const t2 = '2026-09-24T11:02:00.000Z' as IsoTimestamp;
+    await adapter.writeQuizSession({
+      sessionId: 'quiz-common-orphan',
+      createdAt: t0,
+      deck: DONE_IDS,
+      currentIndex: 1,
+      answered: [{ problemId: DONE_IDS[0]!, verdict: 'correct', at: t2 }],
+      transcript: [
+        { role: 'assistant', content: 'Q1 presented', at: t0 },
+        { role: 'user', content: 'partial', at: t1 },
+        { role: 'assistant', content: 'Q1 probe?', at: t1 },
+        { role: 'user', content: 'full answer', at: t2 },
+        { role: 'assistant', content: 'Q1 verdict feedback', at: t2 },
+      ],
+      status: 'active',
+    });
+    const deps = makeQuizDeps(new SequencedQuizProvider([ON_TRACK_PROBE]));
+
+    const get = JSON.parse(
+      (
+        await handleApiRoute(
+          'GET',
+          '/api/quiz/session',
+          deps,
+          undefined,
+          undefined,
+        )
+      ).body,
+    ) as { question: { problemId: string; probe?: string } };
+    expect(get.question.problemId).toBe(DONE_IDS[1]);
+    // Q1's verdict feedback must NOT be shown as a Q2 probe.
+    expect(get.question.probe).toBeUndefined();
+
+    // Q2's first on_track stays non-terminal (not coerced to incorrect).
+    const res = JSON.parse((await answer(deps, 'q2 partial')).body) as {
+      verdict: string;
+      terminal: boolean;
+    };
+    expect(res.verdict).toBe('on_track');
+    expect(res.terminal).toBe(false);
+    const note = await adapter.readIntuitionNote(DONE_IDS[1]!);
+    expect(note?.status).toBe('done');
+  });
+
   it('a legacy orphan that was already nudged cannot gain a second nudge', async () => {
     await seedDone(DONE_IDS);
     const adapter = new LocalFileStorageAdapter(tmpDir);
