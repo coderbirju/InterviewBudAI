@@ -71,17 +71,22 @@ export type OriginVerdict =
 
 /**
  * Same-origin check for a state-changing request (see module doc, rule 2).
- * `Origin: null` (sandboxed frames, file://, some redirects) is rejected.
+ *
+ * `Origin: null` is ambiguous: browsers send it for our OWN `/setup` form post
+ * (the page is served with `Referrer-Policy: no-referrer`, and the Fetch spec
+ * then serializes a non-CORS request's Origin as `null`), but also for
+ * sandboxed frames / file:// pages. So `null` defers to `Sec-Fetch-Site`
+ * (which pages cannot forge), and is rejected if that header is absent.
  */
 export function checkSameOrigin(
   headers: Headers | undefined,
   allowed: ReadonlySet<string>,
 ): OriginVerdict {
-  const origin = headerValue(headers, 'origin');
-  if (origin !== undefined) {
-    const value = origin.trim().toLowerCase();
+  const origin = headerValue(headers, 'origin')?.trim().toLowerCase();
+  const isNullOrigin = origin === 'null';
+  if (origin !== undefined && !isNullOrigin) {
     const prefix = 'http://';
-    if (value.startsWith(prefix) && allowed.has(value.slice(prefix.length))) {
+    if (origin.startsWith(prefix) && allowed.has(origin.slice(prefix.length))) {
       return { ok: true };
     }
     return { ok: false, reason: 'cross-origin request rejected' };
@@ -94,6 +99,9 @@ export function checkSameOrigin(
     return { ok: false, reason: 'cross-site request rejected' };
   }
 
+  if (isNullOrigin) {
+    return { ok: false, reason: 'opaque-origin request rejected' };
+  }
   // Neither header: a non-browser client (curl, scripts). Not a CSRF vector.
   return { ok: true };
 }

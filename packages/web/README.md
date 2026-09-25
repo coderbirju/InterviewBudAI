@@ -99,7 +99,10 @@ Tailwind is compiled to a **static CSS file at build time** and lucide-react ico
 
 The server exposes a same-origin, **localhost-only JSON API** under `/api` for
 the React SPA to consume. The server remains the **storage owner** (the browser
-is UI + cookie; the server is the filesystem authority). There is **no auth** (local-first).
+is UI + cookie; the server is the filesystem authority). There is **no auth** (local-first),
+but requests must pass the [localhost hardening](#localhost-hardening-csrf--dns-rebinding)
+checks: a loopback `Host`, same-origin writes, and `Content-Type: application/json`
+on every mutating call.
 
 Every `/api` route returns `application/json`, resolves the data directory
 per-request via the same **cookie `ibai_data_dir` > `IBAI_DATA_DIR` env >
@@ -292,3 +295,33 @@ Precedence: CLI flag > environment variable (shell > `.env`) > default. The host
 - **No telemetry** — No usage data is collected or transmitted
 - **Local-first** — All user data stored locally in your data directory
 - **Provider calls only** — The only network calls are to your configured LLM provider
+
+### Localhost hardening (CSRF / DNS rebinding)
+
+Binding to 127.0.0.1 does not stop a web page you visit from sending requests
+to the server through your browser, so every request is checked
+(`src/security.ts`, applied in `src/handler.ts`):
+
+- **Host allowlist** — only `Host: 127.0.0.1:<port>`, `localhost:<port>` or
+  `[::1]:<port>` (the bound port) is served; anything else gets `421`. This
+  blocks DNS rebinding (an attacker domain resolving to 127.0.0.1).
+- **Same-origin writes** — on `POST`/`PUT`/`PATCH`/`DELETE`, a present
+  `Origin` must be `http://<allowed host>`; otherwise `Sec-Fetch-Site` must be
+  `same-origin` or `none` (`Origin: null` also defers to it). Cross-site →
+  `403`. Requests with **neither** header are allowed: browsers always send one
+  on cross-site writes, so such requests come from non-browser clients (curl,
+  scripts) that already run as you and are not a CSRF vector.
+- **JSON-only API writes** — mutating `/api` requests must send
+  `Content-Type: application/json` (else `415`), including body-less ones like
+  `POST /api/quiz/end`. Browsers cannot send that cross-site without a CORS
+  preflight (never approved), which defeats "simple request" CSRF.
+- **`/setup`** — the form carries a random per-process CSRF token (checked in
+  constant time; restarting the server invalidates an open form — reload it).
+  The path must be absolute (or `~/…`), contain no NUL bytes, not be a
+  filesystem root, and not be an existing file; new directories are created
+  `0700`. The `ibai_data_dir` cookie is `HttpOnly; SameSite=Strict; Path=/`.
+- **Headers on every response** — `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, COOP/CORP
+  `same-origin`, and a CSP: the SPA gets `default-src 'self'` with no inline
+  script/style (`frame-ancestors 'none'`); the server-rendered pages get a
+  script-free CSP that allows only their inline `<style>`.
