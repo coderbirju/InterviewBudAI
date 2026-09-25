@@ -59,6 +59,181 @@ const PROGRESS: ProgressResponse = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, '', '/');
+});
+
+/** A multi-topic catalog for the search/filter tests. */
+const BIG_CATALOG: CatalogResponse = {
+  topics: [
+    {
+      topic: 'Arrays & Hashing',
+      problems: [
+        {
+          id: 'two-sum',
+          title: 'Two Sum',
+          url: 'https://leetcode.com/problems/two-sum/',
+          difficulty: 'Easy',
+          status: 'done',
+          completed: true,
+        },
+        {
+          id: 'group-anagrams',
+          title: 'Group Anagrams',
+          url: 'https://leetcode.com/problems/group-anagrams/',
+          difficulty: 'Medium',
+          status: 'to_revisit',
+          completed: false,
+        },
+      ],
+    },
+    {
+      topic: 'Stack',
+      problems: [
+        {
+          id: 'valid-parentheses',
+          title: 'Valid Parentheses',
+          url: 'https://leetcode.com/problems/valid-parentheses/',
+          difficulty: 'Easy',
+          status: 'none',
+          completed: false,
+        },
+        {
+          id: 'largest-rectangle-in-histogram',
+          title: 'Largest Rectangle in Histogram',
+          url: 'https://leetcode.com/problems/largest-rectangle-in-histogram/',
+          difficulty: 'Hard',
+          status: 'to_revisit',
+          completed: false,
+        },
+      ],
+    },
+  ],
+  totals: {
+    total: 4,
+    byStatus: { none: 1, done: 1, to_revisit: 2, did_not_understand: 0 },
+  },
+};
+
+async function renderBig(): Promise<void> {
+  mockedApi.fetchConfig.mockResolvedValue(CONFIG_OK);
+  mockedApi.fetchCatalog.mockResolvedValue(BIG_CATALOG);
+  mockedApi.fetchProgress.mockResolvedValue({
+    completed: 1,
+    total: 4,
+    byStatus: BIG_CATALOG.totals.byStatus,
+  });
+  render(<Home />);
+  await screen.findByText('Arrays & Hashing');
+}
+
+describe('Home search & filters', () => {
+  it('typing filters rows, auto-expands matching topics and hides empty ones', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    // Unfiltered: collapsed, no rows, full count.
+    expect(screen.queryByText('Two Sum')).not.toBeInTheDocument();
+    expect(screen.getByText('4 problems')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/search problems/i), 'SUM');
+
+    const header = screen.getByRole('button', { name: /Arrays & Hashing/ });
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Two Sum')).toBeInTheDocument();
+    expect(screen.queryByText('Group Anagrams')).not.toBeInTheDocument();
+    expect(screen.queryByText('Stack')).not.toBeInTheDocument();
+    expect(screen.getByText('1 match')).toBeInTheDocument();
+    expect(screen.getByText('1 of 4 problems')).toBeInTheDocument();
+    // Reflected in the URL.
+    expect(window.location.search).toBe('?q=SUM');
+  });
+
+  it('matches on problem id too', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    await user.type(
+      screen.getByLabelText(/search problems/i),
+      'rectangle-in-histogram',
+    );
+    expect(
+      screen.getByText('Largest Rectangle in Histogram'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Arrays & Hashing')).not.toBeInTheDocument();
+  });
+
+  it('chips toggle aria-pressed and combine (status AND difficulty)', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    const revisit = screen.getByRole('button', { name: /To revisit/ });
+    expect(revisit).toHaveAttribute('aria-pressed', 'false');
+    await user.click(revisit);
+    expect(revisit).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('2 of 4 problems')).toBeInTheDocument();
+    expect(screen.getByText('Group Anagrams')).toBeInTheDocument();
+    expect(
+      screen.getByText('Largest Rectangle in Histogram'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hard' }));
+    expect(screen.getByText('1 of 4 problems')).toBeInTheDocument();
+    expect(screen.queryByText('Group Anagrams')).not.toBeInTheDocument();
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('difficulty')).toBe('Hard');
+    expect(params.get('status')).toBe('to_revisit');
+
+    // Toggle off again.
+    await user.click(revisit);
+    expect(revisit).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('Clear filters resets search, chips, URL and collapses topics', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    const search = screen.getByLabelText(/search problems/i);
+    await user.type(search, 'valid');
+    await user.click(screen.getByRole('button', { name: 'Easy' }));
+    await user.click(screen.getByRole('button', { name: /clear filters/i }));
+
+    expect(search).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Easy' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(screen.getByText('4 problems')).toBeInTheDocument();
+    expect(screen.getByText('Stack')).toBeInTheDocument();
+    expect(screen.getByText('Arrays & Hashing')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Arrays & Hashing/ }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByRole('button', { name: /clear filters/i }),
+    ).not.toBeInTheDocument();
+    expect(window.location.search).toBe('');
+  });
+
+  it('shows a friendly no-results state that can reset', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    await user.type(screen.getByLabelText(/search problems/i), 'zzz');
+    expect(
+      screen.getByText(/no problems match your filters/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText('0 of 4 problems')).toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: /show all problems/i }),
+    );
+    expect(screen.getByText('Arrays & Hashing')).toBeInTheDocument();
+  });
+
+  it('restores the filter from the URL on load', async () => {
+    window.history.replaceState({}, '', '/?status=done');
+    await renderBig();
+    expect(screen.getByRole('button', { name: /^Done$/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText('Two Sum')).toBeInTheDocument();
+    expect(screen.getByText('1 of 4 problems')).toBeInTheDocument();
+  });
 });
 
 describe('Home', () => {

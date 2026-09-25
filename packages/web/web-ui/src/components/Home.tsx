@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Database, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Database, Loader2, SearchX } from 'lucide-react';
 import {
   fetchCatalog,
   fetchConfig,
@@ -14,6 +14,16 @@ import type {
 } from '../lib/api';
 import { ProgressBanner } from './ProgressBanner';
 import { CategoryAccordion } from './CategoryAccordion';
+import { CatalogFilterBar } from './CatalogFilterBar';
+import {
+  EMPTY_FILTER,
+  filterCatalog,
+  filterFromSearch,
+  isFilterActive,
+  searchWithFilter,
+} from '../lib/home';
+import type { CatalogFilter } from '../lib/home';
+import { currentSearch, replaceSearch } from '../lib/router';
 
 /**
  * The M2 Home view. Fetches config + progress + catalog, and renders:
@@ -23,6 +33,12 @@ import { CategoryAccordion } from './CategoryAccordion';
  * Status toggles are optimistic: the row + category badge + global bar update
  * immediately, a POST persists the change, and on failure the previous state is
  * restored with a subtle error message. All state is client-side (no reload).
+ *
+ * W3: a search box + difficulty/status chips filter the catalog client-side
+ * (pure helpers in `lib/home.ts`). The filter is mirrored into the URL query
+ * (`?q=&difficulty=&status=`) via `replaceState`, so reload and back-from-notes
+ * restore it. While a filter is active, matching topics auto-expand, empty
+ * topics are hidden, and each header shows its match count.
  */
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -87,6 +103,20 @@ export function Home(): JSX.Element {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<CatalogFilter>(() =>
+    filterFromSearch(currentSearch()),
+  );
+
+  // Mirror the filter into the URL query (replace, not push).
+  useEffect(() => {
+    replaceSearch(searchWithFilter(currentSearch(), filter));
+  }, [filter]);
+
+  const filterActive = isFilterActive(filter);
+  const filtered = useMemo(
+    () => (catalog ? filterCatalog(catalog.topics, filter) : null),
+    [catalog, filter],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -225,16 +255,49 @@ export function Home(): JSX.Element {
         </div>
       )}
 
-      <div className="space-y-3">
-        {catalog?.topics.map((topic) => (
-          <CategoryAccordion
-            key={topic.topic}
-            topic={topic}
-            busyIds={busyIds}
-            onStatusChange={onStatusChange}
-          />
-        ))}
-      </div>
+      {catalog && filtered && (
+        <CatalogFilterBar
+          filter={filter}
+          onChange={setFilter}
+          matched={filtered.matched}
+          total={catalog.totals.total}
+        />
+      )}
+
+      {filtered && filterActive && filtered.topics.length === 0 ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-8 text-center">
+          <SearchX className="mx-auto h-8 w-8 text-slate-500" aria-hidden />
+          <p className="mt-3 font-semibold text-slate-100">
+            No problems match your filters
+          </p>
+          <p className="mt-1 text-sm text-slate-400">
+            Try a different search or fewer chips.
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilter(EMPTY_FILTER)}
+            className="mt-4 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+          >
+            Show all problems
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered?.topics.map(({ topic, matches }) => (
+            <CategoryAccordion
+              // Remount when filtering starts/stops so matching topics
+              // auto-expand (and collapse back when cleared) while a user's
+              // manual toggle still sticks as they keep typing.
+              key={`${topic.topic}:${filterActive ? 'filtered' : 'all'}`}
+              topic={topic}
+              defaultOpen={filterActive}
+              matches={filterActive ? matches : undefined}
+              busyIds={busyIds}
+              onStatusChange={onStatusChange}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
