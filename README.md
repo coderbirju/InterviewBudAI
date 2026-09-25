@@ -21,7 +21,7 @@ Your notes and progress live in your own local data directory, never in this rep
 
 ## Quick start
 
-Requires Node.js 20+ (20.12+ for automatic `.env` loading).
+Requires Node.js 20.12+.
 
 ```bash
 npm ci
