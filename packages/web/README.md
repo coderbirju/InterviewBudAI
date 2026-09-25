@@ -236,10 +236,12 @@ Only the provider kind and model name are shown — never an API key.
 
 ### `.env` loading
 
-`server-bin` loads `./.env` from the current working directory (the repo root
-for `npm start`) using Node's built-in `process.loadEnvFile` — no dependency.
-Variables already exported in your shell take precedence. On Node < 20.12 the
-file is not loaded (a warning is printed); `export` the variables instead.
+`server-bin` loads the **repo-root** `.env` (whatever directory you start
+from, e.g. `npm start` at the root or `npm -w @ibai/web start`) using Node's
+built-in `process.loadEnvFile` — no dependency. The path is fixed, not
+configurable. Variables already exported in your shell take precedence. A
+`.env` that cannot be read or parsed prints a one-line warning and the server
+starts without it. Requires Node 20.12+ (the repo `engines` minimum).
 
 ## Building
 

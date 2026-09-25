@@ -14,6 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -24,6 +25,16 @@ const require = createRequire(path.join(repoRoot, 'package.json'));
 function run(label, args, cwd) {
   console.log(`> ${label}`);
   const result = spawnSync(process.execPath, args, { cwd, stdio: 'inherit' });
+  if (result.error) {
+    console.error(`\n${label} could not start: ${result.error.message}`);
+    process.exit(1);
+  }
+  if (result.signal) {
+    // Interrupted (e.g. Ctrl+C during a build): re-raise the same signal.
+    // Fall back to the conventional 128 + signal number if it is not fatal.
+    process.kill(process.pid, result.signal);
+    process.exit(128 + (os.constants.signals[result.signal] ?? 0));
+  }
   if (result.status !== 0) {
     console.error(`\n${label} failed. Did you run \`npm ci\` first?`);
     process.exit(result.status ?? 1);
