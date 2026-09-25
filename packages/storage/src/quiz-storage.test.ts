@@ -224,6 +224,156 @@ describe('LocalFileStorageAdapter - QuizSession methods (ADR 0007)', () => {
   });
 });
 
+describe('LocalFileStorageAdapter - session management (ADR 0007, quiz-fix-b)', () => {
+  let tempDir: string;
+  let adapter: LocalFileStorageAdapter;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ibai-quiz-mgmt-test-'));
+    adapter = new LocalFileStorageAdapter(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  describe('listQuizSessions', () => {
+    it('returns an empty list when no sessions exist', async () => {
+      expect(await adapter.listQuizSessions()).toEqual([]);
+    });
+
+    it('summarizes sessions newest-first and flags the active one', async () => {
+      // Older, complete session with one correct + one incorrect answer.
+      await adapter.writeQuizSession(
+        makeSession({
+          sessionId: 'quiz-old',
+          createdAt: '2026-09-24T10:00:00.000Z',
+          status: 'complete',
+          currentIndex: 3,
+          answered: [
+            {
+              problemId: 'lc-1',
+              verdict: 'correct',
+              at: '2026-09-24T10:01:00.000Z',
+            },
+            {
+              problemId: 'lc-42',
+              verdict: 'incorrect',
+              at: '2026-09-24T10:02:00.000Z',
+            },
+          ],
+        }),
+      );
+      // Newer, active session.
+      await adapter.writeQuizSession(
+        makeSession({
+          sessionId: 'quiz-new',
+          createdAt: '2026-09-24T12:00:00.000Z',
+          status: 'active',
+          currentIndex: 1,
+          answered: [
+            {
+              problemId: 'lc-1',
+              verdict: 'correct',
+              at: '2026-09-24T12:01:00.000Z',
+            },
+          ],
+        }),
+      );
+
+      const list = await adapter.listQuizSessions();
+      expect(list).toHaveLength(2);
+      // Newest-first.
+      expect(list[0]?.sessionId).toBe('quiz-new');
+      expect(list[1]?.sessionId).toBe('quiz-old');
+
+      // Active-session flag: only the newer one is active.
+      expect(list[0]?.isActive).toBe(true);
+      expect(list[1]?.isActive).toBe(false);
+
+      // Summary tallies.
+      expect(list[0]?.status).toBe('active');
+      expect(list[0]?.deckSize).toBe(3);
+      expect(list[0]?.answeredCount).toBe(1);
+      expect(list[0]?.correctCount).toBe(1);
+
+      expect(list[1]?.status).toBe('complete');
+      expect(list[1]?.answeredCount).toBe(2);
+      expect(list[1]?.correctCount).toBe(1);
+    });
+
+    it('skips the active.json pointer and malformed session files', async () => {
+      await adapter.writeQuizSession(makeSession({ sessionId: 'quiz-ok' }));
+      // active.json exists (written by the active session above).
+      const dir = join(tempDir, 'quiz-sessions');
+      await writeFile(join(dir, 'broken.json'), '{ not valid', 'utf-8');
+      await writeFile(
+        join(dir, 'wrong.json'),
+        JSON.stringify({ sessionId: 'wrong', deck: 'not-an-array' }),
+        'utf-8',
+      );
+      await writeFile(join(dir, 'notes.txt'), 'ignore me', 'utf-8');
+
+      const list = await adapter.listQuizSessions();
+      expect(list).toHaveLength(1);
+      expect(list[0]?.sessionId).toBe('quiz-ok');
+    });
+  });
+
+  describe('deleteQuizSession', () => {
+    it('removes the session file (no longer readable, not listed)', async () => {
+      await adapter.writeQuizSession(
+        makeSession({ sessionId: 'quiz-del', status: 'complete' }),
+      );
+      expect(await adapter.readQuizSession('quiz-del')).not.toBeNull();
+
+      await adapter.deleteQuizSession('quiz-del');
+
+      expect(await adapter.readQuizSession('quiz-del')).toBeNull();
+      expect(await adapter.listQuizSessions()).toEqual([]);
+    });
+
+    it('clears the active pointer when deleting the active session', async () => {
+      await adapter.writeQuizSession(
+        makeSession({ sessionId: 'quiz-active', status: 'active' }),
+      );
+      expect(await adapter.readActiveQuizSession()).not.toBeNull();
+
+      await adapter.deleteQuizSession('quiz-active');
+
+      expect(await adapter.readActiveQuizSession()).toBeNull();
+    });
+
+    it('leaves the active pointer intact when deleting a NON-active session', async () => {
+      // Active session first, then an older complete one.
+      await adapter.writeQuizSession(
+        makeSession({ sessionId: 'quiz-keep', status: 'active' }),
+      );
+      await adapter.writeQuizSession(
+        makeSession({ sessionId: 'quiz-other', status: 'complete' }),
+      );
+      // Re-assert quiz-keep is active (writing a complete session does not
+      // touch a pointer that references a different session).
+      expect((await adapter.readActiveQuizSession())?.sessionId).toBe(
+        'quiz-keep',
+      );
+
+      await adapter.deleteQuizSession('quiz-other');
+
+      // Active session still resumable.
+      expect((await adapter.readActiveQuizSession())?.sessionId).toBe(
+        'quiz-keep',
+      );
+    });
+
+    it('deleting a missing session is a no-op (never throws)', async () => {
+      await expect(
+        adapter.deleteQuizSession('does-not-exist'),
+      ).resolves.toBeUndefined();
+    });
+  });
+});
+
 describe('LocalFileStorageAdapter - CompetencySignals methods (ADR 0007)', () => {
   let tempDir: string;
   let adapter: LocalFileStorageAdapter;
