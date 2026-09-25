@@ -1,0 +1,4 @@
+# implement — decision log
+
+2026-09-25  feature/w1-quiz-reliability  — Present quiz questions deterministically from the catalog (title + difficulty + link) and persist the session once with its presentation turn; removed the `wrap` prompt mode — rejected keeping the model "wrap" call with rollback-on-failure — a model call to restate a title is the root cause of orphaned active sessions and adds latency/cost for no value (A1 already mandates the raw problem).
+2026-09-25  feature/w1-quiz-reliability  — Heal legacy orphans by appending the missing presentation turn in memory (persisted only with the next write) and send the `on_track` probe as an additive `question.probe` — rejected a storage migration / new `QuizSession` field — storage interfaces are frozen for this task and the nudge count is derivable from the transcript.
