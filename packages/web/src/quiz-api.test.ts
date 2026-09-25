@@ -17,49 +17,45 @@ import { seededRandom } from './quiz.js';
 let tmpDir: string;
 
 /**
- * A fake provider that returns a wrapped question for `wrap` prompts and a
- * canned verdict JSON for `evaluate` prompts. It distinguishes them by the
- * presence of the verdict-JSON instruction in the last user message. No
- * network. Optionally rejects, or returns raw text (to exercise malformed).
+ * A fake provider returning a canned verdict JSON for evaluation prompts (the
+ * ONLY quiz model call — questions are presented from the catalog, ADR 0007
+ * A8). Any other prompt is a test failure. No network. Optionally rejects
+ * EVERY call (to prove start/new never touch the model), or returns raw text
+ * (to exercise malformed verdicts).
  */
 class FakeQuizProvider implements LlmProvider {
   calls = 0;
-  wrapCalls = 0;
   evalCalls = 0;
   constructor(
     private readonly opts: {
       verdictJson?: string; // returned for evaluate prompts
       rejectWith?: Error;
-      wrapText?: string;
     } = {},
   ) {}
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     this.calls += 1;
-    const last = request.messages[request.messages.length - 1]?.content ?? '';
-    const isEvaluate = last.includes('"verdict"');
-    if (this.opts.rejectWith && isEvaluate) {
+    if (this.opts.rejectWith) {
       throw this.opts.rejectWith;
     }
-    if (isEvaluate) {
-      this.evalCalls += 1;
-      return {
-        content:
-          this.opts.verdictJson ??
-          '```json\n{"verdict":"correct","feedback":"good"}\n```',
-      };
+    const last = request.messages[request.messages.length - 1]?.content ?? '';
+    if (!last.includes('"verdict"')) {
+      throw new Error('unexpected non-evaluation model call');
     }
-    this.wrapCalls += 1;
-    return { content: this.opts.wrapText ?? 'A wrapped little story.' };
+    this.evalCalls += 1;
+    return {
+      content:
+        this.opts.verdictJson ??
+        '```json\n{"verdict":"correct","feedback":"good"}\n```',
+    };
   }
 }
 
 /**
- * A fake provider that returns wrapped presentations for `wrap` prompts and a
- * QUEUE of verdict JSON strings for successive `evaluate` prompts (one per
- * answer). Lets a test drive multi-turn nudge scenarios deterministically.
+ * A fake provider returning a QUEUE of verdict JSON strings for successive
+ * evaluation prompts (one per answer). Lets a test drive multi-turn nudge
+ * scenarios deterministically.
  */
 class SequencedQuizProvider implements LlmProvider {
-  wrapCalls = 0;
   evalCalls = 0;
   private queue: string[];
   constructor(evaluateVerdicts: string[]) {
@@ -67,17 +63,15 @@ class SequencedQuizProvider implements LlmProvider {
   }
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const last = request.messages[request.messages.length - 1]?.content ?? '';
-    const isEvaluate = last.includes('"verdict"');
-    if (isEvaluate) {
-      const next = this.queue.shift();
-      this.evalCalls += 1;
-      return {
-        content:
-          next ?? '```json\n{"verdict":"correct","feedback":"fallback"}\n```',
-      };
+    if (!last.includes('"verdict"')) {
+      throw new Error('unexpected non-evaluation model call');
     }
-    this.wrapCalls += 1;
-    return { content: 'Two Sum. Find two numbers that add to a target.' };
+    const next = this.queue.shift();
+    this.evalCalls += 1;
+    return {
+      content:
+        next ?? '```json\n{"verdict":"correct","feedback":"fallback"}\n```',
+    };
   }
 }
 
