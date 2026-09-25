@@ -357,3 +357,71 @@ next question. Fixed: on a terminal advance the prior `verdictCard` is cleared
 before the next question renders, and it is cleared on session completion; an
 `on_track` verdict keeps the same question and shows its probe card. No API or
 type change.
+
+## Amendment (quiz-fix-b, 2026-09-24) — session management (end / list / resume / delete)
+
+Founder feedback items 4 & 5: users need to **end** a session on demand, **see
+their past sessions**, **resume** any of them, and **delete** ones they no
+longer want. This amendment records the additive storage + API + UI surface. It
+is fully additive — the data shapes (D5–D7), lifecycle (D3), and the resume
+model (D7 `active.json` pointer) are UNCHANGED; only new OPTIONAL storage
+methods, new endpoints, and UI are added.
+
+### A5 — Additive session-management storage methods
+
+Two more OPTIONAL `StorageAdapter` methods are added (same optionality pattern
+as D7, so existing adapters/tests keep compiling), implemented concretely in
+`LocalFileStorageAdapter`:
+
+- `listQuizSessions(): Promise<QuizSessionSummary[]>` — scans
+  `<dataDir>/quiz-sessions/`, skips the `active.json` pointer and any
+  malformed/non-`.json` files, and returns a lightweight
+  **`QuizSessionSummary`** per well-formed session (`sessionId`, `createdAt`,
+  `status`, `deckSize`, `answeredCount`, `correctCount`, `isActive`), sorted
+  **newest-first**. Tolerant: a missing store → empty list; never throws.
+- `deleteQuizSession(sessionId): Promise<void>` — deletes the session file
+  (path-safe via the existing `sanitizeSessionId`/`safeJoin`); if it was the
+  active session, clears the `active.json` pointer. Tolerant: deleting a missing
+  session is a no-op; never throws.
+
+A new **`QuizSessionSummary`** type is exported. Storage stays a leaf (no new
+deps, no dependency on other packages).
+
+### A6 — Session-management endpoints (packages/web)
+
+New JSON routes on the same-origin API (data-dir cookie>env>default; bodies
+untrusted; `400/404/405` coherent; never HTML):
+
+- **`POST /api/quiz/end`** — ends the ACTIVE session: persists it `status:
+  'complete'` (via `writeQuizSession`, which clears the active pointer), so it
+  stops being resumable-active but **REMAINS listed**. Ending never deletes.
+  `404` when there is no active session. Returns `{ ok, session }`.
+- **`GET /api/quiz/sessions`** — returns `{ sessions: QuizSessionSummary[] }`
+  from `listQuizSessions()`; empty-safe (`{ sessions: [] }`) when no DB / none.
+- **`POST /api/quiz/resume { sessionId }`** — re-activates a listed session
+  (sets `status: 'active'`, pointing `active.json` at it) and returns it with
+  its re-presented current question + transcript. A `complete` session can be
+  resumed: if its deck is exhausted it is simply viewable/complete; otherwise it
+  continues from `currentIndex`. `404` unknown id, `400` bad/missing id.
+- **`POST /api/quiz/delete { sessionId }`** and **`DELETE
+  /api/quiz/session/:id`** — delete a session via `deleteQuizSession`;
+  idempotent (`ok: true` even if missing). `400` bad/missing id.
+
+Coherent with the existing single-active-session model: at most one session is
+active; resuming makes the chosen one active; ending/deleting the active one
+clears the pointer.
+
+### A7 — Session-management UI (Interview.tsx)
+
+The Quiz Master page gains: an **End session** button during an active quiz
+(→ `POST /api/quiz/end`, then the idle/list view); a **Your sessions** list in
+the idle + complete views (`GET /api/quiz/sessions`) rendering each session as a
+card (created time, `answered / deckSize`, correct tally, Active/Complete badge)
+with a **Resume** button (re-activates + continues) and a **Delete** button
+(small `window.confirm`, optimistic row removal). Empty/loading/error states are
+handled; nothing crashes with no DB / no sessions. Design system unchanged (dark
+slate/emerald, Lucide icons, `transition-all duration-200`); all values render
+via JSX (auto-escaped); no `dangerouslySetInnerHTML`; no user data committed.
+
+**Storage impact:** two additive OPTIONAL methods + one new exported type; no
+change to `QuizSession`/`CompetencySignals` or any existing method.

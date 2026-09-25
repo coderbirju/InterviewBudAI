@@ -21,6 +21,15 @@
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
  *   POST /api/chat        — one interview-coach chat turn (provider REQUIRED;
  *                           the MODEL is the only source of assistant text)
+ *   POST /api/quiz/start|new    — start / reshuffle a quiz session
+ *   GET  /api/quiz/session      — resume the active session
+ *   POST /api/quiz/answer       — submit an answer (verdict + advance)
+ *   GET  /api/quiz/sessions     — list past + active sessions (empty-safe)
+ *   POST /api/quiz/end          — end the active session (persist complete +
+ *                                 clear the active pointer; stays LISTED)
+ *   POST /api/quiz/resume       — re-activate a listed session by id
+ *   POST /api/quiz/delete       — delete a session by id ({ sessionId })
+ *   DELETE /api/quiz/session/:id — delete a session by id (REST form)
  */
 
 import type {
@@ -30,6 +39,7 @@ import type {
   IsoTimestamp,
   QuizSession,
   QuizSessionId,
+  QuizSessionSummary,
   CompetencySignals,
   TopicId,
   TopicStrength,
@@ -399,6 +409,27 @@ export interface ApiQuizState {
   readonly status: QuizSession['status'];
 }
 
+/**
+ * A list-oriented session summary returned by GET /api/quiz/sessions (session
+ * management, quiz-fix-b). Mirrors storage `QuizSessionSummary` verbatim so the
+ * SPA can render a scannable list (created time, progress, outcome, status,
+ * whether it is the active/resumable one) without loading full sessions.
+ */
+export interface ApiQuizSessionSummary {
+  readonly sessionId: QuizSessionId;
+  readonly createdAt: string;
+  readonly status: QuizSession['status'];
+  readonly deckSize: number;
+  readonly answeredCount: number;
+  readonly correctCount: number;
+  readonly isActive: boolean;
+}
+
+/** GET /api/quiz/sessions response shape (empty-safe). */
+export interface ApiQuizSessionsResponse {
+  readonly sessions: readonly ApiQuizSessionSummary[];
+}
+
 /** The error message returned when no provider is configured for a quiz route. */
 const NO_MODEL_ERROR = 'no model configured';
 
@@ -485,6 +516,43 @@ function toQuizState(session: QuizSession): ApiQuizState {
     answered: progress.answered,
     status: session.status,
   };
+}
+
+/** Map a storage {@link QuizSessionSummary} to the API list shape (verbatim). */
+function toQuizSessionSummary(
+  summary: QuizSessionSummary,
+): ApiQuizSessionSummary {
+  return {
+    sessionId: summary.sessionId,
+    createdAt: summary.createdAt,
+    status: summary.status,
+    deckSize: summary.deckSize,
+    answeredCount: summary.answeredCount,
+    correctCount: summary.correctCount,
+    isActive: summary.isActive,
+  };
+}
+
+/**
+ * Parse a `{ sessionId: string }` body from an untrusted request. Returns the
+ * trimmed id, or `null` when the body is not valid JSON, not an object, or the
+ * `sessionId` is missing/empty. The caller turns `null` into a 400.
+ */
+function parseSessionIdBody(body: string | undefined): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body ?? '{}');
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const raw = (parsed as Record<string, unknown>).sessionId;
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return null;
+  }
+  return raw.trim();
 }
 
 /**
@@ -857,6 +925,123 @@ export async function handleApiRoute(
       // `new` discards any active session implicitly by building a fresh one
       // (writing the new active pointer). `start` reuses the same builder.
       return startFreshSession(deps, deps.provider, storage);
+    }
+
+    // ----- /api/quiz/sessions (GET) — list past + active sessions -----
+    if (pathname === '/api/quiz/sessions') {
+      if (method !== 'GET') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      // No DB / adapter without the method → safe empty list (read-only).
+      if (!storage?.listQuizSessions) {
+        const empty: ApiQuizSessionsResponse = { sessions: [] };
+        return json(200, empty);
+      }
+      const summaries = await storage.listQuizSessions();
+      const response: ApiQuizSessionsResponse = {
+        sessions: summaries.map(toQuizSessionSummary),
+      };
+      return json(200, response);
+    }
+
+    // ----- /api/quiz/end (POST) — end the active session, keep it listed -----
+    if (pathname === '/api/quiz/end') {
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (!storage?.readActiveQuizSession || !storage.writeQuizSession) {
+        return json(400, { error: 'no database configured' });
+      }
+      const active = await storage.readActiveQuizSession();
+      if (!active || active.status !== 'active') {
+        return json(404, { error: 'no active quiz session' });
+      }
+      // Persist as complete: writeQuizSession clears the active pointer when it
+      // referenced this session, so it stops being resumable-active but REMAINS
+      // listed (the session file is preserved — end does NOT delete).
+      const ended: QuizSession = { ...active, status: 'complete' };
+      await storage.writeQuizSession(ended);
+      return json(200, { ok: true, session: toQuizState(ended) });
+    }
+
+    // ----- /api/quiz/resume (POST) — re-activate a listed session -----
+    if (pathname === '/api/quiz/resume') {
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (!storage?.readQuizSession || !storage.writeQuizSession) {
+        return json(400, { error: 'no database configured' });
+      }
+      const sessionId = parseSessionIdBody(body);
+      if (!sessionId) {
+        return json(400, { error: 'sessionId must be a non-empty string' });
+      }
+      const target = await storage.readQuizSession(sessionId);
+      if (!target) {
+        return json(404, { error: 'unknown quiz session' });
+      }
+      // Re-activate: mark it active again so it becomes the resumable session
+      // (writeQuizSession points active.json at it). If the deck was exhausted
+      // it stays effectively complete (currentIndex past the end) but is now
+      // the active pointer, so the SPA can view/continue it coherently.
+      const reactivated: QuizSession = { ...target, status: 'active' };
+      await storage.writeQuizSession(reactivated);
+
+      // Re-present the last wrapped question from the transcript, if any.
+      const currentId = currentProblemId(reactivated);
+      const problem = currentId ? deps.catalog.getById(currentId) : undefined;
+      const lastAssistant = [...reactivated.transcript]
+        .reverse()
+        .find((t) => t.role === 'assistant');
+      const question: ApiQuizQuestion | null =
+        problem && lastAssistant
+          ? { problemId: problem.id, wrapped: lastAssistant.content }
+          : null;
+      return json(200, {
+        ok: true,
+        session: toQuizState(reactivated),
+        question,
+        transcript: reactivated.transcript,
+      });
+    }
+
+    // ----- /api/quiz/delete (POST) — delete a session by id -----
+    if (pathname === '/api/quiz/delete') {
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (!storage?.deleteQuizSession) {
+        return json(400, { error: 'no database configured' });
+      }
+      const sessionId = parseSessionIdBody(body);
+      if (!sessionId) {
+        return json(400, { error: 'sessionId must be a non-empty string' });
+      }
+      await storage.deleteQuizSession(sessionId);
+      return json(200, { ok: true });
+    }
+
+    // ----- DELETE /api/quiz/session/:id — delete a session by id -----
+    if (pathname.startsWith('/api/quiz/session/')) {
+      const rawId = decodeURIComponent(
+        pathname.slice('/api/quiz/session/'.length),
+      );
+      if (method !== 'DELETE') {
+        return json(405, { error: 'method not allowed' });
+      }
+      if (rawId.trim().length === 0) {
+        return json(400, { error: 'sessionId must be a non-empty string' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (!storage?.deleteQuizSession) {
+        return json(400, { error: 'no database configured' });
+      }
+      await storage.deleteQuizSession(rawId);
+      return json(200, { ok: true });
     }
 
     if (pathname === '/api/quiz/session') {

@@ -6,6 +6,7 @@ import * as api from '../lib/api';
 import type {
   QuizAnswerResult,
   QuizSessionResult,
+  QuizSessionSummary,
   QuizStartResult,
   QuizState,
 } from '../lib/api';
@@ -19,6 +20,10 @@ vi.mock('../lib/api', async () => {
     startQuiz: vi.fn(),
     answerQuiz: vi.fn(),
     newQuiz: vi.fn(),
+    listQuizSessions: vi.fn(),
+    endQuiz: vi.fn(),
+    resumeQuiz: vi.fn(),
+    deleteQuizSession: vi.fn(),
   };
 });
 
@@ -63,9 +68,23 @@ const START_EMPTY: QuizStartResult = {
   message: 'mark problems complete first',
 };
 
+const SUMMARY = (
+  over: Partial<QuizSessionSummary> = {},
+): QuizSessionSummary => ({
+  sessionId: 'sess-1',
+  createdAt: '2026-01-01T00:00:00Z',
+  status: 'complete',
+  deckSize: 3,
+  answeredCount: 3,
+  correctCount: 2,
+  isActive: false,
+  ...over,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockedApi.getQuizSession.mockResolvedValue(NO_SESSION);
+  mockedApi.listQuizSessions.mockResolvedValue({ sessions: [] });
 });
 
 describe('Quickfire Quiz Master', () => {
@@ -343,5 +362,126 @@ describe('Quickfire Quiz Master', () => {
     // The payload appears as literal text, not an injected element.
     expect(await screen.findByText(payload)).toBeInTheDocument();
     expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('shows an empty sessions-list state when idle with no past sessions', async () => {
+    render(<Interview />);
+    // Idle Start entry is shown, plus the (empty) sessions list.
+    await screen.findByRole('button', { name: /start quiz/i });
+    expect(await screen.findByText(/your sessions/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/no past sessions yet/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders the sessions list with Resume + Delete for each session', async () => {
+    mockedApi.listQuizSessions.mockResolvedValue({
+      sessions: [SUMMARY({ sessionId: 'sess-1' })],
+    });
+
+    render(<Interview />);
+
+    expect(await screen.findByText(/3 \/ 3 answered/)).toBeInTheDocument();
+    expect(screen.getByText(/2 correct/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /delete session/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('End session ends the active quiz and returns to the list with the ended session', async () => {
+    const user = userEvent.setup();
+    mockedApi.getQuizSession.mockResolvedValue(ACTIVE_SESSION);
+    mockedApi.endQuiz.mockResolvedValue({
+      ok: true,
+      session: STATE({ status: 'complete' }),
+    });
+    // After ending, the list shows the just-ended session.
+    mockedApi.listQuizSessions.mockResolvedValue({
+      sessions: [SUMMARY({ sessionId: 's1', status: 'complete' })],
+    });
+
+    render(<Interview />);
+    // Active session resumed → End session button visible.
+    const endBtn = await screen.findByRole('button', {
+      name: /end session/i,
+    });
+    await user.click(endBtn);
+
+    expect(mockedApi.endQuiz).toHaveBeenCalledTimes(1);
+    // Back on the idle/list view with the ended session listed.
+    expect(await screen.findByText(/your sessions/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /resume/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('Resume re-activates a listed session and shows its question', async () => {
+    const user = userEvent.setup();
+    mockedApi.listQuizSessions.mockResolvedValue({
+      sessions: [SUMMARY({ sessionId: 'sess-1' })],
+    });
+    mockedApi.resumeQuiz.mockResolvedValue({
+      ok: true,
+      session: STATE({ sessionId: 'sess-1', index: 2, answered: 2 }),
+      question: { problemId: 'lc-7', wrapped: 'A resumed wrapped question.' },
+      transcript: [],
+    });
+
+    render(<Interview />);
+    const resumeBtn = await screen.findByRole('button', { name: /resume/i });
+    await user.click(resumeBtn);
+
+    expect(mockedApi.resumeQuiz).toHaveBeenCalledWith('sess-1');
+    expect(
+      await screen.findByText('A resumed wrapped question.'),
+    ).toBeInTheDocument();
+    // Now in the active view — the End session control is present.
+    expect(
+      screen.getByRole('button', { name: /end session/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('Delete removes the row after confirm', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockedApi.listQuizSessions
+      .mockResolvedValueOnce({ sessions: [SUMMARY({ sessionId: 'sess-1' })] })
+      .mockResolvedValue({ sessions: [] });
+    mockedApi.deleteQuizSession.mockResolvedValue({ ok: true });
+
+    render(<Interview />);
+    const delBtn = await screen.findByRole('button', {
+      name: /delete session/i,
+    });
+    await user.click(delBtn);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockedApi.deleteQuizSession).toHaveBeenCalledWith('sess-1');
+    // Row removed → empty state shows.
+    expect(
+      await screen.findByText(/no past sessions yet/i),
+    ).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('Delete is cancelled when the confirm is declined', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    mockedApi.listQuizSessions.mockResolvedValue({
+      sessions: [SUMMARY({ sessionId: 'sess-1' })],
+    });
+
+    render(<Interview />);
+    const delBtn = await screen.findByRole('button', {
+      name: /delete session/i,
+    });
+    await user.click(delBtn);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockedApi.deleteQuizSession).not.toHaveBeenCalled();
+    // Row still present.
+    expect(screen.getByText(/3 \/ 3 answered/)).toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 });

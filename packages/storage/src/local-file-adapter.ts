@@ -15,7 +15,7 @@
  *   ${basePath}/competency-signals.json      -> CompetencySignals (ADR 0007)
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, unlink } from 'node:fs/promises';
 import { join, dirname, normalize, isAbsolute } from 'node:path';
 import type {
   StorageAdapter,
@@ -36,6 +36,7 @@ import type {
   QuizTranscriptEntry,
   QuizVerdict,
   QuizSessionStatus,
+  QuizSessionSummary,
   CompetencySignals,
   TopicCompetency,
   PatternSignal,
@@ -550,6 +551,118 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       } catch {
         // No pointer to clear -> nothing to do.
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Quiz Session Management Methods (ADR 0007 — session management, quiz-fix-b)
+  // -------------------------------------------------------------------------
+
+  /**
+   * List a lightweight summary of every persisted quiz session, newest-first.
+   *
+   * Scans `${basePath}/quiz-sessions/`, skipping the `active.json` pointer and
+   * any non-`.json` or malformed session files. Each well-formed session yields
+   * a {@link QuizSessionSummary} (created time, status, deck size, answered +
+   * correct tallies, and whether it is the active/resumable one). Tolerant: a
+   * missing store resolves to an empty list; unreadable/malformed files are
+   * skipped — never throws.
+   */
+  async listQuizSessions(): Promise<QuizSessionSummary[]> {
+    const dir = safeJoin(this.basePath, 'quiz-sessions');
+
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      // No quiz-session store yet -> empty list.
+      return [];
+    }
+
+    // Resolve the active pointer once so summaries can flag the active session.
+    const activeId = await this.readActivePointerId();
+
+    const summaries: QuizSessionSummary[] = [];
+    for (const name of entries) {
+      // Skip the pointer and anything that is not a session JSON file.
+      if (name === 'active.json' || !name.endsWith('.json')) {
+        continue;
+      }
+      const stem = name.slice(0, -'.json'.length);
+      const session = await this.readQuizSession(stem);
+      if (!session) {
+        // Malformed/unreadable -> skip.
+        continue;
+      }
+      const correctCount = session.answered.filter(
+        (a) => a.verdict === 'correct',
+      ).length;
+      summaries.push({
+        sessionId: session.sessionId,
+        createdAt: session.createdAt,
+        status: session.status,
+        deckSize: session.deck.length,
+        answeredCount: session.answered.length,
+        correctCount,
+        isActive: activeId !== null && activeId === stem,
+      });
+    }
+
+    // Newest-first by createdAt (fall back to sessionId for stability).
+    summaries.sort((a, b) => {
+      const byDate = b.createdAt.localeCompare(a.createdAt);
+      return byDate !== 0 ? byDate : b.sessionId.localeCompare(a.sessionId);
+    });
+    return summaries;
+  }
+
+  /**
+   * Delete a persisted quiz session by ID. If it was the active/resumable
+   * session, clears the active pointer too. Path-safe and tolerant: deleting a
+   * missing session is a no-op — never throws.
+   */
+  async deleteQuizSession(sessionId: QuizSessionId): Promise<void> {
+    const safeId = sanitizeSessionId(sessionId);
+    const filePath = safeJoin(this.basePath, 'quiz-sessions', `${safeId}.json`);
+
+    try {
+      await unlink(filePath);
+    } catch {
+      // Missing file (or unreadable) -> nothing to delete.
+    }
+
+    // If the active pointer referenced this session, clear it.
+    const pointerPath = safeJoin(this.basePath, 'quiz-sessions', 'active.json');
+    try {
+      const content = await readFile(pointerPath, 'utf-8');
+      const parsed: unknown = JSON.parse(content);
+      if (isRecord(parsed) && parsed.sessionId === safeId) {
+        await writeFile(
+          pointerPath,
+          JSON.stringify({ sessionId: null }, null, 2) + '\n',
+          'utf-8',
+        );
+      }
+    } catch {
+      // No pointer to clear -> nothing to do.
+    }
+  }
+
+  /**
+   * Read the sanitized active-session id from the pointer file, or `null` when
+   * there is no (valid) pointer. Shared by {@link listQuizSessions}.
+   */
+  private async readActivePointerId(): Promise<string | null> {
+    const pointerPath = safeJoin(this.basePath, 'quiz-sessions', 'active.json');
+    try {
+      const content = await readFile(pointerPath, 'utf-8');
+      const parsed: unknown = JSON.parse(content);
+      if (isRecord(parsed) && typeof parsed.sessionId === 'string') {
+        return parsed.sessionId;
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 

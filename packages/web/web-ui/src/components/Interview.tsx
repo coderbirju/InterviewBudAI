@@ -3,23 +3,33 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  Clock,
+  ListChecks,
   Loader2,
+  Play,
   RotateCcw,
   Sparkles,
+  Square,
   Target,
+  Trash2,
   Trophy,
   Zap,
 } from 'lucide-react';
 import {
   ApiError,
   answerQuiz,
+  deleteQuizSession,
+  endQuiz,
   getQuizSession,
+  listQuizSessions,
   newQuiz,
+  resumeQuiz,
   startQuiz,
 } from '../lib/api';
 import type {
   QuizAnswerResult,
   QuizQuestion,
+  QuizSessionSummary,
   QuizState,
   QuizTranscriptEntry,
   QuizVerdict,
@@ -90,6 +100,12 @@ export function Interview(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Session management (quiz-fix-b): the list of past + active sessions shown
+  // in the idle / complete states, plus per-row busy tracking for Resume/Delete.
+  const [sessions, setSessions] = useState<readonly QuizSessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
   /** Map a provider-required 400 to the no-provider phase; return the message. */
@@ -101,6 +117,20 @@ export function Interview(): JSX.Element {
       return err.message;
     }
     return 'Could not reach the Quiz Master. Please try again.';
+  }, []);
+
+  /** Load (or reload) the list of past + active sessions. Never throws. */
+  const refreshSessions = useCallback(async (): Promise<void> => {
+    setSessionsLoading(true);
+    try {
+      const result = await listQuizSessions();
+      setSessions(result.sessions);
+    } catch {
+      // A list failure should not block the page; show an empty list.
+      setSessions([]);
+    } finally {
+      setSessionsLoading(false);
+    }
   }, []);
 
   // ON LOAD: resume the active session if one exists.
@@ -119,6 +149,7 @@ export function Interview(): JSX.Element {
           setPhase({ kind: 'active' });
         } else {
           setPhase({ kind: 'idle' });
+          void refreshSessions();
         }
       } catch (err) {
         if (cancelled) {
@@ -130,12 +161,13 @@ export function Interview(): JSX.Element {
         setPhase((prev) =>
           prev.kind === 'no-provider' ? prev : { kind: 'idle' },
         );
+        void refreshSessions();
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [describeError]);
+  }, [describeError, refreshSessions]);
 
   // Keep the newest content in view. Guarded for jsdom (no scrollIntoView).
   useEffect(() => {
@@ -144,6 +176,14 @@ export function Interview(): JSX.Element {
       anchor.scrollIntoView({ block: 'end' });
     }
   }, [question, verdictCard, busy, phase]);
+
+  // When a deck completes, refresh the list so the finished session shows up
+  // (with a Resume button) alongside earlier ones.
+  useEffect(() => {
+    if (phase.kind === 'complete') {
+      void refreshSessions();
+    }
+  }, [phase, refreshSessions]);
 
   /** Start (or restart) a quiz via the given loader (startQuiz | newQuiz). */
   const beginQuiz = useCallback(
@@ -228,6 +268,97 @@ export function Interview(): JSX.Element {
       setBusy(false);
     }
   }, [draft, busy, question, describeError]);
+
+  /**
+   * End the active session (quiz-fix-b): persist it complete + clear the active
+   * pointer server-side, then drop back to the idle view with the refreshed
+   * sessions list (where the just-ended session appears with a Resume button).
+   */
+  const onEndSession = useCallback(async (): Promise<void> => {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await endQuiz();
+      // Reset per-session view state and return to idle + list.
+      setQuestion(null);
+      setSession(null);
+      setTranscript([]);
+      setVerdictCard(null);
+      setDraft('');
+      setPhase({ kind: 'idle' });
+      await refreshSessions();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, describeError, refreshSessions]);
+
+  /**
+   * Resume a listed session (quiz-fix-b): re-activate it server-side and load
+   * its current question + transcript into the active view.
+   */
+  const onResume = useCallback(
+    async (sessionId: string): Promise<void> => {
+      if (rowBusyId) {
+        return;
+      }
+      setRowBusyId(sessionId);
+      setError(null);
+      try {
+        const result = await resumeQuiz(sessionId);
+        setSession(result.session);
+        setQuestion(result.question);
+        setTranscript(result.transcript);
+        setVerdictCard(null);
+        setTally({ correct: 0, revisit: 0 });
+        setDraft('');
+        setPhase({ kind: 'active' });
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setRowBusyId(null);
+      }
+    },
+    [rowBusyId, describeError],
+  );
+
+  /**
+   * Delete a listed session (quiz-fix-b) after a small confirm, then remove it
+   * from the list (optimistically) and reconcile with a refresh.
+   */
+  const onDelete = useCallback(
+    async (sessionId: string): Promise<void> => {
+      if (rowBusyId) {
+        return;
+      }
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.confirm === 'function' &&
+        !window.confirm('Delete this quiz session? This cannot be undone.')
+      ) {
+        return;
+      }
+      setRowBusyId(sessionId);
+      setError(null);
+      // Optimistic removal for immediate feedback.
+      setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
+      try {
+        await deleteQuizSession(sessionId);
+        await refreshSessions();
+      } catch (err) {
+        setError(describeError(err));
+        // Reconcile the list on failure (undo the optimistic removal).
+        await refreshSessions();
+      } finally {
+        setRowBusyId(null);
+      }
+    },
+    [rowBusyId, describeError, refreshSessions],
+  );
 
   // ----- No provider configured -----
   if (phase.kind === 'no-provider') {
@@ -322,6 +453,13 @@ export function Interview(): JSX.Element {
             Start quiz
           </button>
         </div>
+        <SessionsList
+          sessions={sessions}
+          loading={sessionsLoading}
+          rowBusyId={rowBusyId}
+          onResume={(id) => void onResume(id)}
+          onDelete={(id) => void onDelete(id)}
+        />
       </div>
     );
   }
@@ -372,6 +510,13 @@ export function Interview(): JSX.Element {
             New session
           </button>
         </div>
+        <SessionsList
+          sessions={sessions}
+          loading={sessionsLoading}
+          rowBusyId={rowBusyId}
+          onResume={(id) => void onResume(id)}
+          onDelete={(id) => void onDelete(id)}
+        />
       </div>
     );
   }
@@ -387,24 +532,41 @@ export function Interview(): JSX.Element {
 
   return (
     <div className="space-y-6">
-      {/* Progress bar. */}
-      {session && (
-        <div aria-label="Quiz progress" role="group">
-          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-            <span className="inline-flex items-center gap-1.5">
-              <Zap className="h-3.5 w-3.5 text-emerald-500" aria-hidden />
-              Quickfire quiz
-            </span>
-            <span>{progressLabel}</span>
+      {/* Active-session header: progress + End session control. */}
+      <div className="flex items-center justify-between gap-3">
+        {session ? (
+          <div
+            className="min-w-0 flex-1"
+            aria-label="Quiz progress"
+            role="group"
+          >
+            <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+              <span className="inline-flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5 text-emerald-500" aria-hidden />
+                Quickfire quiz
+              </span>
+              <span>{progressLabel}</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-200"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-            <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-200"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex-1" />
+        )}
+        <button
+          type="button"
+          onClick={() => void onEndSession()}
+          disabled={busy}
+          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold text-slate-300 transition-all duration-200 hover:border-slate-600 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Square className="h-3.5 w-3.5" aria-hidden />
+          End session
+        </button>
+      </div>
 
       {/* Prior transcript (resumed sessions / earlier turns this session). */}
       {transcript.length > 0 && <TranscriptHistory entries={transcript} />}
@@ -609,4 +771,149 @@ function InlineError({ message }: { readonly message: string }): JSX.Element {
       </div>
     </div>
   );
+}
+
+/**
+ * The list of past + active quiz sessions (quiz-fix-b). Each row shows the
+ * created time, progress (answered/deckSize), correct tally, and status, with a
+ * Resume button (re-activates + continues) and a Delete button (with a confirm
+ * handled by the caller). All text renders via JSX (auto-escaped); no HTML
+ * injection. Empty + loading states are handled gracefully.
+ */
+function SessionsList({
+  sessions,
+  loading,
+  rowBusyId,
+  onResume,
+  onDelete,
+}: {
+  readonly sessions: readonly QuizSessionSummary[];
+  readonly loading: boolean;
+  readonly rowBusyId: string | null;
+  readonly onResume: (sessionId: string) => void;
+  readonly onDelete: (sessionId: string) => void;
+}): JSX.Element {
+  return (
+    <section aria-label="Past sessions" className="space-y-3">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+        <ListChecks className="h-4 w-4 text-emerald-500" aria-hidden />
+        Your sessions
+      </h3>
+
+      {loading ? (
+        <div
+          className="flex items-center gap-2 text-sm text-slate-400"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Loading sessions…
+        </div>
+      ) : sessions.length === 0 ? (
+        <p className="rounded-lg border border-slate-800 bg-slate-800/30 p-4 text-sm text-slate-400">
+          No past sessions yet. Start a quiz to build your history.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {sessions.map((s) => (
+            <SessionRow
+              key={s.sessionId}
+              session={s}
+              busy={rowBusyId === s.sessionId}
+              disabled={rowBusyId !== null && rowBusyId !== s.sessionId}
+              onResume={() => onResume(s.sessionId)}
+              onDelete={() => onDelete(s.sessionId)}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** A single session row/card in the {@link SessionsList}. */
+function SessionRow({
+  session,
+  busy,
+  disabled,
+  onResume,
+  onDelete,
+}: {
+  readonly session: QuizSessionSummary;
+  readonly busy: boolean;
+  readonly disabled: boolean;
+  readonly onResume: () => void;
+  readonly onDelete: () => void;
+}): JSX.Element {
+  const progress = `${session.answeredCount} / ${session.deckSize} answered`;
+  const correct = `${session.correctCount} correct`;
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-800/40 p-3 transition-all duration-200 hover:border-slate-700">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <Clock className="h-3.5 w-3.5" aria-hidden />
+            {formatCreatedAt(session.createdAt)}
+          </span>
+          {session.isActive ? (
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+              Active
+            </span>
+          ) : session.status === 'complete' ? (
+            <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Complete
+            </span>
+          ) : (
+            <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Paused
+            </span>
+          )}
+        </div>
+        <p className="mt-1 truncate text-sm text-slate-300">
+          {progress} · {correct}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={onResume}
+        disabled={busy || disabled}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        ) : (
+          <Play className="h-3.5 w-3.5" aria-hidden />
+        )}
+        Resume
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={busy || disabled}
+        aria-label="Delete session"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-xs font-semibold text-slate-400 transition-all duration-200 hover:border-status-blocked/50 hover:text-status-blocked disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+        Delete
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Format an ISO timestamp for the sessions list. Falls back to the raw string
+ * if it is not a parseable date (tolerant — the value is user data).
+ */
+function formatCreatedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
