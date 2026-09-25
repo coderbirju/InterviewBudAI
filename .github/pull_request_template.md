@@ -7,8 +7,8 @@
 <!-- What changed and why, in 2–5 plain-language sentences. -->
 
 ## Agent & scope
-- Agent role: <!-- architect / engine-dev / integrations-dev / interface-dev / qa-test -->
-- Branch: <!-- <role>/<topic> -->
+- Agent role: <!-- architect / scaffold / implement / integrate / frontend / verify / code-review -->
+- Branch: <!-- <skill-or-architect>/<topic> -->
 - Package(s) touched: <!-- e.g. packages/core -->
 
 ## How it was tested

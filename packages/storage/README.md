@@ -108,6 +108,8 @@ Completed sessions stay readable by id.
 | `readActiveQuizSession()` | Returns the active session, or `null` (tolerant: missing/malformed/dangling → `null`). |
 | `readQuizSession(id)` | Returns a session by id, or `null`. |
 | `writeQuizSession(session)` | Persists the session and maintains the active pointer. |
+| `listQuizSessions()` | Summaries of all sessions, newest first, with an `isActive` flag (skips `active.json` and malformed files). |
+| `deleteQuizSession(id)` | Deletes a session (idempotent); clears the active pointer if it was active. |
 
 ### Competency signals (weak/strong topics + patterns)
 
