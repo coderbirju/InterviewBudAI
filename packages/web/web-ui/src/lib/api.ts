@@ -12,8 +12,30 @@
 /** The four-state per-problem note status (mirrors storage `NoteStatus`). */
 export type NoteStatus = 'none' | 'done' | 'to_revisit' | 'did_not_understand';
 
-/** Problem difficulty (mirrors curriculum `Problem['difficulty']`). */
+/**
+ * Problem difficulty as the SPA uses it (display casing). NOTE: the server
+ * sends the curriculum's lowercase `'easy'|'medium'|'hard'`; the client
+ * boundary normalizes it via {@link normalizeDifficulty} (the single source of
+ * truth) so badges and filters always see this casing.
+ */
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
+
+/**
+ * Normalize a wire difficulty (any casing, e.g. the catalog's `'easy'`) to the
+ * SPA's {@link Difficulty}; `null` when absent/unknown.
+ */
+export function normalizeDifficulty(raw: unknown): Difficulty | null {
+  switch (typeof raw === 'string' ? raw.toLowerCase() : '') {
+    case 'easy':
+      return 'Easy';
+    case 'medium':
+      return 'Medium';
+    case 'hard':
+      return 'Hard';
+    default:
+      return null;
+  }
+}
 
 /** Per-status counts across a set of problems (mirrors `StatusCounts`). */
 export interface StatusCounts {
@@ -181,8 +203,26 @@ export function fetchConfig(): Promise<ConfigResponse> {
 }
 
 /** GET /api/catalog — the categorized problem list. */
-export function fetchCatalog(): Promise<CatalogResponse> {
-  return getJson<CatalogResponse>('/api/catalog');
+export async function fetchCatalog(): Promise<CatalogResponse> {
+  return normalizeCatalog(await getJson<CatalogResponse>('/api/catalog'));
+}
+
+/**
+ * Normalize a raw /api/catalog payload at the client boundary: the wire
+ * difficulty is lowercase, the SPA's {@link Difficulty} is display-cased.
+ * Unknown values pass through unchanged (neutral badge, match no chip).
+ */
+export function normalizeCatalog(raw: CatalogResponse): CatalogResponse {
+  return {
+    ...raw,
+    topics: raw.topics.map((topic) => ({
+      ...topic,
+      problems: topic.problems.map((p) => ({
+        ...p,
+        difficulty: normalizeDifficulty(p.difficulty) ?? p.difficulty,
+      })),
+    })),
+  };
 }
 
 /** GET /api/progress — the global progress banner data. */

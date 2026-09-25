@@ -24,11 +24,11 @@ import {
   getQuizSession,
   listQuizSessions,
   newQuiz,
+  normalizeDifficulty,
   resumeQuiz,
   startQuiz,
 } from '../lib/api';
 import type {
-  Difficulty,
   QuizAnswerResult,
   QuizQuestion,
   QuizSessionSummary,
@@ -668,23 +668,6 @@ export function Interview(): JSX.Element {
 }
 
 /**
- * Normalise the catalog difficulty (`'easy'|'medium'|'hard'`, any case) to the
- * badge's `Easy|Medium|Hard`; `null` when absent/unknown (no badge shown).
- */
-function displayDifficulty(raw: string | undefined): Difficulty | null {
-  switch ((raw ?? '').toLowerCase()) {
-    case 'easy':
-      return 'Easy';
-    case 'medium':
-      return 'Medium';
-    case 'hard':
-      return 'Hard';
-    default:
-      return null;
-  }
-}
-
-/**
  * The current question card: the real problem title, its difficulty badge and
  * an external link to the problem (new tab, `rel="noopener noreferrer"`). The
  * title stays put across an `on_track` probe — the probe renders separately in
@@ -697,7 +680,7 @@ function QuestionCard({
   readonly question: QuizQuestion;
   readonly session: QuizState | null;
 }): JSX.Element {
-  const difficulty = displayDifficulty(question.difficulty);
+  const difficulty = normalizeDifficulty(question.difficulty);
   return (
     <div
       className="rounded-xl border border-slate-800 bg-slate-800/60 p-5"
