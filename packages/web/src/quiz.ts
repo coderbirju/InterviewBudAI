@@ -469,10 +469,12 @@ export function nudgeCountForCurrentQuestion(session: QuizSession): number {
     }
   }
   if (blockStart === -1) {
-    // No presentation boundary (empty transcript, or a legacy orphan that was
-    // nudged before any presentation turn existed): fall back to the A3
-    // invariant — user turns beyond terminal answers are spent nudges.
-    return Math.max(0, userTurnCount(session) - session.answered.length);
+    // No presentation boundary (empty transcript, or a legacy orphan that
+    // never had a presentation turn): decide from the transcript TAIL. Empty,
+    // or ending with the previous question's terminal-answer pair → nothing
+    // spent on the current question; otherwise the tail is its probe (the cap
+    // allows at most one).
+    return t.length === 0 || tailIsTerminalAnswer(session) ? 0 : 1;
   }
   let nudges = 0;
   for (let i = blockStart + 1; i < t.length; i++) {
@@ -533,19 +535,35 @@ export function ensureCurrentQuestionPresented(
   if (presentationCount(session) >= session.currentIndex + 1) {
     return session;
   }
-  // Only heal when NO nudge was spent on the current question while it was
-  // orphaned (user turns == terminal answers). Otherwise appending a new
-  // presentation boundary would reset the nudge count and grant a second
-  // nudge; leave the session as-is so the spent nudge still counts.
-  if (userTurnCount(session) !== session.answered.length) {
+  // Decide from the transcript TAIL: heal only when nothing has happened on
+  // the current (unpresented) question yet — the transcript is empty, or it
+  // ends with the terminal-answer pair of the previous question. If the tail
+  // is a probe, a nudge was spent while orphaned; appending a presentation
+  // boundary would reset the nudge count and grant a second nudge.
+  if (session.transcript.length > 0 && !tailIsTerminalAnswer(session)) {
     return session;
   }
   return appendAssistantTurn(session, presentation, at);
 }
 
-/** Number of `user` turns in the transcript. */
-function userTurnCount(session: QuizSession): number {
-  return session.transcript.filter((t) => t.role === 'user').length;
+/**
+ * True when the transcript ends with the terminal-answer pair (user +
+ * assistant) that {@link advanceSession} wrote for the LATEST answer record —
+ * both turns carry that record's `at`. A probe pair ({@link appendNudgeTurn})
+ * is written by a later request, so its `at` differs.
+ */
+function tailIsTerminalAnswer(session: QuizSession): boolean {
+  const t = session.transcript;
+  const last = t[t.length - 1];
+  const prev = t[t.length - 2];
+  const latest = session.answered[session.answered.length - 1];
+  return (
+    latest !== undefined &&
+    last?.role === 'assistant' &&
+    prev?.role === 'user' &&
+    last.at === latest.at &&
+    prev.at === latest.at
+  );
 }
 
 /**
