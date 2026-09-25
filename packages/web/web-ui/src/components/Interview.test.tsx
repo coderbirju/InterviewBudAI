@@ -261,9 +261,11 @@ describe('Quickfire Quiz Master', () => {
       feedback: 'Good start — what is the time complexity?',
       terminal: false,
       session: STATE({ index: 0, answered: 0 }),
+      // The server keeps the problem in `question` and sends the probe apart.
       question: {
         problemId: 'lc-1',
-        wrapped: 'Good start — what is the time complexity?',
+        wrapped: 'A wrapped question about arrays.',
+        probe: 'Good start — what is the time complexity?',
       },
     });
 
@@ -280,6 +282,9 @@ describe('Quickfire Quiz Master', () => {
     expect(await screen.findByText(/on the right track/i)).toBeInTheDocument();
     expect(
       screen.getByText('A wrapped question about arrays.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Good start — what is the time complexity?'),
     ).toBeInTheDocument();
     expect(screen.getByText('0 / 3 answered')).toBeInTheDocument();
   });
@@ -483,5 +488,134 @@ describe('Quickfire Quiz Master', () => {
     // Row still present.
     expect(screen.getByText(/3 \/ 3 answered/)).toBeInTheDocument();
     confirmSpy.mockRestore();
+  });
+});
+
+describe('Quiz reliability (W1) — catalog question card', () => {
+  const CATALOG_Q = {
+    problemId: 'lc-1',
+    wrapped: 'Two Sum (easy)',
+    title: 'Two Sum',
+    difficulty: 'easy',
+    url: 'https://leetcode.com/problems/two-sum/',
+  };
+
+  it('idle copy describes real problems, not rephrasings', async () => {
+    render(<Interview />);
+    await screen.findByRole('button', { name: /start quiz/i });
+    expect(screen.queryByText(/rephrasing/i)).toBeNull();
+    expect(
+      screen.getByText(/shown each real problem and asked to explain/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the title, a difficulty badge and a safe external problem link', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue({
+      empty: false,
+      session: STATE(),
+      question: CATALOG_Q,
+    });
+    render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    );
+
+    expect(await screen.findByText('Two Sum')).toBeInTheDocument();
+    expect(screen.getByText('Easy')).toHaveClass('text-difficulty-easy');
+    const link = screen.getByRole('link', { name: /open problem/i });
+    expect(link).toHaveAttribute('href', CATALOG_Q.url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toMatch(/noopener/);
+  });
+
+  it('on_track keeps the problem title and shows the probe in its own card', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue({
+      empty: false,
+      session: STATE(),
+      question: CATALOG_Q,
+    });
+    mockedApi.answerQuiz.mockResolvedValue({
+      verdict: 'on_track',
+      feedback: 'What about duplicates?',
+      terminal: false,
+      session: STATE(),
+      question: { ...CATALOG_Q, probe: 'What about duplicates?' },
+    });
+    render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    );
+    await screen.findByText('Two Sum');
+    await user.type(screen.getByLabelText(/your answer/i), 'hash map');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+
+    expect(await screen.findByText(/on the right track/i)).toBeInTheDocument();
+    const card = screen.getByRole('group', { name: /current question/i });
+    expect(card).toHaveTextContent('Two Sum');
+    expect(card).not.toHaveTextContent('What about duplicates?');
+    expect(screen.getByText('What about duplicates?')).toBeInTheDocument();
+  });
+
+  it('a resumed session re-shows its question and any pending probe', async () => {
+    mockedApi.getQuizSession.mockResolvedValue({
+      active: true,
+      session: STATE(),
+      question: { ...CATALOG_Q, probe: 'Can you do it in one pass?' },
+      transcript: [],
+    });
+    render(<Interview />);
+    expect(await screen.findByText('Two Sum')).toBeInTheDocument();
+    expect(screen.getByText(/on the right track/i)).toBeInTheDocument();
+    expect(screen.getByText('Can you do it in one pass?')).toBeInTheDocument();
+    expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument();
+  });
+
+  it('an active session with no question falls back to idle (never an empty active view)', async () => {
+    mockedApi.getQuizSession.mockResolvedValue({
+      active: true,
+      session: STATE(),
+      question: null,
+      transcript: [],
+    });
+    render(<Interview />);
+    expect(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/your answer/i)).toBeNull();
+  });
+
+  it('resuming an exhausted session shows it as complete', async () => {
+    const user = userEvent.setup();
+    mockedApi.listQuizSessions.mockResolvedValue({
+      sessions: [SUMMARY({ sessionId: 'sess-1' })],
+    });
+    mockedApi.resumeQuiz.mockResolvedValue({
+      ok: true,
+      session: STATE({ sessionId: 'sess-1', status: 'complete' }),
+      question: null,
+      transcript: [],
+    });
+    render(<Interview />);
+    await user.click(await screen.findByRole('button', { name: /resume/i }));
+    expect(await screen.findByText(/session complete/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/your answer/i)).toBeNull();
+  });
+
+  it('escapes HTML in the problem title (XSS-safe via JSX)', async () => {
+    const user = userEvent.setup();
+    const payload = '<img src=x onerror="alert(1)">';
+    mockedApi.startQuiz.mockResolvedValue({
+      empty: false,
+      session: STATE(),
+      question: { ...CATALOG_Q, title: payload },
+    });
+    const { container } = render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    );
+    expect(await screen.findByText(payload)).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
   });
 });
