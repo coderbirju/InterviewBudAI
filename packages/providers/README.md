@@ -90,7 +90,7 @@ this core — see the top-of-file comment for API shape differences.
 Front-ends are composition roots that choose which adapter to inject:
 
 ```typescript
-import { AnthropicProvider, OllamaProvider, EchoDemoProvider } from '@ibai/providers';
+import { AnthropicProvider, OllamaProvider } from '@ibai/providers';
 
 // For Claude via Anthropic API
 const claudeProvider = new AnthropicProvider({
@@ -100,9 +100,6 @@ const claudeProvider = new AnthropicProvider({
 
 // For local Ollama
 const ollamaProvider = new OllamaProvider({ model: 'llama3.2' });
-
-// For zero-config demo
-const demoProvider = new EchoDemoProvider();
 ```
 
 ## Design Principles

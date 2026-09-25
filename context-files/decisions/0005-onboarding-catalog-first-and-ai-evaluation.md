@@ -1,6 +1,6 @@
 # ADR 0005 — Onboarding: Catalog-First Workflow, Intuition Capture, and AI-Evaluation Interview
 
-- **Status:** Accepted
+- **Status:** Accepted — D6's generic interview UI superseded by ADR 0007 (D8)
 - **Date:** 2026-09-13
 - **Deciders:** Founder, Architect
 - **Supersedes:** ADR 0004 (partially — removes the zero-config demo-provider fallback path; see D6)

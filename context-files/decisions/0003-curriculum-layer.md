@@ -1,6 +1,6 @@
 # ADR 0003 — Curriculum Layer: Location, Schema, and Read-Only Access Contract
 
-- **Status:** Accepted
+- **Status:** Accepted — extended by ADR 0005 (catalog-first onboarding)
 - **Date:** 2026-09-12
 - **Deciders:** Founder + Architect (design session)
 - **Supersedes:** —
