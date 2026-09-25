@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Notes } from './Notes';
 import * as api from '../lib/api';
+import { rememberHomeSearch } from '../lib/router';
 import type { CatalogResponse, FullNote } from '../lib/api';
 
 vi.mock('../lib/api', async () => {
@@ -57,6 +58,25 @@ beforeEach(() => {
 });
 
 describe('Notes editor', () => {
+  it('"Back to problems" returns to the last Home filter (W3)', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchNote.mockResolvedValue(SAVED_NOTE);
+    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+    rememberHomeSearch('?q=sum&status=to_revisit');
+    try {
+      render(<Notes problemId="two-sum" />);
+      const back = await screen.findByRole('link', {
+        name: /back to problems/i,
+      });
+      expect(back).toHaveAttribute('href', '/?q=sum&status=to_revisit');
+      await user.click(back);
+      expect(window.location.pathname).toBe('/');
+      expect(window.location.search).toBe('?q=sum&status=to_revisit');
+    } finally {
+      rememberHomeSearch('');
+    }
+  });
+
   it('renders and pre-fills all fields from the saved note + catalog', async () => {
     mockedApi.fetchNote.mockResolvedValue(SAVED_NOTE);
     mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
