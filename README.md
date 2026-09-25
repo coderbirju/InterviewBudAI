@@ -16,7 +16,7 @@ Your notes and progress live in your own local data directory, never in this rep
 | `packages/providers` | LLM provider interface + `AnthropicProvider`, `OllamaProvider`. |
 | `packages/storage` | Storage interface + `LocalFileStorageAdapter` (local files). |
 | `packages/curriculum` | Curated, read-only problem catalog (links + difficulty). |
-| `packages/cli` | `ibai` CLI: `assess`, `plan`, `coach`. |
+| `packages/cli` | `ibai` CLI: `assess`, `plan`, `coach` (frozen — the web app is the product). |
 | `packages/web` | Localhost server + React SPA: Home, Notes, Analytics, Quiz Master. |
 
 ## Build and verify
@@ -30,7 +30,8 @@ npm run verify   # typecheck -> lint -> format -> build -> test
 
 ## Configure a provider
 
-A provider is required for the quiz / coach. See `.env.example`.
+A provider is required for the quiz / coach. Set these environment variables
+(read by `packages/web` and `packages/cli`):
 
 ```bash
 # Anthropic
@@ -42,14 +43,21 @@ export IBAI_OLLAMA_MODEL=llama3
 export IBAI_OLLAMA_URL=http://127.0.0.1:11434   # optional
 ```
 
-Optional: `IBAI_DATA_DIR` (your progress directory), `IBAI_WEB_PORT` (default 4173).
+| Variable | Purpose | Default |
+|---|---|---|
+| `ANTHROPIC_API_KEY` (or `IBAI_ANTHROPIC_API_KEY`) | Anthropic API key — never commit | — |
+| `IBAI_ANTHROPIC_MODEL` | Anthropic model name | — |
+| `IBAI_OLLAMA_MODEL` | Ollama model name | — |
+| `IBAI_OLLAMA_URL` | Ollama endpoint | `http://127.0.0.1:11434` |
+| `IBAI_DATA_DIR` | Your private progress directory | web: `~/.interviewbudai/data` |
+| `IBAI_WEB_PORT` | Web server port | `4173` |
 
 ## Run
 
 ```bash
 npm run build
 npm --workspace @ibai/web run start   # open http://127.0.0.1:4173/
-node packages/cli/dist/cli.js --help  # CLI
+node packages/cli/dist/cli.js --help  # CLI (frozen; web is the product)
 ```
 
 Details: [packages/web/README.md](packages/web/README.md),

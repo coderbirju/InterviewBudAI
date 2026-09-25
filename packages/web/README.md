@@ -121,8 +121,8 @@ The **Quickfire Quiz Master** engine (`quiz.ts`) drives a resumable,
 shuffled, one-shot quiz over the user's `status: 'done'` problems. The MODEL is
 the sole source of both the **question wording** and the **verdict** —
 the app ships **no** canonical answers and the Quiz Master **never reveals the
-answer** (§6.2). The four routes below require a configured **provider**;
-session-management routes (`GET /api/quiz/sessions`, `POST /api/quiz/end`,
+answer** (§6.2). Only `POST /api/quiz/start`, `/new`, and `/answer` require a
+configured **provider**; `GET /api/quiz/session` (resume) does not. Session-management routes (`GET /api/quiz/sessions`, `POST /api/quiz/end`,
 `POST /api/quiz/resume`, `POST /api/quiz/delete`, `DELETE /api/quiz/session/:id`)
 are described under SPA views above.
 
