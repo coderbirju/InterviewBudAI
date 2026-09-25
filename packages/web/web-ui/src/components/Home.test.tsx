@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Home } from './Home';
 import * as api from '../lib/api';
-import { navigate } from '../lib/router';
+import { lastHomeHref, navigate } from '../lib/router';
 import type {
   CatalogResponse,
   ConfigResponse,
@@ -329,6 +329,14 @@ describe('Home search & filters', () => {
     expect(window.location.search).toBe('');
     expect(screen.getByText('4 problems')).toBeInTheDocument();
     expect(screen.getByText('Stack')).toBeInTheDocument();
+  });
+
+  it('navigating to a notes page keeps the remembered Home query', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    await user.type(screen.getByLabelText(/search problems/i), 'sum');
+    act(() => navigate('/notes/two-sum'));
+    expect(lastHomeHref()).toBe('/?q=sum');
   });
 
   it('popstate (Back/Forward) to /?q=… re-applies that filter', async () => {
