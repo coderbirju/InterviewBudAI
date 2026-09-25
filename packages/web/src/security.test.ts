@@ -116,6 +116,17 @@ describe('security helpers', () => {
     expect(checkSameOrigin({}, allowed).ok).toBe(true);
   });
 
+  it('Origin: null (our no-referrer form post) defers to Sec-Fetch-Site', () => {
+    const verdict = (site?: string) =>
+      checkSameOrigin(
+        site ? { origin: 'null', 'sec-fetch-site': site } : { origin: 'null' },
+        allowed,
+      ).ok;
+    expect(verdict('same-origin')).toBe(true);
+    expect(verdict('cross-site')).toBe(false);
+    expect(verdict()).toBe(false);
+  });
+
   it('parses media types and compares tokens safely', () => {
     expect(mediaType('Application/JSON; charset=utf-8')).toBe(
       'application/json',
@@ -350,6 +361,18 @@ describe('/setup CSRF token + path validation', () => {
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Strict');
     expect(cookie).toContain('Path=/');
+  });
+
+  it('accepts a real browser form post (Origin: null + Sec-Fetch-Site: same-origin)', async () => {
+    const handler = makeHandler();
+    const target = path.join(tmpDir, 'browser-db');
+    const res = await postSetup(
+      handler,
+      { dataDir: target, csrfToken: await token(handler) },
+      { origin: 'null', 'sec-fetch-site': 'same-origin' },
+    );
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(target)).toBe(true);
   });
 
   it.each([
