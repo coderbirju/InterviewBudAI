@@ -12,6 +12,8 @@ import { ProblemRow } from './ProblemRow';
  * When Home's search/filter is active it passes `matches` (the subset of the
  * topic's problems to show) — the header then also shows an emerald "N
  * matches" badge. The done-fraction badge always reflects the whole topic.
+ * Home also controls `open`/`onToggle` so it can auto-expand on filter and
+ * restore the user's own expanded set on Clear.
  */
 export function CategoryAccordion({
   topic,
@@ -19,15 +21,22 @@ export function CategoryAccordion({
   busyIds,
   onStatusChange,
   matches,
+  open: controlledOpen,
+  onToggle,
 }: {
   topic: CatalogTopic;
   defaultOpen?: boolean;
   /** Filtered subset to render; omitted = all of the topic's problems. */
   matches?: readonly CatalogProblem[];
+  /** Controlled expansion (Home owns it); omitted = internal state. */
+  open?: boolean;
+  onToggle?: () => void;
   busyIds: ReadonlySet<string>;
   onStatusChange: (id: string, next: NoteStatus) => void;
 }): JSX.Element {
-  const [open, setOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? internalOpen;
+  const toggle = onToggle ?? ((): void => setInternalOpen((v) => !v));
   const { done, total } = topicCompletion(topic);
   const panelId = `topic-panel-${topic.topic.replace(/\s+/g, '-')}`;
   const rows = matches ?? topic.problems;
@@ -38,7 +47,7 @@ export function CategoryAccordion({
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-all duration-200 hover:bg-slate-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
       >
         <span className="flex items-center gap-2">

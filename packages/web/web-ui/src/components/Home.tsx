@@ -25,6 +25,7 @@ import {
 import type { CatalogFilter } from '../lib/home';
 import {
   currentSearch,
+  parseRoute,
   rememberHomeSearch,
   replaceSearch,
 } from '../lib/router';
@@ -110,6 +111,25 @@ export function Home(): JSX.Element {
   const [filter, setFilter] = useState<CatalogFilter>(() =>
     filterFromSearch(currentSearch()),
   );
+  // Rows whose status the user changed under an active filter stay visible
+  // until the filter itself changes (so they don't vanish mid-interaction).
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
+  // Expansion is owned here: `openTopics` is the user's own (unfiltered) set;
+  // while filtering, every matching topic is open except those the user
+  // collapsed (`collapsedWhileFiltering`). Clearing restores `openTopics`.
+  const [openTopics, setOpenTopics] = useState<ReadonlySet<string>>(new Set());
+  const [collapsedWhileFiltering, setCollapsedWhileFiltering] = useState<
+    ReadonlySet<string>
+  >(new Set());
+
+  /** Every filter change goes through here (bar, reset button, URL). */
+  const applyFilter = useCallback((next: CatalogFilter): void => {
+    setFilter(next);
+    setPinned(new Set());
+    if (!isFilterActive(next)) {
+      setCollapsedWhileFiltering(new Set());
+    }
+  }, []);
 
   // The URL is the source of truth for the filter. Re-derive it whenever the
   // location changes while Home stays mounted: browser Back/Forward, and
@@ -117,11 +137,15 @@ export function Home(): JSX.Element {
   // Problems nav link / wordmark to a bare `/` clears the filter.
   useEffect(() => {
     function onPopState(): void {
-      setFilter(filterFromSearch(currentSearch()));
+      // Only while the location is still Home — navigating away to /notes/…
+      // also fires popstate and must not wipe the remembered Home query.
+      if (parseRoute(window.location.pathname).kind === 'home') {
+        applyFilter(filterFromSearch(currentSearch()));
+      }
     }
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+  }, [applyFilter]);
 
   // Mirror user filter edits into the URL query (replace, not push).
   useEffect(() => {
@@ -132,8 +156,8 @@ export function Home(): JSX.Element {
 
   const filterActive = isFilterActive(filter);
   const filtered = useMemo(
-    () => (catalog ? filterCatalog(catalog.topics, filter) : null),
-    [catalog, filter],
+    () => (catalog ? filterCatalog(catalog.topics, filter, pinned) : null),
+    [catalog, filter, pinned],
   );
 
   useEffect(() => {
@@ -178,6 +202,9 @@ export function Home(): JSX.Element {
         return;
       }
       const previous = catalog;
+      if (filterActive) {
+        setPinned((prev) => new Set(prev).add(id));
+      }
       const optimistic = withStatus(catalog, id, next);
       // Optimistic update: row + category badge + global bar, no reload.
       setCatalog(optimistic);
@@ -199,7 +226,27 @@ export function Home(): JSX.Element {
         });
       }
     },
-    [catalog],
+    [catalog, filterActive],
+  );
+
+  const toggleTopic = useCallback(
+    (name: string): void => {
+      const flip = (prev: ReadonlySet<string>): ReadonlySet<string> => {
+        const next = new Set(prev);
+        if (next.has(name)) {
+          next.delete(name);
+        } else {
+          next.add(name);
+        }
+        return next;
+      };
+      if (filterActive) {
+        setCollapsedWhileFiltering(flip);
+      } else {
+        setOpenTopics(flip);
+      }
+    },
+    [filterActive],
   );
 
   if (state === 'loading') {
@@ -276,7 +323,7 @@ export function Home(): JSX.Element {
       {catalog && filtered && (
         <CatalogFilterBar
           filter={filter}
-          onChange={setFilter}
+          onChange={applyFilter}
           matched={filtered.matched}
           total={catalog.totals.total}
         />
@@ -293,7 +340,7 @@ export function Home(): JSX.Element {
           </p>
           <button
             type="button"
-            onClick={() => setFilter(EMPTY_FILTER)}
+            onClick={() => applyFilter(EMPTY_FILTER)}
             className="mt-4 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
           >
             Show all problems
@@ -303,12 +350,14 @@ export function Home(): JSX.Element {
         <div className="space-y-3">
           {filtered?.topics.map(({ topic, matches }) => (
             <CategoryAccordion
-              // Remount when filtering starts/stops so matching topics
-              // auto-expand (and collapse back when cleared) while a user's
-              // manual toggle still sticks as they keep typing.
-              key={`${topic.topic}:${filterActive ? 'filtered' : 'all'}`}
+              key={topic.topic}
               topic={topic}
-              defaultOpen={filterActive}
+              open={
+                filterActive
+                  ? !collapsedWhileFiltering.has(topic.topic)
+                  : openTopics.has(topic.topic)
+              }
+              onToggle={() => toggleTopic(topic.topic)}
               matches={filterActive ? matches : undefined}
               busyIds={busyIds}
               onStatusChange={onStatusChange}

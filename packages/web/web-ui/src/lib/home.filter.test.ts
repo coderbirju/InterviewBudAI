@@ -146,6 +146,21 @@ describe('filterCatalog', () => {
     expect(r.matched).toBe(0);
   });
 
+  it('keeps pinned ids visible even when they no longer match', () => {
+    const r = filterCatalog(
+      TOPICS,
+      f({ statuses: ['to_revisit'] }),
+      new Set(['valid-anagram']),
+    );
+    expect(
+      r.topics.map((t) => [t.topic.topic, t.matches.map((m) => m.id)]),
+    ).toEqual([
+      ['Arrays & Hashing', ['valid-anagram']],
+      ['Two Pointers', ['3sum']],
+    ]);
+    expect(r.matched).toBe(2);
+  });
+
   it('handles an empty catalog', () => {
     expect(filterCatalog([], f({ query: 'x' }))).toEqual({
       topics: [],
@@ -178,6 +193,29 @@ describe('URL query round-trip', () => {
       statuses: ['to_revisit'],
     });
     expect(filterFromSearch('')).toEqual(EMPTY_FILTER);
+  });
+
+  it('parses facet values case-insensitively', () => {
+    expect(filterFromSearch('?difficulty=easy,HARD&status=TO_REVISIT')).toEqual(
+      {
+        query: '',
+        difficulties: ['Easy', 'Hard'],
+        statuses: ['to_revisit'],
+      },
+    );
+  });
+
+  it('writes list values with readable (unescaped) commas', () => {
+    expect(
+      searchWithFilter(
+        '',
+        f({ difficulties: ['Easy', 'Hard'], statuses: ['done'] }),
+      ),
+    ).toBe('?difficulty=Easy,Hard&status=done');
+    // Commas typed into the search text round-trip too.
+    expect(
+      filterFromSearch(searchWithFilter('', f({ query: 'a,b' }))).query,
+    ).toBe('a,b');
   });
 
   it('serializes, drops empty facets, and preserves unrelated params', () => {
