@@ -294,6 +294,36 @@ describe('session helpers', () => {
     expect(nudgeAlreadyUsed(healed)).toBe(false);
   });
 
+  it('does NOT heal an orphan that was already nudged (no second nudge)', () => {
+    // Legacy shape: answered while orphaned — on_track probe spent, but no
+    // presentation turn was ever written.
+    const nudgedOrphan = makeSession({
+      transcript: [
+        { role: 'user', content: 'partial', at: AT },
+        { role: 'assistant', content: 'probe?', at: AT },
+      ],
+    });
+    expect(nudgeAlreadyUsed(nudgedOrphan)).toBe(true);
+    const healed = ensureCurrentQuestionPresented(nudgedOrphan, 'Q1', AT);
+    expect(healed).toBe(nudgedOrphan);
+    expect(nudgeAlreadyUsed(healed)).toBe(true);
+  });
+
+  it('does NOT heal a missing next presentation once its nudge was spent', () => {
+    // Q1 answered, Q2 never presented, then a nudge on Q2.
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT,
+      userTurn: 'a',
+      assistantTurn: 'ok',
+    });
+    s = appendNudgeTurn(s, 'partial', 'probe?', AT);
+    expect(ensureCurrentQuestionPresented(s, 'Q2', AT)).toBe(s);
+    expect(nudgeAlreadyUsed(s)).toBe(true);
+  });
+
   it('ensureCurrentQuestionPresented is a no-op for well-formed or exhausted sessions', () => {
     let s = appendAssistantTurn(makeSession(), 'Q1', AT);
     expect(ensureCurrentQuestionPresented(s, 'Q1', AT)).toBe(s);
