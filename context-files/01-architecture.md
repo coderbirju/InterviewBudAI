@@ -51,7 +51,9 @@ packages/
   providers/    LLM provider interface + adapters (OpenAI, Anthropic, Ollama…).
   storage/      Storage interface + adapters (git/local default, then others).
   cli/          CLI front-end. Thin; delegates to core.
-  web/          Locally hosted web front-end. Thin; delegates to core.
+  web/          Locally hosted web front-end (the v1 product). Delegates to
+                core; may host web-only features, e.g. the Quiz Master
+                engine (ADR 0008 D2).
 ```
 
 **Dependency rule:** `cli` and `web` depend on `core`. `core` depends on the

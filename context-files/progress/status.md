@@ -7,7 +7,7 @@
 _Last updated: 2026-09-25 — PRs #1–#56 merged or closed; ADR 0008 (web-first) PR open on `architect/adr-0008-web-first`; W2 in progress._
 
 ## Legend
-✅ merged · 🟡 PR open · ⛔ blocked · ⬜ not started · ✖ closed unmerged
+✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ✖ closed unmerged
 
 ## Team model
 **Architect** (sole orchestrator; talks to founder) + skills in `skills/`
@@ -16,11 +16,13 @@ See `team-charter.md` §0, §9A.
 
 ## In progress
 - 🟡 ADR 0008 web-first product focus — `architect/adr-0008-web-first`.
-- 🟡 W2 localhost hardening — `feature/w2-localhost-hardening`.
+- 🔨 W2 localhost hardening — `feature/w2-localhost-hardening` (no PR yet).
 
 ## Founder decision (2026-09-25) — recorded in ADR 0008
 - **The web app is the product.** CLI frozen (compiles + tests, no features).
-  Parity principle relaxed. Canonical data dir `~/.interviewbudai/data` (0700).
+  Canonical data dir `~/.interviewbudai/data` (0700).
+- Consequence (ADR 0008 D2): front-end parity principle relaxed — web-only
+  features allowed.
 
 ## Current product (on `main`)
 - **Web** (`@ibai/web`): React SPA at `/` — Home (catalog + status), Notes,
@@ -39,7 +41,7 @@ See `team-charter.md` §0, §9A.
 | W1 | Quiz reliability — questions from catalog (ADR 0007 A8) | ✅ #56 |
 | W3 | Home catalog search + difficulty/status filters | ✅ #54 |
 | W4 | One-command start (`npm start`, first-run data dir 0700, `.env.example`) | ✅ #55 |
-| W2 | Localhost hardening (Host/Origin/CSRF/content-type) | 🟡 `feature/w2-localhost-hardening` |
+| W2 | Localhost hardening (Host/Origin/CSRF/content-type) | 🔨 `feature/w2-localhost-hardening` (no PR yet) |
 | 2a | Growth loop: quiz signals → CompetencyMap/WeaknessRegister; "Where you stand / Next up" Home card | ⬜ |
 | 2b | User-added custom problems | ⬜ needs storage ADR |
 | 2c | Settings / provider status (active provider, test connection) | ⬜ key storage pending founder |
