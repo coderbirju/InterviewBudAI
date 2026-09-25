@@ -3,7 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createCoachHandler } from './handler.js';
-import type { CoachHandlerDeps } from './handler.js';
+import type {
+  CoachHandlerDeps,
+  HandlerRequest,
+  HandlerResponse,
+} from './handler.js';
 import type {
   ApiCatalogResponse,
   ApiProgressResponse,
@@ -23,6 +27,25 @@ import type {
 // A real, temp-dir-backed data directory + storage factory, exercised end to
 // end (no network, no mocks for persistence). Each test gets a fresh dir.
 let tmpDir: string;
+
+const TEST_PORT = 4173;
+
+/**
+ * Build a handler whose requests look like the real SPA's: a valid localhost
+ * `Host` and `Content-Type: application/json` on writes (the SPA always sends
+ * it). The security checks themselves are exercised in security.test.ts.
+ */
+function makeHandler(
+  deps: CoachHandlerDeps,
+): (req: HandlerRequest) => Promise<HandlerResponse> {
+  const handler = createCoachHandler({ port: TEST_PORT, ...deps });
+  return (req) =>
+    handler({
+      contentType: req.method === 'GET' ? undefined : 'application/json',
+      ...req,
+      headers: { host: `127.0.0.1:${TEST_PORT}`, ...req.headers },
+    });
+}
 
 function makeDeps(overrides: Partial<CoachHandlerDeps> = {}): CoachHandlerDeps {
   return {
@@ -70,7 +93,7 @@ const SECOND_ID = CATALOG.list()[1]?.id ?? '';
 
 describe('api catalog', () => {
   it('GET /api/catalog returns topics + problems + totals (empty DB → all none)', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/catalog' });
 
     expect(res.status).toBe(200);
@@ -112,7 +135,7 @@ describe('api catalog', () => {
       status: 'to_revisit',
     });
 
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/catalog' });
     const body = JSON.parse(res.body) as ApiCatalogResponse;
 
@@ -133,7 +156,7 @@ describe('api catalog', () => {
   });
 
   it('GET /api/catalog is safe with no DB configured (all none)', async () => {
-    const handler = createCoachHandler(makeNoDbDeps());
+    const handler = makeHandler(makeNoDbDeps());
     const res = await handler({ method: 'GET', url: '/api/catalog' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiCatalogResponse;
@@ -141,7 +164,7 @@ describe('api catalog', () => {
   });
 
   it('POST /api/catalog → 405 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'POST', url: '/api/catalog' });
     expect(res.status).toBe(405);
     expect(res.contentType).toBe('application/json; charset=utf-8');
@@ -166,7 +189,7 @@ describe('api progress', () => {
       status: 'to_revisit',
     });
 
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/progress' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiProgressResponse;
@@ -178,7 +201,7 @@ describe('api progress', () => {
   });
 
   it('GET /api/progress is safe empty with no DB', async () => {
-    const handler = createCoachHandler(makeNoDbDeps());
+    const handler = makeHandler(makeNoDbDeps());
     const res = await handler({ method: 'GET', url: '/api/progress' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiProgressResponse;
@@ -221,7 +244,7 @@ describe('api competency', () => {
       lastUpdated: at,
     });
 
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/competency' });
     expect(res.status).toBe(200);
     expect(res.contentType).toBe('application/json; charset=utf-8');
@@ -244,7 +267,7 @@ describe('api competency', () => {
   });
 
   it('GET /api/competency is safe empty when no signals exist yet', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/competency' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiCompetencyResponse;
@@ -252,7 +275,7 @@ describe('api competency', () => {
   });
 
   it('GET /api/competency is safe empty with no DB configured', async () => {
-    const handler = createCoachHandler(makeNoDbDeps());
+    const handler = makeHandler(makeNoDbDeps());
     const res = await handler({ method: 'GET', url: '/api/competency' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiCompetencyResponse;
@@ -260,7 +283,7 @@ describe('api competency', () => {
   });
 
   it('POST /api/competency → 405 JSON (read-only)', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'POST', url: '/api/competency' });
     expect(res.status).toBe(405);
     expect(res.contentType).toBe('application/json; charset=utf-8');
@@ -281,7 +304,7 @@ describe('api notes GET', () => {
       spaceComplexity: 'O(1)',
     });
 
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'GET',
       url: `/api/notes/${FIRST_ID}`,
@@ -298,7 +321,7 @@ describe('api notes GET', () => {
   });
 
   it('returns an empty note when none saved (valid id, DB configured)', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'GET',
       url: `/api/notes/${FIRST_ID}`,
@@ -313,7 +336,7 @@ describe('api notes GET', () => {
   });
 
   it('404 JSON for unknown problem id', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'GET',
       url: '/api/notes/not-a-real-id',
@@ -324,7 +347,7 @@ describe('api notes GET', () => {
   });
 
   it('returns { dbConfigured: false } when no DB (valid id)', async () => {
-    const handler = createCoachHandler(makeNoDbDeps());
+    const handler = makeHandler(makeNoDbDeps());
     const res = await handler({
       method: 'GET',
       url: `/api/notes/${FIRST_ID}`,
@@ -336,7 +359,7 @@ describe('api notes GET', () => {
 
 describe('api notes POST', () => {
   it('persists via the real adapter and round-trips through GET', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'POST',
       url: `/api/notes/${SECOND_ID}`,
@@ -365,7 +388,7 @@ describe('api notes POST', () => {
   });
 
   it("keeps completed consistent with status 'done'", async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'POST',
       url: `/api/notes/${FIRST_ID}`,
@@ -377,7 +400,7 @@ describe('api notes POST', () => {
   });
 
   it('malformed JSON body → 400 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'POST',
       url: `/api/notes/${FIRST_ID}`,
@@ -389,7 +412,7 @@ describe('api notes POST', () => {
   });
 
   it('invalid status → 400 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'POST',
       url: `/api/notes/${FIRST_ID}`,
@@ -400,7 +423,7 @@ describe('api notes POST', () => {
   });
 
   it('unknown problem id → 404 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'POST',
       url: '/api/notes/not-a-real-id',
@@ -411,7 +434,7 @@ describe('api notes POST', () => {
   });
 
   it('no DB configured → 400 JSON, does not crash', async () => {
-    const handler = createCoachHandler(makeNoDbDeps());
+    const handler = makeHandler(makeNoDbDeps());
     const res = await handler({
       method: 'POST',
       url: `/api/notes/${FIRST_ID}`,
@@ -424,7 +447,7 @@ describe('api notes POST', () => {
 
 describe('api config', () => {
   it('dbConfigured true when the data dir exists', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/config' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiConfigResponse;
@@ -434,7 +457,7 @@ describe('api config', () => {
   });
 
   it('dbConfigured false when the data dir does not exist (no dataDir leaked)', async () => {
-    const handler = createCoachHandler(makeNoDbDeps());
+    const handler = makeHandler(makeNoDbDeps());
     const res = await handler({ method: 'GET', url: '/api/config' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiConfigResponse;
@@ -446,7 +469,7 @@ describe('api config', () => {
 
 describe('api routing', () => {
   it('unknown /api path → 404 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/api/nope' });
     expect(res.status).toBe(404);
     expect(res.contentType).toBe('application/json; charset=utf-8');
@@ -454,14 +477,14 @@ describe('api routing', () => {
   });
 
   it('wrong method on /api/config → 405 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'POST', url: '/api/config' });
     expect(res.status).toBe(405);
     expect(JSON.parse(res.body)).toHaveProperty('error');
   });
 
   it('DELETE on /api/notes/:id → 405 JSON', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'DELETE',
       url: `/api/notes/${FIRST_ID}`,
@@ -471,7 +494,7 @@ describe('api routing', () => {
   });
 
   it('does not disrupt existing routes: GET / still 200', async () => {
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({ method: 'GET', url: '/' });
     expect(res.status).toBe(200);
     expect(res.contentType).toContain('text/html');
@@ -515,7 +538,7 @@ describe('api chat (POST /api/chat)', () => {
       kind: 'reply',
       content: '  What is the time complexity of your approach?  ',
     });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -543,7 +566,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('forwards a multi-turn transcript in order', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: 'Go on.' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -568,7 +591,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('provider not configured → 400 JSON, provider never called', async () => {
     // makeDeps() has no provider.
-    const handler = createCoachHandler(makeDeps());
+    const handler = makeHandler(makeDeps());
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -585,7 +608,7 @@ describe('api chat (POST /api/chat)', () => {
       kind: 'reject',
       error: new Error('connect ECONNREFUSED 127.0.0.1:11434'),
     });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -602,7 +625,7 @@ describe('api chat (POST /api/chat)', () => {
       kind: 'reject',
       error: new Error('401 Unauthorized: invalid x-api-key'),
     });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -615,7 +638,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('malformed JSON body → 400 JSON', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: 'x' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -628,7 +651,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('missing / non-array messages → 400 JSON', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: 'x' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -641,7 +664,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('a turn with a bad role → 400 JSON', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: 'x' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -655,7 +678,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('a transcript not ending in a user turn → 400 JSON', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: 'x' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -669,7 +692,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('empty model reply → 502 JSON (never fabricate text)', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: '   ' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({
       method: 'POST',
       url: '/api/chat',
@@ -681,7 +704,7 @@ describe('api chat (POST /api/chat)', () => {
 
   it('GET /api/chat → 405 JSON', async () => {
     const provider = new FakeProvider({ kind: 'reply', content: 'x' });
-    const handler = createCoachHandler(makeDepsWithProvider(provider));
+    const handler = makeHandler(makeDepsWithProvider(provider));
     const res = await handler({ method: 'GET', url: '/api/chat' });
     expect(res.status).toBe(405);
     expect(res.contentType).toBe('application/json; charset=utf-8');

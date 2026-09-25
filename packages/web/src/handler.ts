@@ -8,11 +8,27 @@ import {
 } from './render.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
-import { parseCookies, expandTilde, resolveDataDir } from './config.js';
+import {
+  parseCookies,
+  resolveDataDir,
+  resolvePort,
+  validateSetupPath,
+  createDataDir,
+} from './config.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { isApiRoute, handleApiRoute } from './api.js';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import {
+  allowedHostsFor,
+  checkSameOrigin,
+  createCsrfToken,
+  headerValue,
+  isAllowedHost,
+  isMutatingMethod,
+  mediaType,
+  securityHeaders,
+  tokensEqual,
+  SERVER_PAGE_CSP,
+} from './security.js';
 
 /** Minimal response shape, decoupled from Node http types. */
 export interface HandlerResponse {
@@ -49,6 +65,12 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly env?: NodeJS.ProcessEnv;
   /** CLI argv for config resolution. */
   readonly argv?: string[];
+  /**
+   * The port the server is bound to. Only `Host: 127.0.0.1|localhost|[::1]`
+   * on THIS port is accepted (DNS-rebinding defense). Defaults to the
+   * configured port (`resolvePort(env, argv)`).
+   */
+  readonly port?: number;
 }
 
 /**
@@ -76,6 +98,40 @@ export function createAssessHandler(
   return createCoachHandler(deps);
 }
 
+/** A rejection: JSON for `/api`, plain text elsewhere. */
+function reject(
+  isApi: boolean,
+  status: number,
+  message: string,
+): HandlerResponse {
+  if (isApi) {
+    return {
+      status,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({ error: message }),
+    };
+  }
+  return {
+    status,
+    contentType: 'text/plain; charset=utf-8',
+    body: message,
+  };
+}
+
+/** A server-rendered HTML page response (script-free CSP). */
+function serverPage(
+  status: number,
+  body: string,
+  headers: Record<string, string> = {},
+): HandlerResponse {
+  return {
+    status,
+    contentType: 'text/html; charset=utf-8',
+    body,
+    headers: { 'Content-Security-Policy': SERVER_PAGE_CSP, ...headers },
+  };
+}
+
 /**
  * Create the web handler (ADR 0006 M6 — the SPA is the whole app).
  *
@@ -87,15 +143,49 @@ export function createAssessHandler(
  *   - everything else (GET) — the React SPA bundle + assets, with an
  *                  index.html fallback for client-side routes
  *
- * All server-rendered product pages (home/catalog/notes/coach/analytics/…) were
- * retired in M6; the SPA owns those surfaces via client-side routing.
+ * Every request first passes the localhost hardening in `security.ts` (Host
+ * allowlist, same-origin check on mutating methods, JSON-only `/api` writes),
+ * and every response carries the security headers.
  */
 export function createCoachHandler(
   deps: CoachHandlerDeps,
 ): (req: HandlerRequest) => Promise<HandlerResponse> {
-  return async (req: HandlerRequest): Promise<HandlerResponse> => {
+  const allowedHosts = allowedHostsFor(
+    deps.port ?? resolvePort(deps.env, deps.argv),
+  );
+  // Per-process CSRF token for the server-rendered /setup form. The form is
+  // only readable same-origin (Host allowlist + SOP), so a foreign page cannot
+  // learn it.
+  const setupCsrfToken = createCsrfToken();
+
+  const route = async (req: HandlerRequest): Promise<HandlerResponse> => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
+    const isApi = isApiRoute(pathname);
+
+    // 1. Host allowlist (DNS rebinding).
+    if (!isAllowedHost(headerValue(req.headers, 'host'), allowedHosts)) {
+      return reject(isApi, 421, 'misdirected request: unexpected Host header');
+    }
+
+    const contentType =
+      req.contentType ?? headerValue(req.headers, 'content-type');
+
+    if (isMutatingMethod(req.method)) {
+      // 2. Same-origin check (CSRF).
+      const verdict = checkSameOrigin(req.headers, allowedHosts);
+      if (!verdict.ok) {
+        return reject(isApi, 403, verdict.reason);
+      }
+      // 3. JSON-only API writes (defeats "simple request" CSRF).
+      if (isApi && mediaType(contentType) !== 'application/json') {
+        return reject(
+          isApi,
+          415,
+          'unsupported media type: use Content-Type: application/json',
+        );
+      }
+    }
 
     const isGet = req.method === 'GET';
     const isPost = req.method === 'POST';
@@ -104,11 +194,8 @@ export function createCoachHandler(
     // resolved per-request via the cookie>env>default precedence. Unknown /api
     // paths 404 (JSON), wrong methods 405 (JSON). Routed FIRST so the SPA
     // catch-all never shadows it.
-    if (isApiRoute(pathname)) {
-      const apiCookieHeader =
-        typeof req.headers?.cookie === 'string'
-          ? req.headers.cookie
-          : undefined;
+    if (isApi) {
+      const apiCookieHeader = headerValue(req.headers, 'cookie');
       const apiCookieDataDir = parseCookies(apiCookieHeader)['ibai_data_dir'];
       return handleApiRoute(
         req.method,
@@ -132,50 +219,47 @@ export function createCoachHandler(
     // GET shows the form; POST creates the directory and sets the persistent
     // cookie. Routed before the SPA catch-all so it is never shadowed.
     if (pathname === '/setup') {
+      const defaultDataDir =
+        deps.defaultDataDir ?? resolveDataDir(deps.env, deps.argv);
       if (isGet) {
-        const defaultDataDir =
-          deps.defaultDataDir ?? resolveDataDir(deps.env, deps.argv);
-        return {
-          status: 200,
-          contentType: 'text/html; charset=utf-8',
-          body: renderSetupHtml(defaultDataDir),
-        };
+        return serverPage(200, renderSetupHtml(defaultDataDir, setupCsrfToken));
       }
       if (isPost) {
-        const defaultDataDir =
-          deps.defaultDataDir ?? resolveDataDir(deps.env, deps.argv);
+        if (mediaType(contentType) !== 'application/x-www-form-urlencoded') {
+          return reject(false, 415, 'unsupported media type');
+        }
         const formParams = new URLSearchParams(req.body ?? '');
-        let rawPath = formParams.get('dataDir') ?? defaultDataDir;
+        if (!tokensEqual(setupCsrfToken, formParams.get('csrfToken'))) {
+          return reject(
+            false,
+            403,
+            'invalid or missing CSRF token: reload /setup and try again',
+          );
+        }
 
-        // Normalize path: expand ~, resolve to absolute.
-        rawPath = expandTilde(rawPath);
-        const resolvedPath = path.resolve(rawPath);
+        const checked = validateSetupPath(
+          formParams.get('dataDir') ?? defaultDataDir,
+        );
+        if (!checked.ok) {
+          return serverPage(400, renderSetupErrorHtml(checked.error));
+        }
 
         try {
-          // Create directory (recursive, like mkdir -p).
-          fs.mkdirSync(resolvedPath, { recursive: true });
-
-          // Set the persistent cookie and return the success page.
-          const cookieValue = encodeURIComponent(resolvedPath);
-          return {
-            status: 200,
-            contentType: 'text/html; charset=utf-8',
-            body: renderSetupSuccessHtml(resolvedPath),
-            headers: {
-              'Set-Cookie': `ibai_data_dir=${cookieValue}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
-            },
-          };
+          // Create the directory (mkdir -p) with owner-only permissions.
+          createDataDir(checked.path);
         } catch (err) {
           const message =
             err instanceof Error
               ? err.message
               : 'Unknown error creating directory';
-          return {
-            status: 200,
-            contentType: 'text/html; charset=utf-8',
-            body: renderSetupErrorHtml(message),
-          };
+          return serverPage(400, renderSetupErrorHtml(message));
         }
+
+        // Set the persistent cookie and return the success page.
+        const cookieValue = encodeURIComponent(checked.path);
+        return serverPage(200, renderSetupSuccessHtml(checked.path), {
+          'Set-Cookie': `ibai_data_dir=${cookieValue}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
+        });
       }
       // Any other method on /setup.
       return {
@@ -201,10 +285,13 @@ export function createCoachHandler(
 
     // Unreachable in practice (isSpaRequest is true for all non-api/non-setup
     // paths), but kept as a coherent final 404 for safety.
-    return {
-      status: 404,
-      contentType: 'text/html; charset=utf-8',
-      body: render404Html(),
-    };
+    return serverPage(404, render404Html());
+  };
+
+  return async (req: HandlerRequest): Promise<HandlerResponse> => {
+    const res = await route(req);
+    // Security headers on every response; a route's own CSP (server pages)
+    // overrides the SPA default.
+    return { ...res, headers: { ...securityHeaders(), ...res.headers } };
   };
 }
