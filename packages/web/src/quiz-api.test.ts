@@ -1102,6 +1102,31 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
     expect(second.terminal).toBe(true);
   });
 
+  it('a legacy orphan that was already nudged cannot gain a second nudge', async () => {
+    await seedDone(DONE_IDS);
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const at = '2026-09-24T12:00:00.000Z' as IsoTimestamp;
+    await adapter.writeQuizSession({
+      sessionId: 'quiz-nudged-orphan',
+      createdAt: at,
+      deck: DONE_IDS,
+      currentIndex: 0,
+      answered: [],
+      transcript: [
+        { role: 'user', content: 'partial', at },
+        { role: 'assistant', content: 'probe?', at },
+      ],
+      status: 'active',
+    });
+    const deps = makeQuizDeps(new SequencedQuizProvider([ON_TRACK_PROBE]));
+    const res = JSON.parse((await answer(deps, 'still partial')).body) as {
+      verdict: string;
+      terminal: boolean;
+    };
+    expect(res.verdict).toBe('incorrect');
+    expect(res.terminal).toBe(true);
+  });
+
   it('on_track keeps the problem title and returns the probe separately (also on resume)', async () => {
     await seedDone(DONE_IDS);
     const provider = new SequencedQuizProvider([ON_TRACK_PROBE]);

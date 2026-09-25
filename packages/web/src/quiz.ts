@@ -469,8 +469,10 @@ export function nudgeCountForCurrentQuestion(session: QuizSession): number {
     }
   }
   if (blockStart === -1) {
-    // No presentation boundary found (e.g. empty transcript) → no nudges.
-    return 0;
+    // No presentation boundary (empty transcript, or a legacy orphan that was
+    // nudged before any presentation turn existed): fall back to the A3
+    // invariant — user turns beyond terminal answers are spent nudges.
+    return Math.max(0, userTurnCount(session) - session.answered.length);
   }
   let nudges = 0;
   for (let i = blockStart + 1; i < t.length; i++) {
@@ -531,7 +533,19 @@ export function ensureCurrentQuestionPresented(
   if (presentationCount(session) >= session.currentIndex + 1) {
     return session;
   }
+  // Only heal when NO nudge was spent on the current question while it was
+  // orphaned (user turns == terminal answers). Otherwise appending a new
+  // presentation boundary would reset the nudge count and grant a second
+  // nudge; leave the session as-is so the spent nudge still counts.
+  if (userTurnCount(session) !== session.answered.length) {
+    return session;
+  }
   return appendAssistantTurn(session, presentation, at);
+}
+
+/** Number of `user` turns in the transcript. */
+function userTurnCount(session: QuizSession): number {
+  return session.transcript.filter((t) => t.role === 'user').length;
 }
 
 /**
