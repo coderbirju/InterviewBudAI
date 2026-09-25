@@ -325,7 +325,8 @@ export interface QuizQuestion {
   readonly problemId: string;
   readonly wrapped: string;
   readonly title?: string;
-  readonly difficulty?: Difficulty;
+  /** Catalog difficulty as sent by the server (e.g. `'easy'`). */
+  readonly difficulty?: string;
   readonly url?: string;
   readonly probe?: string;
 }
