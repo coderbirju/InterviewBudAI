@@ -16,7 +16,7 @@ Your notes and progress live in your own local data directory, never in this rep
 | `packages/providers` | LLM provider interface + `AnthropicProvider`, `OllamaProvider`. |
 | `packages/storage` | Storage interface + `LocalFileStorageAdapter` (local files). |
 | `packages/curriculum` | Curated, read-only problem catalog (links + difficulty). |
-| `packages/cli` | `ibai` CLI: `assess`, `plan`, `coach`. |
+| `packages/cli` | `ibai` CLI: `assess`, `plan`, `coach` (frozen — the web app is the product). |
 | `packages/web` | Localhost server + React SPA: Home, Notes, Analytics, Quiz Master. |
 
 ## Quick start
@@ -34,11 +34,19 @@ directory at `~/.interviewbudai/data` (owner-only permissions), so the app is
 usable immediately; `/setup` lets you pick a different location. Stop with
 Ctrl+C. The server only listens on 127.0.0.1.
 
+## Build and verify
+
+```bash
+npm run verify   # typecheck -> lint -> format -> build -> test
+```
+
 ## Configure a provider
 
 A provider is required for the Quiz Master; the catalog, notes and analytics
-work without one. Copy `.env.example` to `.env` and fill it in (loaded
-automatically by `npm start`), or `export` the variables in your shell:
+work without one. Copy `.env.example` to `.env` at the repo root and fill it in
+(loaded automatically by the web server; shell exports win over the file), or
+`export` the variables in your shell (read by `packages/web` and
+`packages/cli`):
 
 ```bash
 # Anthropic
@@ -50,17 +58,21 @@ export IBAI_OLLAMA_MODEL=llama3
 export IBAI_OLLAMA_URL=http://127.0.0.1:11434   # optional
 ```
 
-Optional: `IBAI_DATA_DIR` (your progress directory; not auto-created when you
-set it), `IBAI_WEB_PORT` (default 4173).
+| Variable | Purpose | Default |
+|---|---|---|
+| `ANTHROPIC_API_KEY` (or `IBAI_ANTHROPIC_API_KEY`) | Anthropic API key — never commit | — |
+| `IBAI_ANTHROPIC_MODEL` | Anthropic model name | — |
+| `IBAI_OLLAMA_MODEL` | Ollama model name | — |
+| `IBAI_OLLAMA_URL` | Ollama endpoint | `http://127.0.0.1:11434` |
+| `IBAI_DATA_DIR` | Your private progress directory (not auto-created when you set it) | web: `~/.interviewbudai/data` (auto-created on first run) |
+| `IBAI_WEB_PORT` | Web server port | `4173` |
 
-## Build and verify
+## Run
 
 ```bash
-npm run verify   # typecheck -> lint -> format -> build -> test
+npm start                             # web app: open http://127.0.0.1:4173/
+node packages/cli/dist/cli.js --help  # CLI (frozen; web is the product; after a build)
 ```
-
-The CLI (`node packages/cli/dist/cli.js --help`) is frozen; the web app is the
-product.
 
 Details: [packages/web/README.md](packages/web/README.md),
 [packages/cli/README.md](packages/cli/README.md).

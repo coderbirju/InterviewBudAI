@@ -54,7 +54,7 @@ IBAI_ANTHROPIC_API_KEY=your-key IBAI_ANTHROPIC_MODEL=<model-name> ibai coach --p
 
 **Provider REQUIRED:** Anthropic (`IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY`, plus `IBAI_ANTHROPIC_MODEL`) or Ollama (`--model` / `IBAI_OLLAMA_MODEL`). Without `--provider`, Anthropic is chosen if its key + model are set, else Ollama if a model is set.
 
-`--answer` is repeatable; answers map **in order** to the topics of your session plan (see `ibai plan`). Fewer answers than topics proceeds with a warning.
+`--answer` is repeatable; answers map **in order** to the topics of your session plan (see `ibai plan`). You must supply one answer per plan topic: if you give fewer, the CLI prints a warning (the text says "Proceeding with partial answers", but it does not) and exits `0` **without running `coach()`** — nothing is evaluated or saved.
 
 ### Options
 
