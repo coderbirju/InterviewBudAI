@@ -460,3 +460,83 @@ export function newQuiz(): Promise<QuizStartResult> {
 export function answerQuiz(answer: string): Promise<QuizAnswerResult> {
   return postQuiz<QuizAnswerResult>('/api/quiz/answer', { answer });
 }
+
+// ---------------------------------------------------------------------------
+// Quiz session management (quiz-fix-b) — end / list / resume / delete.
+// ---------------------------------------------------------------------------
+
+/**
+ * A list-oriented session summary (mirrors the server `ApiQuizSessionSummary`).
+ * Powers the sessions list in the Quiz section: created time, progress, outcome
+ * tally, status, and whether it is the active/resumable one.
+ */
+export interface QuizSessionSummary {
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly status: 'active' | 'complete';
+  readonly deckSize: number;
+  readonly answeredCount: number;
+  readonly correctCount: number;
+  readonly isActive: boolean;
+}
+
+/** GET /api/quiz/sessions result (empty-safe). */
+export interface QuizSessionsResult {
+  readonly sessions: readonly QuizSessionSummary[];
+}
+
+/**
+ * POST /api/quiz/resume result — the re-activated session with its current
+ * wrapped question (may be `null` if it could not be re-presented) and the full
+ * transcript for resume.
+ */
+export interface QuizResumeResult {
+  readonly ok: true;
+  readonly session: QuizState;
+  readonly question: QuizQuestion | null;
+  readonly transcript: readonly QuizTranscriptEntry[];
+}
+
+/**
+ * GET /api/quiz/sessions — the list of past + active sessions for the Quiz
+ * section. Resolves to `{ sessions: [] }` when no DB is configured or none
+ * exist yet. Read-only.
+ */
+export function listQuizSessions(): Promise<QuizSessionsResult> {
+  return getJson<QuizSessionsResult>('/api/quiz/sessions');
+}
+
+/**
+ * POST /api/quiz/end — end the active session: it is persisted `complete` and
+ * the active pointer cleared, so it stops being resumable-active but REMAINS in
+ * the list (with Resume). Throws `ApiError(404)` when there is no active
+ * session, `ApiError(400)` when no DB is configured.
+ */
+export function endQuiz(): Promise<{
+  readonly ok: true;
+  readonly session: QuizState;
+}> {
+  return postQuiz<{ readonly ok: true; readonly session: QuizState }>(
+    '/api/quiz/end',
+  );
+}
+
+/**
+ * POST /api/quiz/resume — re-activate a listed session by id so it becomes the
+ * resumable-active one, and continue from its current position. Throws
+ * `ApiError(404)` for an unknown id, `ApiError(400)` when no DB / bad id.
+ */
+export function resumeQuiz(sessionId: string): Promise<QuizResumeResult> {
+  return postQuiz<QuizResumeResult>('/api/quiz/resume', { sessionId });
+}
+
+/**
+ * POST /api/quiz/delete — delete a session by id. Idempotent: deleting a
+ * missing session still resolves `{ ok: true }`. Throws `ApiError(400)` when no
+ * DB is configured or the id is missing.
+ */
+export function deleteQuizSession(
+  sessionId: string,
+): Promise<{ readonly ok: true }> {
+  return postQuiz<{ readonly ok: true }>('/api/quiz/delete', { sessionId });
+}
