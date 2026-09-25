@@ -19,18 +19,26 @@ Your notes and progress live in your own local data directory, never in this rep
 | `packages/cli` | `ibai` CLI: `assess`, `plan`, `coach`. |
 | `packages/web` | Localhost server + React SPA: Home, Notes, Analytics, Quiz Master. |
 
-## Build and verify
+## Quick start
 
-Requires Node.js 20+.
+Requires Node.js 20+ (20.12+ for automatic `.env` loading).
 
 ```bash
 npm ci
-npm run verify   # typecheck -> lint -> format -> build -> test
+npm start        # builds if needed, then serves http://127.0.0.1:4173/
 ```
+
+On boot it prints the local URL, the data directory, and which model provider
+is configured (never your API key). On first run it creates your data
+directory at `~/.interviewbudai/data` (owner-only permissions), so the app is
+usable immediately; `/setup` lets you pick a different location. Stop with
+Ctrl+C. The server only listens on 127.0.0.1.
 
 ## Configure a provider
 
-A provider is required for the quiz / coach. See `.env.example`.
+A provider is required for the Quiz Master; the catalog, notes and analytics
+work without one. Copy `.env.example` to `.env` and fill it in (loaded
+automatically by `npm start`), or `export` the variables in your shell:
 
 ```bash
 # Anthropic
@@ -42,15 +50,17 @@ export IBAI_OLLAMA_MODEL=llama3
 export IBAI_OLLAMA_URL=http://127.0.0.1:11434   # optional
 ```
 
-Optional: `IBAI_DATA_DIR` (your progress directory), `IBAI_WEB_PORT` (default 4173).
+Optional: `IBAI_DATA_DIR` (your progress directory; not auto-created when you
+set it), `IBAI_WEB_PORT` (default 4173).
 
-## Run
+## Build and verify
 
 ```bash
-npm run build
-npm --workspace @ibai/web run start   # open http://127.0.0.1:4173/
-node packages/cli/dist/cli.js --help  # CLI
+npm run verify   # typecheck -> lint -> format -> build -> test
 ```
+
+The CLI (`node packages/cli/dist/cli.js --help`) is frozen; the web app is the
+product.
 
 Details: [packages/web/README.md](packages/web/README.md),
 [packages/cli/README.md](packages/cli/README.md).
