@@ -15,7 +15,7 @@ The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, serv
 The server is intentionally small — three surfaces:
 
 - **`/` (and all other non-API, non-`/setup` GET paths)** — the React SPA bundle + assets. Client-side routing (History API, no routing library) handles `/notes/:id`, `/analytics`, and `/interview`; deep links and refreshes fall back to `index.html`. Vite `base` is `/`, so assets are served at `/assets/*` (local, same-origin — no CDN).
-- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/config`, `/api/chat`). The server remains the storage owner; the browser is UI + cookie.
+- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, `/api/chat`). The server remains the storage owner; the browser is UI + cookie.
 - **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory and sets the persistent `ibai_data_dir` cookie (`Max-Age=31536000`), then links back to the SPA at `/`. The SPA's no-DB states link here.
 
 Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed** — those surfaces now live entirely in the SPA.
@@ -24,7 +24,7 @@ Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.
 
 - **Home** (`/`) — global progress banner (`GET /api/progress`) + categorized accordion problem list (`GET /api/catalog`) with an interactive 4-state Status control that optimistically updates and `POST`s to `/api/notes/:id`. No Solution/Video/Code columns (the project ships no answers, charter §6.2).
 - **Notes** (`/notes/:id`) — the intuition editor: status control + free-text intuition + time/space complexity, saved via `POST /api/notes/:id`.
-- **Analytics** (`/analytics`) — hand-built inline-SVG progress charts (status breakdown + per-topic completion) driven by pure geometry helpers — no external chart library/CDN.
+- **Analytics** (`/analytics`) — hand-built inline-SVG progress charts (status breakdown + per-topic completion) driven by pure geometry helpers — no external chart library/CDN. It also surfaces a **Competency** section (ADR 0007 Q4) fed by `GET /api/competency`: per-topic **strength** bars (weak=red / improving=amber / strong=emerald / slate=too little data) with each topic's correct/incorrect tally, worst-first, plus a **recurring miss patterns** list (the topics to focus next — the user's own recurring gaps, never a solution, §6.2). When no quiz signals exist yet it shows a "Take a quiz session to build your competency map" empty state linking to `/interview`; loading + API-error states are handled like the rest of the page.
 - **Interview** (`/interview`) — the **Quickfire Quiz Master** (ADR 0007 Q3), replacing the old generic interview chat. On load it resumes the single active session via `GET /api/quiz/session` (current **wrapped** question + prior transcript + progress); with none it offers a **Start quiz** entry (`POST /api/quiz/start`). Each question is a short model-authored rephrasing of a problem you marked **Done** — type your approach and `POST /api/quiz/answer` returns a **verdict**: `correct` (emerald "Correct ✓" + optional optimal nudge) → advance; `incorrect` (amber "Marked for revisit" + feedback) → advance; `on_track` → the same question stays with a probe to refine. A progress bar tracks `answered / deckSize`; when the deck is exhausted a **Session complete** summary (correct / to-revisit tallies) offers **New session** (`POST /api/quiz/new`, reshuffle from the current done-set). Empty done-set → a friendly "mark problems as Done first" state linking Home; provider **required** → the "Configure a model" state; provider/verdict failures → a friendly inline banner that never loses the session.
 
 All no-DB states link to `/setup`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. The only outbound calls are the user-configured LLM provider, made **server-side** inside `POST /api/chat` and the `POST /api/quiz/*` routes.
@@ -40,9 +40,10 @@ packages/web/
     src/components/  ProgressBanner, CategoryAccordion, ProblemRow,
                      StatusControl, DifficultyBadge, Home, Notes,
                      Analytics, StatusBreakdownChart, TopicCompletionChart,
-                     Interview
+                     CompetencyChart, Interview
     src/lib/         api.ts (typed M1 client), home.ts (pure helpers),
                      analytics.ts (pure chart geometry),
+                     competency.ts (pure competency-section geometry),
                      router.ts (minimal History-API router)
     vite.config.ts, vitest.config.ts, tailwind.config.cjs, postcss.config.cjs
   dist-ui/      built SPA bundle (generated, git-ignored)
@@ -106,11 +107,13 @@ emits HTML (`404` for unknown `/api` paths, `405` for wrong methods).
 | `GET /api/notes/:id` | Saved note for a problem id (validated against the catalog). | `200` note (or empty note if none saved); `404` unknown id. | `200 { dbConfigured: false }`. |
 | `POST /api/notes/:id` | Upsert a note. Body `{ content?, status?, timeComplexity?, spaceComplexity? }` (untrusted → validated). Keeps `completed` consistent with `status: 'done'`. | `200` saved note; `400` malformed body / invalid status; `404` unknown id. | `400 { error: 'no database configured' }` (does not crash). |
 | `GET /api/progress` | Overall counts for the banner: `{ completed, total, byStatus: { done, to_revisit, did_not_understand, none } }`. | `200` | Safe empty (all `none`). |
+| `GET /api/competency` | Quiz-derived competency signals for Analytics (ADR 0007 Q4): `{ topics: [{ topicId, correct, incorrect, strength, lastSeen }], patterns: [{ id, description, topics, occurrences, lastObserved }] }`. `topics` are sorted weak→strong then by most misses; `patterns` by most occurrences. Read-only — reads via `readCompetencySignals`, the user's OWN outcomes/patterns only (no shipped answers, §6.2). | `200` | Safe empty `{ topics: [], patterns: [] }`. |
 | `GET /api/config` | `{ dbConfigured, dataDir?, provider }` so the SPA can choose create-db vs show-catalog and show the provider banner. `dataDir` is display-only and omitted when no DB. | `200` | `{ dbConfigured: false, provider }`. |
 | `POST /api/chat` | One interview-coach chat turn. Body `{ messages: [{ role: 'user'\|'assistant', content }, …] }` — the prior transcript **plus** the new user turn (untrusted → validated; must be a non-empty array ending with a `user` turn). Prepends the coach persona as a `system` message, calls the provider, returns `{ reply }` (the model's text — the only source of assistant text, §6.2). | `200 { reply }` | `400 { error: 'no model configured', … }` (provider REQUIRED). |
 
 Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
-`ApiNoteResponse`, `ApiProgressResponse`, `ApiConfigResponse`, `ApiChatResponse`).
+`ApiNoteResponse`, `ApiProgressResponse`, `ApiCompetencyResponse`,
+`ApiConfigResponse`, `ApiChatResponse`).
 
 ### Quiz Master API (ADR 0007 — Q2)
 
