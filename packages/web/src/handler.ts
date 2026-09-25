@@ -118,7 +118,13 @@ function reject(
   };
 }
 
-/** A server-rendered HTML page response (script-free CSP). */
+/**
+ * A server-rendered HTML page response (script-free CSP). Uses
+ * `Referrer-Policy: same-origin` (not the global `no-referrer`) so the /setup
+ * form post carries a real `Origin` — under `no-referrer` browsers send
+ * `Origin: null`, which older browsers without `Sec-Fetch-Site` (Safari <16.4,
+ * Firefox <90) could then not prove same-origin. Nothing leaks cross-origin.
+ */
 function serverPage(
   status: number,
   body: string,
@@ -128,7 +134,11 @@ function serverPage(
     status,
     contentType: 'text/html; charset=utf-8',
     body,
-    headers: { 'Content-Security-Policy': SERVER_PAGE_CSP, ...headers },
+    headers: {
+      'Content-Security-Policy': SERVER_PAGE_CSP,
+      'Referrer-Policy': 'same-origin',
+      ...headers,
+    },
   };
 }
 

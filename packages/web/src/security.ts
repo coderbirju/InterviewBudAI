@@ -16,13 +16,19 @@
  *      of them on a cross-site state-changing request, so a request with
  *      neither comes from a non-browser client (curl, scripts) that already
  *      runs as the user and is not a CSRF vector.
+ *      IMPORTANT: this "neither header → allow" rule is safe ONLY because the
+ *      other layers still hold for such requests: rule 3 (JSON-only, else 415)
+ *      on every mutating `/api` call, and the per-process CSRF token on
+ *      `POST /setup`. An old browser that sends neither header can therefore
+ *      only make cross-site simple requests, which those layers reject. Do not
+ *      relax rule 3 or the /setup token without revisiting this rule.
  *   3. `/api` mutating requests must be `Content-Type: application/json`.
  *      Browsers cannot send that cross-site without a CORS preflight (which we
  *      never approve), so this kills "simple request" CSRF (`text/plain`,
  *      form posts) even if checks 1–2 were bypassed.
  *
- * Plus a fixed set of security response headers (nosniff, no-referrer, no
- * framing, CSP). Node built-ins only; no dependencies.
+ * Plus a fixed set of security response headers (nosniff, no-referrer — the
+ * server-rendered pages override it to same-origin — no framing, CSP). Node built-ins only; no dependencies.
  */
 
 import * as crypto from 'node:crypto';
@@ -72,11 +78,11 @@ export type OriginVerdict =
 /**
  * Same-origin check for a state-changing request (see module doc, rule 2).
  *
- * `Origin: null` is ambiguous: browsers send it for our OWN `/setup` form post
- * (the page is served with `Referrer-Policy: no-referrer`, and the Fetch spec
- * then serializes a non-CORS request's Origin as `null`), but also for
- * sandboxed frames / file:// pages. So `null` defers to `Sec-Fetch-Site`
- * (which pages cannot forge), and is rejected if that header is absent.
+ * `Origin: null` is ambiguous: sandboxed frames / file:// pages send it, and so
+ * would a form post from a page served with `Referrer-Policy: no-referrer`
+ * (the Fetch spec then serializes a non-CORS request's Origin as `null`; the
+ * server-rendered pages use `same-origin` to avoid this). So `null` defers to
+ * `Sec-Fetch-Site` (which pages cannot forge), and is rejected if absent.
  */
 export function checkSameOrigin(
   headers: Headers | undefined,

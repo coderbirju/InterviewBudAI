@@ -310,7 +310,9 @@ to the server through your browser, so every request is checked
   `same-origin` or `none` (`Origin: null` also defers to it). Cross-site →
   `403`. Requests with **neither** header are allowed: browsers always send one
   on cross-site writes, so such requests come from non-browser clients (curl,
-  scripts) that already run as you and are not a CSRF vector.
+  scripts) that already run as you and are not a CSRF vector. This is safe
+  **only because** the JSON-only rule below still applies to every `/api`
+  write and `/setup` still requires its CSRF token.
 - **JSON-only API writes** — mutating `/api` requests must send
   `Content-Type: application/json` (else `415`), including body-less ones like
   `POST /api/quiz/end`. Browsers cannot send that cross-site without a CORS
@@ -321,7 +323,9 @@ to the server through your browser, so every request is checked
   filesystem root, and not be an existing file; new directories are created
   `0700`. The `ibai_data_dir` cookie is `HttpOnly; SameSite=Strict; Path=/`.
 - **Headers on every response** — `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, COOP/CORP
+  `Referrer-Policy: no-referrer` (`same-origin` on the server-rendered pages,
+  so the `/setup` form post sends a real `Origin` even in browsers without
+  `Sec-Fetch-Site`), `X-Frame-Options: DENY`, COOP/CORP
   `same-origin`, and a CSP: the SPA gets `default-src 'self'` with no inline
   script/style (`frame-ancestors 'none'`); the server-rendered pages get a
   script-free CSP that allows only their inline `<style>`.
