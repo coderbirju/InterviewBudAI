@@ -8,6 +8,7 @@ import {
   resolveProviderStatus,
   loadDotEnv,
   defaultDataDirFor,
+  REPO_DOTENV_PATH,
 } from './config.js';
 import {
   startServer,
@@ -207,22 +208,66 @@ describe('startServer boot', () => {
 
 describe('loadDotEnv', () => {
   it('is a no-op when the file is absent', () => {
-    expect(loadDotEnv(path.join(tmpHome, '.env'))).toBe('absent');
+    expect(loadDotEnv(path.join(tmpHome, '.env'))).toEqual({
+      status: 'absent',
+    });
+  });
+
+  it('defaults to the repo-root .env, independent of cwd', () => {
+    const rootPkg = JSON.parse(
+      fs.readFileSync(
+        path.join(path.dirname(REPO_DOTENV_PATH), 'package.json'),
+        'utf8',
+      ),
+    ) as { name: string };
+    expect(path.basename(REPO_DOTENV_PATH)).toBe('.env');
+    expect(rootPkg.name).toBe('interviewbudai');
   });
 
   it('loads via process.loadEnvFile when present', () => {
     const file = path.join(tmpHome, '.env');
     fs.writeFileSync(file, 'X=1\n');
     const loaded: string[] = [];
-    expect(loadDotEnv(file, { loadEnvFile: (p) => loaded.push(p) })).toBe(
-      'loaded',
-    );
+    expect(loadDotEnv(file, { loadEnvFile: (p) => loaded.push(p) })).toEqual({
+      status: 'loaded',
+    });
     expect(loaded).toEqual([file]);
+  });
+
+  it('lets a shell-set variable win over .env', () => {
+    const file = path.join(tmpHome, '.env');
+    fs.writeFileSync(
+      file,
+      'IBAI_W4_TEST_SHELL=from-file\nIBAI_W4_TEST_FILEONLY=from-file\n',
+    );
+    process.env.IBAI_W4_TEST_SHELL = 'from-shell';
+    try {
+      expect(loadDotEnv(file)).toEqual({ status: 'loaded' });
+      expect(process.env.IBAI_W4_TEST_SHELL).toBe('from-shell');
+      expect(process.env.IBAI_W4_TEST_FILEONLY).toBe('from-file');
+    } finally {
+      delete process.env.IBAI_W4_TEST_SHELL;
+      delete process.env.IBAI_W4_TEST_FILEONLY;
+    }
+  });
+
+  it('returns invalid (does not throw) when loading fails', () => {
+    const file = path.join(tmpHome, '.env');
+    fs.writeFileSync(file, 'X=1\n');
+    const result = loadDotEnv(file, {
+      loadEnvFile: () => {
+        throw new Error('EACCES: permission denied');
+      },
+    });
+    expect(result).toEqual({
+      status: 'invalid',
+      error: 'EACCES: permission denied',
+    });
   });
 
   it('reports unsupported on Node versions without loadEnvFile', () => {
     const file = path.join(tmpHome, '.env');
     fs.writeFileSync(file, 'X=1\n');
-    expect(loadDotEnv(file, {})).toBe('unsupported');
+    expect(loadDotEnv(file, {})).toEqual({ status: 'unsupported' });
   });
 });
