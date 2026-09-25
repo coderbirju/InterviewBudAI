@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Resolve the data directory path.
@@ -127,22 +128,41 @@ export function resolveProviderStatus(
   return { kind: 'none' };
 }
 
-export type DotEnvResult = 'loaded' | 'absent' | 'unsupported';
+/**
+ * The repo-root `.env` path. Fixed (not configurable) and independent of the
+ * working directory: both `src/` and `dist/` sit at packages/web/<dir>/, so the
+ * repo root is three levels up from this module.
+ */
+export const REPO_DOTENV_PATH = fileURLToPath(
+  new URL('../../../.env', import.meta.url),
+);
+
+export type DotEnvResult =
+  | { readonly status: 'loaded' | 'absent' | 'unsupported' }
+  | { readonly status: 'invalid'; readonly error: string };
 
 /**
- * Load a `.env` file into the process environment using Node's built-in
+ * Load the repo-root `.env` into the process environment using Node's built-in
  * `process.loadEnvFile` (Node >= 20.12; no dependency). Variables already set
  * in the shell take precedence over the file. No-op when the file is absent;
- * returns 'unsupported' on older Node versions that lack the API.
+ * 'unsupported' when the API is missing; 'invalid' (never throws) when the
+ * file cannot be read or parsed.
  */
 export function loadDotEnv(
-  file: string = path.resolve('.env'),
+  file: string = REPO_DOTENV_PATH,
   proc: { loadEnvFile?: (p: string) => void } = process,
 ): DotEnvResult {
-  if (!fs.existsSync(file)) return 'absent';
-  if (typeof proc.loadEnvFile !== 'function') return 'unsupported';
-  proc.loadEnvFile(file);
-  return 'loaded';
+  if (!fs.existsSync(file)) return { status: 'absent' };
+  if (typeof proc.loadEnvFile !== 'function') return { status: 'unsupported' };
+  try {
+    proc.loadEnvFile(file);
+  } catch (err) {
+    return {
+      status: 'invalid',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { status: 'loaded' };
 }
 
 /**
