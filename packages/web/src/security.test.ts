@@ -375,6 +375,25 @@ describe('/setup CSRF token + path validation', () => {
     expect(fs.existsSync(target)).toBe(true);
   });
 
+  it('accepts an older-browser form post (same-origin Origin, no Sec-Fetch-Site)', async () => {
+    const handler = makeHandler();
+    const target = path.join(tmpDir, 'old-browser-db');
+    const res = await handler({
+      method: 'POST',
+      url: '/setup',
+      body: new URLSearchParams({
+        dataDir: target,
+        csrfToken: await token(handler),
+      }).toString(),
+      contentType: 'application/x-www-form-urlencoded',
+      // Exactly what Safari <16.4 / Firefox <90 send from a same-origin page.
+      headers: { host: HOST, origin: ORIGIN },
+    });
+    expect(res.status).toBe(200);
+    expect(fs.statSync(target).isDirectory()).toBe(true);
+    expect(res.headers?.['Set-Cookie']).toContain('ibai_data_dir=');
+  });
+
   it.each([
     ['a relative path', 'relative/db'],
     ['a filesystem root', '/'],
@@ -431,12 +450,20 @@ describe('security headers', () => {
     ]);
     for (const res of responses) {
       expect(res.headers?.['X-Content-Type-Options']).toBe('nosniff');
-      expect(res.headers?.['Referrer-Policy']).toBe('no-referrer');
+      expect(['no-referrer', 'same-origin']).toContain(
+        res.headers?.['Referrer-Policy'],
+      );
       expect(res.headers?.['X-Frame-Options']).toBe('DENY');
       expect(res.headers?.['Content-Security-Policy']).toContain(
         "frame-ancestors 'none'",
       );
     }
+    const [spa, api, setup] = responses;
+    expect(spa?.headers?.['Referrer-Policy']).toBe('no-referrer');
+    expect(api?.headers?.['Referrer-Policy']).toBe('no-referrer');
+    // Server-rendered pages: same-origin, so the /setup form post carries a
+    // real Origin (not `null`) in browsers without Sec-Fetch-Site.
+    expect(setup?.headers?.['Referrer-Policy']).toBe('same-origin');
   });
 
   it('uses the strict SPA CSP for the API and the script-free CSP for /setup', async () => {
