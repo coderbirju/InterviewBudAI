@@ -112,6 +112,33 @@ emits HTML (`404` for unknown `/api` paths, `405` for wrong methods).
 Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
 `ApiNoteResponse`, `ApiProgressResponse`, `ApiConfigResponse`, `ApiChatResponse`).
 
+### Quiz Master API (ADR 0007 — Q2)
+
+The **Quickfire Quiz Master** engine (`quiz.ts`) drives a resumable,
+shuffled, one-shot quiz over the user's `status: 'done'` problems. The MODEL is
+the sole source of both the **wrapped question wording** and the **verdict** —
+the app ships **no** canonical answers (§6.2). All four routes require a
+configured **provider** and the server as storage owner.
+
+| Method & path | Purpose | Success | Errors |
+|---|---|---|---|
+| `POST /api/quiz/start` | Build a session: read the done-set (catalog × per-problem note status `'done'`), **shuffle** into a deck (no repeats), persist as the active session, and present the first **wrapped** question. | `200 { empty:false, session:{ sessionId, deckSize, index, answered, status }, question:{ problemId, wrapped } }`; or `200 { empty:true, message }` when the done-set is empty (no session). | `400 { error:'no model configured' }`; `400 { error:'no database configured' }`; `405` wrong method. |
+| `GET /api/quiz/session` | **Resume**: the active session (re-presents the current wrapped question + full transcript + progress). | `200 { active:true, session, question, transcript }`; `200 { active:false }` when none. | `405` wrong method. |
+| `POST /api/quiz/answer` | The core turn. Body `{ answer: string }` (untrusted → validated). Builds an evaluation prompt (persona + wrapped problem + the user's OWN intuition note as personalization), calls the provider, parses a strict JSON verdict **fail-closed**. **`correct`** (terminal, semi-optimal-or-better accepted) → record correct, bump competency signals, advance (no repeat), return next wrapped question. **`incorrect`** (terminal) → flip the note to `to_revisit`, record a miss `PatternSignal`, bump signals, advance. **`on_track`** → one non-terminal probe on the same question. Persists after every turn (resumable). | `200 { verdict, feedback, optimalNudge?, terminal, complete?, session, question }`. | `400` bad body / no provider; `404` no active session; `502` provider auth/connection/**malformed verdict** (fail-closed: **no writes**, no fabricated verdict); `405` wrong method. |
+| `POST /api/quiz/new` | Discard the active session and start a fresh shuffled deck from the **current** done-set (same shape as `start`). | `200` (same as `start`). | same as `start`. |
+
+The verdict JSON the model must emit is
+`{ "verdict": "correct"|"incorrect"|"on_track", "feedback": string, "optimalNudge"?: string }`
+in a fenced ```json block (parsed fail-closed, mirroring `core`'s `coach()`).
+On any malformed/absent verdict the turn returns `502` and performs **no
+storage writes** — never a fabricated verdict. `optimalNudge` nudges the user
+toward a more optimal approach **without revealing it** (§6.2). Competency
+signals are updated via `readCompetencySignals`/`writeCompetencySignals`; the
+`to_revisit` flip is written via `writeIntuitionNote`, preserving other note
+fields. The pure engine pieces (prompt building, verdict parsing, seedable
+shuffle, session advance/no-repeat, competency-signal derivation) live in
+`quiz.ts` and are unit-tested independently of the HTTP layer.
+
 `POST /api/chat` never crashes on a provider failure: it returns a JSON error
 with an appropriate status distinguishing the failure mode — **auth** and
 **connection** errors (and any malformed/empty model output) map to `502` with a

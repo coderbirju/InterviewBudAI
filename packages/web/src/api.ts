@@ -26,10 +26,26 @@ import type {
   NoteStatus,
   IntuitionNote,
   IsoTimestamp,
+  QuizSession,
+  QuizSessionId,
+  CompetencySignals,
 } from '@ibai/storage';
 import { isNoteStatus, resolveNoteStatus } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import type { LlmProvider, PromptMessage } from '@ibai/providers';
+import {
+  buildQuizPrompt,
+  parseVerdict,
+  shuffleDeck,
+  advanceSession,
+  appendAssistantTurn,
+  currentProblemId,
+  isDeckExhausted,
+  quizProgress,
+  updateCompetencySignals,
+  emptyCompetencySignals,
+} from './quiz.js';
+import type { RandomSource } from './quiz.js';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists, resolveDataDirWithCookie } from './config.js';
@@ -176,6 +192,16 @@ export interface ApiDeps {
   readonly providerLabel?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly argv?: string[];
+  /**
+   * Random source for the quiz deck shuffle. Injectable so tests can pass a
+   * seeded, deterministic generator; production defaults to `Math.random`.
+   */
+  readonly random?: RandomSource;
+  /**
+   * Clock for timestamps + session ids. Injectable for deterministic tests;
+   * defaults to `() => new Date()`.
+   */
+  readonly now?: () => Date;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +334,183 @@ function parseChatMessages(value: unknown): ApiChatMessage[] | null {
     return null;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Quiz Master shapes + helpers (ADR 0007 Q2)
+// ---------------------------------------------------------------------------
+
+/** A wrapped question presented to the SPA (model-authored wording). */
+export interface ApiQuizQuestion {
+  readonly problemId: string;
+  /** Model-generated wrapped presentation (no title, no hints, no answer). */
+  readonly wrapped: string;
+}
+
+/** Session-state summary returned alongside questions. */
+export interface ApiQuizState {
+  readonly sessionId: QuizSessionId;
+  readonly deckSize: number;
+  readonly index: number;
+  readonly answered: number;
+  readonly status: QuizSession['status'];
+}
+
+/** The error message returned when no provider is configured for a quiz route. */
+const NO_MODEL_ERROR = 'no model configured';
+
+/** Resolve the injected clock, defaulting to the real one. */
+function nowDate(deps: ApiDeps): Date {
+  return (deps.now ?? (() => new Date()))();
+}
+
+/** Resolve the injected random source, defaulting to Math.random. */
+function randomSource(deps: ApiDeps): RandomSource {
+  return deps.random ?? Math.random;
+}
+
+/**
+ * Classify a provider error into a clear JSON HandlerResponse (auth vs
+ * connection vs unusable). Shared by all quiz routes that call the model.
+ */
+function providerErrorResponse(error: unknown): HandlerResponse {
+  if (isConnectionError(error)) {
+    return json(502, {
+      error:
+        'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
+    });
+  }
+  if (isAuthError(error)) {
+    return json(502, {
+      error:
+        'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+    });
+  }
+  return json(502, {
+    error: 'The model returned an unusable response. Please try again.',
+  });
+}
+
+/**
+ * Read the user's done-set from the catalog + per-problem notes: every problem
+ * whose resolved status is `'done'`. Read-only; a missing/failed read degrades
+ * to "not done" so this never throws.
+ */
+async function readDoneProblemIds(
+  problems: readonly Problem[],
+  storage: StorageAdapter,
+): Promise<string[]> {
+  const done: string[] = [];
+  if (!storage.readIntuitionNote) {
+    return done;
+  }
+  for (const problem of problems) {
+    try {
+      const note = await storage.readIntuitionNote(problem.id);
+      if (note && resolveNoteStatus(note) === 'done') {
+        done.push(problem.id);
+      }
+    } catch {
+      // Ignore per-problem read errors — treated as not done.
+    }
+  }
+  return done;
+}
+
+/** Ask the model for a WRAPPED presentation of a problem (model-authored). */
+async function generateWrapped(
+  provider: LlmProvider,
+  problem: Problem,
+): Promise<string> {
+  const messages = buildQuizPrompt('wrap', { problem });
+  const response = await provider.complete({ messages });
+  const wrapped =
+    typeof response.content === 'string' ? response.content.trim() : '';
+  if (!wrapped) {
+    throw new Error('Empty response from model');
+  }
+  return wrapped;
+}
+
+/** Build the API state summary from a session. */
+function toQuizState(session: QuizSession): ApiQuizState {
+  const progress = quizProgress(session);
+  return {
+    sessionId: session.sessionId,
+    deckSize: progress.deckSize,
+    index: progress.index,
+    answered: progress.answered,
+    status: session.status,
+  };
+}
+
+/**
+ * Build a fresh shuffled session from the CURRENT done-set and present its
+ * first wrapped question. Shared by POST /api/quiz/start and POST /api/quiz/new.
+ *
+ * Returns a `{ empty: true }` state (no session, no writes) when the done-set is
+ * empty. Persists the session (active) before presenting, then appends the
+ * wrapped turn and persists again so the presented question survives a resume.
+ */
+async function startFreshSession(
+  deps: ApiDeps,
+  provider: LlmProvider,
+  storage: StorageAdapter,
+): Promise<HandlerResponse> {
+  const problems = deps.catalog.list();
+  const done = await readDoneProblemIds(problems, storage);
+  if (done.length === 0) {
+    return json(200, {
+      empty: true,
+      message: 'mark problems complete first',
+    });
+  }
+  if (!storage.writeQuizSession) {
+    return json(400, { error: 'no database configured' });
+  }
+
+  const deck = shuffleDeck(done, randomSource(deps));
+  const at = nowDate(deps).toISOString() as IsoTimestamp;
+  const sessionId = `quiz-${nowDate(deps).getTime()}-${Math.floor(
+    randomSource(deps)() * 1e9,
+  )
+    .toString(36)
+    .padStart(6, '0')}`;
+
+  let session: QuizSession = {
+    sessionId,
+    createdAt: at,
+    deck,
+    currentIndex: 0,
+    answered: [],
+    transcript: [],
+    status: 'active',
+  };
+  await storage.writeQuizSession(session);
+
+  const firstId = currentProblemId(session);
+  const problem = firstId ? deps.catalog.getById(firstId) : undefined;
+  if (!problem) {
+    // Deck referenced an unknown id (catalog changed) — treat as empty.
+    return json(200, { empty: true, message: 'mark problems complete first' });
+  }
+
+  let wrapped: string;
+  try {
+    wrapped = await generateWrapped(provider, problem);
+  } catch (error) {
+    return providerErrorResponse(error);
+  }
+
+  session = appendAssistantTurn(session, wrapped, at);
+  await storage.writeQuizSession(session);
+
+  const question: ApiQuizQuestion = { problemId: problem.id, wrapped };
+  return json(200, {
+    empty: false,
+    session: toQuizState(session),
+    question,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -579,6 +782,270 @@ export async function handleApiRoute(
 
       const chatResponse: ApiChatResponse = { reply };
       return json(200, chatResponse);
+    }
+
+    // ----- /api/quiz/* (Quiz Master engine, ADR 0007 Q2) -----
+    if (pathname === '/api/quiz/start' || pathname === '/api/quiz/new') {
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+      if (!deps.provider) {
+        return json(400, { error: NO_MODEL_ERROR });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (!storage?.writeQuizSession || !storage.readIntuitionNote) {
+        return json(400, { error: 'no database configured' });
+      }
+      // `new` discards any active session implicitly by building a fresh one
+      // (writing the new active pointer). `start` reuses the same builder.
+      return startFreshSession(deps, deps.provider, storage);
+    }
+
+    if (pathname === '/api/quiz/session') {
+      if (method !== 'GET') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (!storage?.readActiveQuizSession) {
+        return json(200, { active: false });
+      }
+      const session = await storage.readActiveQuizSession();
+      if (!session || session.status !== 'active') {
+        return json(200, { active: false });
+      }
+      const currentId = currentProblemId(session);
+      const problem = currentId ? deps.catalog.getById(currentId) : undefined;
+      // Re-present the last wrapped question from the transcript if available.
+      const lastAssistant = [...session.transcript]
+        .reverse()
+        .find((t) => t.role === 'assistant');
+      const question: ApiQuizQuestion | null =
+        problem && lastAssistant
+          ? { problemId: problem.id, wrapped: lastAssistant.content }
+          : null;
+      return json(200, {
+        active: true,
+        session: toQuizState(session),
+        question,
+        transcript: session.transcript,
+      });
+    }
+
+    if (pathname === '/api/quiz/answer') {
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+      if (!deps.provider) {
+        return json(400, { error: NO_MODEL_ERROR });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      if (
+        !storage?.readActiveQuizSession ||
+        !storage.writeQuizSession ||
+        !storage.readIntuitionNote ||
+        !storage.writeIntuitionNote ||
+        !storage.readCompetencySignals ||
+        !storage.writeCompetencySignals
+      ) {
+        return json(400, { error: 'no database configured' });
+      }
+
+      // Parse + validate the untrusted body.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body ?? '{}');
+      } catch {
+        return json(400, { error: 'invalid JSON body' });
+      }
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return json(400, { error: 'invalid JSON body' });
+      }
+      const rawAnswer = (parsed as Record<string, unknown>).answer;
+      if (typeof rawAnswer !== 'string' || rawAnswer.trim().length === 0) {
+        return json(400, { error: 'answer must be a non-empty string' });
+      }
+      const answer = rawAnswer.trim();
+
+      const session = await storage.readActiveQuizSession();
+      if (!session || session.status !== 'active') {
+        return json(404, { error: 'no active quiz session' });
+      }
+      const problemId = currentProblemId(session);
+      const problem = problemId ? deps.catalog.getById(problemId) : undefined;
+      if (!problemId || !problem) {
+        return json(404, { error: 'no current question' });
+      }
+
+      // Read the user's OWN intuition note for personalization (never a
+      // shipped answer). Missing note is fine.
+      let intuition: string | null = null;
+      try {
+        const note = await storage.readIntuitionNote(problemId);
+        intuition = note?.content ?? null;
+      } catch {
+        intuition = null;
+      }
+
+      // Call the model for a structured verdict; parse UNTRUSTED, fail closed.
+      let verdict;
+      try {
+        const messages = buildQuizPrompt('evaluate', {
+          problem,
+          intuition,
+          answer,
+        });
+        const response = await deps.provider.complete({ messages });
+        const content =
+          typeof response.content === 'string' ? response.content : '';
+        verdict = parseVerdict(content);
+      } catch (error) {
+        // Malformed model output → fail closed: NO writes, clear JSON error.
+        if (error instanceof Error && error.message.startsWith('quiz: ')) {
+          return json(502, {
+            error: 'The model returned an unusable verdict. Please try again.',
+          });
+        }
+        return providerErrorResponse(error);
+      }
+
+      const at = nowDate(deps).toISOString() as IsoTimestamp;
+
+      // 'on_track' → a single non-terminal probe: stay on the same question,
+      // append the probe to the transcript, do NOT advance or write outcomes.
+      if (verdict.verdict === 'on_track') {
+        const updated = appendAssistantTurn(session, verdict.feedback, at);
+        await storage.writeQuizSession(updated);
+        return json(200, {
+          verdict: 'on_track',
+          feedback: verdict.feedback,
+          ...(verdict.optimalNudge
+            ? { optimalNudge: verdict.optimalNudge }
+            : {}),
+          terminal: false,
+          session: toQuizState(updated),
+          question: { problemId, wrapped: verdict.feedback },
+        });
+      }
+
+      // Terminal verdict (correct | incorrect).
+      const terminalVerdict = verdict.verdict;
+
+      // On INCORRECT: flip the note status to 'to_revisit' (preserve other
+      // fields; storage keeps `completed` consistent). Do this BEFORE advancing
+      // so a failure here fails the whole turn (no partial state divergence).
+      if (terminalVerdict === 'incorrect') {
+        let existing: IntuitionNote | null = null;
+        try {
+          existing = await storage.readIntuitionNote(problemId);
+        } catch {
+          existing = null;
+        }
+        const revisit: IntuitionNote = {
+          problemId,
+          content: existing?.content ?? '',
+          lastUpdated: at,
+          attempts: existing?.attempts,
+          status: 'to_revisit',
+          completed: false,
+          timeComplexity: existing?.timeComplexity,
+          spaceComplexity: existing?.spaceComplexity,
+        };
+        await storage.writeIntuitionNote(revisit);
+      }
+
+      // Update competency signals.
+      const currentSignals: CompetencySignals =
+        (await storage.readCompetencySignals()) ?? emptyCompetencySignals(at);
+      const updatedSignals = updateCompetencySignals(currentSignals, {
+        topics: problem.topics,
+        verdict: terminalVerdict,
+        problemId,
+        problemTitle: problem.title,
+        intuition,
+        at,
+      });
+      await storage.writeCompetencySignals(updatedSignals);
+
+      // Advance the session (append transcript, bump index, maybe complete).
+      const assistantTurn = verdict.optimalNudge
+        ? `${verdict.feedback}\n\n${verdict.optimalNudge}`
+        : verdict.feedback;
+      let advanced = advanceSession(session, {
+        problemId,
+        verdict: terminalVerdict,
+        at,
+        userTurn: answer,
+        assistantTurn,
+      });
+
+      // If the deck is exhausted, persist the complete session and report done.
+      if (isDeckExhausted(advanced)) {
+        await storage.writeQuizSession(advanced);
+        return json(200, {
+          verdict: terminalVerdict,
+          feedback: verdict.feedback,
+          ...(verdict.optimalNudge
+            ? { optimalNudge: verdict.optimalNudge }
+            : {}),
+          terminal: true,
+          complete: true,
+          session: toQuizState(advanced),
+          question: null,
+        });
+      }
+
+      // Otherwise present the next wrapped question.
+      const nextId = currentProblemId(advanced);
+      const nextProblem = nextId ? deps.catalog.getById(nextId) : undefined;
+      if (!nextProblem) {
+        // Next id unknown (catalog changed): persist progress + report complete.
+        const forced: QuizSession = { ...advanced, status: 'complete' };
+        await storage.writeQuizSession(forced);
+        return json(200, {
+          verdict: terminalVerdict,
+          feedback: verdict.feedback,
+          terminal: true,
+          complete: true,
+          session: toQuizState(forced),
+          question: null,
+        });
+      }
+
+      let nextWrapped: string;
+      try {
+        nextWrapped = await generateWrapped(deps.provider, nextProblem);
+      } catch {
+        // Verdict already persisted below; if the NEXT wrap fails, still save
+        // the advanced session (without the new wrap turn) so it's resumable.
+        await storage.writeQuizSession(advanced);
+        return json(200, {
+          verdict: terminalVerdict,
+          feedback: verdict.feedback,
+          ...(verdict.optimalNudge
+            ? { optimalNudge: verdict.optimalNudge }
+            : {}),
+          terminal: true,
+          complete: false,
+          session: toQuizState(advanced),
+          question: null,
+        });
+      }
+
+      advanced = appendAssistantTurn(advanced, nextWrapped, at);
+      await storage.writeQuizSession(advanced);
+      return json(200, {
+        verdict: terminalVerdict,
+        feedback: verdict.feedback,
+        ...(verdict.optimalNudge ? { optimalNudge: verdict.optimalNudge } : {}),
+        terminal: true,
+        complete: false,
+        session: toQuizState(advanced),
+        question: { problemId: nextProblem.id, wrapped: nextWrapped },
+      });
     }
 
     // ----- Unknown /api path -----
