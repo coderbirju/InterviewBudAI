@@ -8,6 +8,9 @@ import type { Problem } from '@ibai/curriculum';
 import {
   QUIZ_MASTER_PERSONA,
   buildQuizPrompt,
+  presentProblem,
+  ensureCurrentQuestionPresented,
+  currentProbe,
   parseVerdict,
   seededRandom,
   shuffleDeck,
@@ -65,19 +68,18 @@ describe('shuffleDeck (seedable)', () => {
   });
 });
 
+describe('presentProblem (deterministic, no model — ADR 0007 A8)', () => {
+  it('presents the RAW problem: real title + difficulty, nothing else', () => {
+    expect(presentProblem(PROBLEM)).toBe('Two Sum (easy)');
+  });
+});
+
 describe('buildQuizPrompt', () => {
-  it('wrap mode: presents the RAW problem directly (title, no story wrapper, no hints)', () => {
-    const messages = buildQuizPrompt('wrap', { problem: PROBLEM });
+  it('prepends the persona as the system message', () => {
+    const messages = buildQuizPrompt({ problem: PROBLEM, answer: 'x' });
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.content).toBe(QUIZ_MASTER_PERSONA);
-    const user = messages[1]?.content ?? '';
-    // The real title is presented directly.
-    expect(user).toContain('Two Sum');
-    // No invented story wrapper — the instruction presents it DIRECTLY and
-    // explicitly forbids inventing a story/scenario.
-    expect(user).toContain('DIRECTLY');
-    expect(user).toContain('Do NOT invent a story');
-    expect(user).not.toContain('```json');
+    expect(messages[1]?.content).toContain('Two Sum');
   });
 
   it('persona forbids revealing the solution and caps nudges at one', () => {
@@ -88,8 +90,8 @@ describe('buildQuizPrompt', () => {
     expect(QUIZ_MASTER_PERSONA).toMatch(/TERMINAL/);
   });
 
-  it('evaluate mode: injects intuition + answer + strict verdict JSON', () => {
-    const messages = buildQuizPrompt('evaluate', {
+  it('injects intuition + answer + strict verdict JSON', () => {
+    const messages = buildQuizPrompt({
       problem: PROBLEM,
       intuition: 'I got confused by the two-pointer trick',
       answer: 'Use a hash map for complements',
@@ -101,8 +103,8 @@ describe('buildQuizPrompt', () => {
     expect(user).toContain('correct');
   });
 
-  it('evaluate mode: tolerates a missing intuition note', () => {
-    const messages = buildQuizPrompt('evaluate', {
+  it('tolerates a missing intuition note', () => {
+    const messages = buildQuizPrompt({
       problem: PROBLEM,
       intuition: null,
       answer: 'brute force',
@@ -263,6 +265,49 @@ describe('session helpers', () => {
     s = appendAssistantTurn(s, 'Q2 presented', AT);
     expect(nudgeCountForCurrentQuestion(s)).toBe(0);
     expect(nudgeAlreadyUsed(s)).toBe(false);
+  });
+
+  it('ensureCurrentQuestionPresented heals a legacy orphan (empty transcript)', () => {
+    const orphan = makeSession();
+    const healed = ensureCurrentQuestionPresented(orphan, 'Two Sum (easy)', AT);
+    expect(healed.transcript).toEqual([
+      { role: 'assistant', content: 'Two Sum (easy)', at: AT },
+    ]);
+    // Nudge accounting works on the healed session.
+    const nudged = appendNudgeTurn(healed, 'partial', 'probe?', AT);
+    expect(nudgeAlreadyUsed(nudged)).toBe(true);
+  });
+
+  it('ensureCurrentQuestionPresented heals a missing NEXT presentation', () => {
+    // Q1 presented + answered terminally, but Q2 was never presented.
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT,
+      userTurn: 'a',
+      assistantTurn: 'ok',
+    });
+    const healed = ensureCurrentQuestionPresented(s, 'Q2', AT);
+    expect(healed.transcript).toHaveLength(4);
+    expect(healed.transcript[3]?.content).toBe('Q2');
+    expect(nudgeAlreadyUsed(healed)).toBe(false);
+  });
+
+  it('ensureCurrentQuestionPresented is a no-op for well-formed or exhausted sessions', () => {
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    expect(ensureCurrentQuestionPresented(s, 'Q1', AT)).toBe(s);
+    s = appendNudgeTurn(s, 'partial', 'probe?', AT);
+    expect(ensureCurrentQuestionPresented(s, 'Q1', AT)).toBe(s);
+    const done = makeSession({ currentIndex: 3 });
+    expect(ensureCurrentQuestionPresented(done, 'x', AT)).toBe(done);
+  });
+
+  it('currentProbe returns the spent probe for the current question only', () => {
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    expect(currentProbe(s)).toBeNull();
+    s = appendNudgeTurn(s, 'partial', 'what about duplicates?', AT);
+    expect(currentProbe(s)).toBe('what about duplicates?');
   });
 });
 
