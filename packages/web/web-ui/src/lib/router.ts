@@ -88,6 +88,51 @@ export function navigate(href: string): void {
 }
 
 /**
+ * The last Home query string (e.g. `?q=sum&status=to_revisit`), remembered by
+ * Home so in-app "Back to problems" links return to the same filtered view.
+ * In-memory only (per page load) — a reload of a notes page falls back to `/`.
+ */
+let lastHomeSearch = '';
+
+/** Home records its current query here whenever its filter changes. */
+export function rememberHomeSearch(search: string): void {
+  lastHomeSearch = search;
+}
+
+/** The Home URL including the last remembered filter query. */
+export function lastHomeHref(): string {
+  return `${homeHref()}${lastHomeSearch}`;
+}
+
+/**
+ * The current URL query string (e.g. `?q=sum`), or `''` outside a browser.
+ * The router matches on pathname only, so views that keep state in the query
+ * (Home's catalog filter) read it here.
+ */
+export function currentSearch(): string {
+  return typeof window !== 'undefined' ? window.location.search : '';
+}
+
+/**
+ * Replace the current URL's query string in place (History `replaceState`),
+ * keeping the pathname and hash. Replace — not push — so typing in a search box
+ * doesn't flood the back stack, while reload and back-from-another-view still
+ * restore it. Does not emit `popstate`: the route (pathname) is unchanged.
+ */
+export function replaceSearch(search: string): void {
+  if (typeof window !== 'undefined' && window.history) {
+    const { pathname, hash } = window.location;
+    if (search !== window.location.search) {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${pathname}${search}${hash}`,
+      );
+    }
+  }
+}
+
+/**
  * React hook: the current parsed route, kept in sync with browser back/forward
  * (`popstate`) and `navigate()` calls. In a non-browser env it resolves to
  * `home`.

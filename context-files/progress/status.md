@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-25 — all PRs #1–#51 merged or closed; no open PRs; `architect/status-cleanup` PR open (this cleanup)._
+_Last updated: 2026-09-25 — PRs #1–#52 merged or closed; review follow-up to #52 open on `architect/status-cleanup`._
 
 ## Legend
 ✅ merged · 🟡 PR open · ⛔ blocked · ⬜ not started · ✖ closed unmerged
@@ -15,7 +15,11 @@ _Last updated: 2026-09-25 — all PRs #1–#51 merged or closed; no open PRs; `a
 See `team-charter.md` §0, §9A.
 
 ## In progress
-- 🟡 `architect/status-cleanup` — status rewrite + stale-docs cleanup (docs only).
+- ✅ #52 status rewrite + stale-docs cleanup. 🟡 follow-up PR (code-review fixes) on `architect/status-cleanup`.
+
+## Founder decision (2026-09-25)
+- **The web app is the product.** CLI is deprioritized/frozen. Web data-dir
+  default `~/.interviewbudai/data` is canonical.
 
 ## Current product (on `main`)
 - **Web** (`@ibai/web`): React SPA at `/` — Home (catalog + status), Notes,
@@ -54,11 +58,14 @@ See `team-charter.md` §0, §9A.
 - ✅ #7 assess · #12 plan · #16 coach · #33 AI-evaluation coach contract (ADR 0005 D6).
 - ✅ #6 LocalFileStorageAdapter · #13 OllamaProvider · #30 AnthropicProvider + HTTP core.
 - ✅ #20 EchoDemoProvider (ADR 0004) — later **removed** in #33.
-- ✅ #19 ADR 0003 curriculum · #22 ADR 0005 onboarding · #24 curated catalog (✖ #23 superseded).
+- ✅ #19 ADR 0003 curriculum · #22 ADR 0005 onboarding · #24 curated catalog.
 - ✅ #28 intuition notes storage.
 
-### CLI
+### CLI (frozen)
 - ✅ #9 assess · #15 plan · #17 coach (now `--answer`, Anthropic or Ollama).
+
+### Closed unmerged (superseded duplicates)
+- ✖ #5 (→ #6) · ✖ #8 (→ #9) · ✖ #23 (→ #24) · ✖ #25 (→ #26).
 
 ### Foundation & scaffold
 - ✅ #1 context docs, charter, ADR 0001, CI · #2 monorepo + `verify` ·
@@ -77,18 +84,24 @@ See `team-charter.md` §0, §9A.
 - **Quiz difficulty knob** (ADR 0007 D2 "future") — not implemented.
 - **CompetencySignals → CompetencyMap/WeaknessRegister reconciliation** (ADR 0007
   Consequences / Q4 row) — not implemented; quiz results do not feed `assess`/`plan`.
-- **Quiz engine lives in `packages/web`, not `core`** — CLI has no quiz; conflicts
-  with the front-end parity principle (`01-architecture.md`). Needs an ADR to move.
+- **Quiz engine lives in `packages/web`, not `core`** — conflicts with the
+  front-end parity principle in `01-architecture.md`; moot while the CLI is frozen,
+  but the doc should be reconciled (ADR).
 - **Web no longer exposes assess/plan** (Where You Stand / Next Session were
-  retired with the server pages in M6); CLI still has them — parity gap.
+  retired with the server pages in M6); only the frozen CLI has them.
+- **CLI-frozen known issues (not fixing):** CLI data-dir default `~/.ibai/data`
+  differs from the canonical web default `~/.interviewbudai/data`; `ibai coach`
+  with fewer `--answer`s than plan topics prints "Proceeding with partial
+  answers" but exits 0 without running `coach()`.
+- **`POST /api/chat`** is unused by the SPA since Q3 (vestigial).
 - **No OpenAI provider** (listed in `01-architecture.md`; only Anthropic + Ollama ship).
 - **No System Design curriculum** — catalog is DSA only.
 - **`.env.example`** lists `IBAI_LLM_*` / `IBAI_STORAGE_*` vars no code reads.
 
 ## Next up (proposed)
-1. `architect-task` — ADR: move quiz engine into `core` + CLI `quiz` command (parity).
+1. **Web usability roadmap — pending ADR 0008 (web-first).**
 2. `implement` — reconcile `CompetencySignals` into `CompetencyMap`/`WeaknessRegister`.
-3. `frontend` — restore assess/plan ("where you stand / next session") in the SPA.
+3. `frontend` — restore "where you stand / next session" in the SPA.
 4. `integrate` — `OpenAIProvider` on the shared HTTP core.
 5. `architect-task` — ADR: System Design curriculum shape (links only).
 6. `scaffold` — ESLint 9 flat-config upgrade; prune unused `.env.example` vars.
