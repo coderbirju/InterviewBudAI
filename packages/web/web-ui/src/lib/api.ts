@@ -315,13 +315,19 @@ export async function postChat(
 export type QuizVerdict = 'correct' | 'incorrect' | 'on_track';
 
 /**
- * A wrapped question presented to the SPA. `wrapped` is the MODEL-authored
- * short rephrasing (no title, no hints, no answer) and is rendered verbatim via
- * JSX (auto-escaped) — never as HTML (charter §6.2 / §7.3).
+ * A question presented to the SPA, built deterministically from the catalog
+ * (ADR 0007 A1/A8 — the real problem, no model call). `wrapped` is the
+ * presentation text (field name kept for wire stability); `title`,
+ * `difficulty`, `url` and the optional current `probe` are additive. All values
+ * render via JSX (auto-escaped) — never as HTML (charter §6.2 / §7.3).
  */
 export interface QuizQuestion {
   readonly problemId: string;
   readonly wrapped: string;
+  readonly title?: string;
+  readonly difficulty?: Difficulty;
+  readonly url?: string;
+  readonly probe?: string;
 }
 
 /** Session-state summary returned alongside questions (mirrors `ApiQuizState`). */
@@ -342,8 +348,8 @@ export interface QuizTranscriptEntry {
 
 /**
  * GET /api/quiz/session result. Either no active session, or an active session
- * with its current wrapped question (may be `null` if it could not be
- * re-presented), progress, and full transcript for resume.
+ * with its current question (catalog-built; `null` only when there is
+ * nothing to present), progress, and full transcript for resume.
  */
 export type QuizSessionResult =
   | { readonly active: false }
@@ -369,7 +375,7 @@ export type QuizStartResult =
 
 /**
  * POST /api/quiz/answer result. `on_track` is non-terminal (stay on the same
- * question, `question.wrapped` carries the probe). A terminal verdict
+ * question, the problem stays in `question`, the probe is in `feedback` and `question.probe`). A terminal verdict
  * (`correct` | `incorrect`) either advances to the next question or, when
  * `complete` is true, ends the session (`question` is `null`).
  */
@@ -433,7 +439,7 @@ export function getQuizSession(): Promise<QuizSessionResult> {
 
 /**
  * POST /api/quiz/start — build a fresh shuffled deck from the current done-set
- * and present its first wrapped question. Resolves to `{ empty: true }` when no
+ * and present its first question. Resolves to `{ empty: true }` when no
  * problems are marked done. Throws `ApiError(400)` when no model is configured
  * (message `no model configured`) or `ApiError(502)` on a provider failure.
  */
@@ -453,7 +459,7 @@ export function newQuiz(): Promise<QuizStartResult> {
 /**
  * POST /api/quiz/answer — submit the user's typed approach for the current
  * question. Resolves with the verdict, model feedback, optional optimal nudge,
- * and either the next wrapped question or a completion marker. Throws
+ * and either the next question or a completion marker. Throws
  * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 502
  * provider/verdict failure) — the caller preserves the transcript.
  */
