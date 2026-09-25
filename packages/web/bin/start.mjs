@@ -48,7 +48,11 @@ function newestMtime(p) {
 }
 
 // 1. Server (and the packages it depends on): incremental tsc build.
-run('tsc --build', [require.resolve('typescript/bin/tsc'), '--build'], repoRoot);
+run(
+  'tsc --build',
+  [require.resolve('typescript/bin/tsc'), '--build'],
+  repoRoot,
+);
 
 // 2. SPA bundle: rebuild only when missing or stale.
 const uiBuilt = newestMtime(path.join(webDir, 'dist-ui', 'index.html'));
