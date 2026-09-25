@@ -36,41 +36,65 @@ import type { PromptMessage } from '@ibai/providers';
 // ---------------------------------------------------------------------------
 
 /**
- * The Quiz Master persona (ADR 0007 D1/D2). Prepended as the `system` message.
- * It quizzes the user on problems they marked done, presents each WRAPPED (a
- * short story/rephrase, no hints, not the raw title), and evaluates the
- * DIRECTION of their reasoning against the model's OWN knowledge of the
- * well-known problem, cross-referenced with the user's OWN saved intuition. It
- * NEVER reveals a solution: a semi-optimal-or-better approach is accepted; if a
- * materially more optimal approach exists it NUDGES the user to go look, but
- * does not hand it over.
+ * The Quiz Master persona (ADR 0007 D1/D2, amended by quiz-fix-a). Prepended as
+ * the `system` message.
+ *
+ * quiz-fix-a founder amendments:
+ *  - NO WRAPPER: present each problem DIRECTLY by its real title (and, if the
+ *    model knows it, the standard one-line statement) — no invented story, no
+ *    hints.
+ *  - NEVER REVEAL: the Quiz Master MUST NEVER reveal, state, or write out the
+ *    solution / answer / optimal approach — not when the candidate is close,
+ *    not on request. Reinforced hard.
+ *  - AT-MOST-ONE-NUDGE: `on_track` (a single probing question, never the
+ *    answer) may be used at most once per question; the next answer is then
+ *    terminal (`correct` | `incorrect`). Enforced in the engine too.
+ *
+ * The persona is written to be MODEL-AGNOSTIC so a weaker model still complies.
  */
 export const QUIZ_MASTER_PERSONA =
   'You are the Quickfire Quiz Master for software-engineering interview prep. ' +
-  'You quiz the candidate on problems they have already marked as done. For ' +
-  'each problem you present a WRAPPED version: a short 1-2 line story or ' +
-  'rephrasing that tests whether they recognise the underlying pattern — NOT ' +
-  'the raw problem title, and with NO hints. The candidate types their ' +
+  'You quiz the candidate on problems they have already marked as done. ' +
+  'Present each problem DIRECTLY: state its real title, and if you know the ' +
+  'standard problem you may briefly state it in one neutral line. Do NOT ' +
+  'invent a story, do NOT rephrase it into a disguised scenario, and do NOT ' +
+  'give any hint about the approach. The candidate types their ' +
   'approach/reasoning (not necessarily code). You EVALUATE the DIRECTION of ' +
   'that reasoning using YOUR OWN general knowledge of the well-known problem, ' +
   "cross-referenced with the candidate's OWN saved intuition note (provided " +
-  'as personalization). CRITICAL RULES: NEVER reveal, describe, or hand over ' +
-  'the solution, optimal algorithm, or code. A semi-optimal-or-better ' +
-  'approach is CORRECT. If a materially more optimal approach exists, mark it ' +
-  'correct but add a nudge telling the candidate to go read/figure out the ' +
-  'more optimal approach themselves — WITHOUT revealing it. Judge only the ' +
-  "candidate's own reasoning; do not fill in gaps for them.";
+  'as personalization). ' +
+  'CRITICAL RULES (follow exactly): ' +
+  '(1) You MUST NEVER reveal, state, describe, hint at, or write out the ' +
+  'solution, the answer, the optimal algorithm, pseudocode, or code — NOT ' +
+  'when the candidate is close, NOT when they are wrong, NOT even if they ask ' +
+  'you directly. If asked for the answer, refuse and tell them to work it out. ' +
+  '(2) Judge the answer against the known-correct approach. If it clearly ' +
+  'reaches at least a SEMI-OPTIMAL correct approach, the verdict is "correct" ' +
+  '(if a materially more optimal approach exists, add a nudge telling them to ' +
+  'go read/figure it out themselves WITHOUT revealing it). ' +
+  '(3) If the answer is NEAR / on the right track but incomplete or not yet ' +
+  'correct, the verdict is "on_track": ask exactly ONE short probing question ' +
+  '(never the answer). You get AT MOST ONE such nudge per question. ' +
+  '(4) If the answer is clearly wrong, the verdict is "incorrect" immediately ' +
+  '— no nudge is owed. ' +
+  '(5) After a single "on_track" nudge, the candidate\'s NEXT answer is ' +
+  'TERMINAL: judge it "correct" or "incorrect" — NEVER a second "on_track". ' +
+  "Judge only the candidate's own reasoning; do not fill in gaps for them.";
 
 /**
- * Instruction to generate a WRAPPED presentation of the current problem. Used
- * when we ask the model to present the next question. The model authors the
- * wording (§6.2), we only constrain the shape.
+ * Instruction to present the current problem DIRECTLY (quiz-fix-a: no wrapper).
+ * Used when we ask the model to present the next question. The model authors
+ * the wording (§6.2); we only constrain the shape: the real title (plus an
+ * optional one-line standard statement the model knows), NO story, NO hints,
+ * NO answer.
  */
 export const WRAP_INSTRUCTION =
-  'Present the CURRENT problem as a WRAPPED question: a short (1-2 line) story ' +
-  'or rephrasing that hints at the underlying pattern WITHOUT naming the ' +
-  'problem, revealing the algorithm, or giving any solving hint. Output ONLY ' +
-  'the wrapped question text — no preamble, no title, no answer.';
+  'Present the CURRENT problem DIRECTLY to the candidate. State the real ' +
+  'problem title. If you know the standard problem, you MAY add one neutral ' +
+  'line restating what it asks. Do NOT invent a story or scenario, do NOT ' +
+  'disguise or rephrase it into something else, and do NOT reveal or hint at ' +
+  'the approach, algorithm, or answer. Output ONLY the problem presentation — ' +
+  'no preamble, no solution, no hint.';
 
 /**
  * Instruction for the structured, machine-parseable verdict block. Mirrors the
@@ -91,9 +115,9 @@ Requirements:
 - "verdict" MUST be exactly one of: "correct", "incorrect", "on_track".
 - Use "correct" when a semi-optimal-or-better direction is demonstrated (terminal).
 - Use "incorrect" when the direction is wrong or absent (terminal).
-- Use "on_track" ONLY to ask ONE clarifying probe when the direction is promising but incomplete; keep the same question.
-- "feedback" assesses the candidate's OWN answer — NEVER a canned solution, algorithm, or code.
-- "optimalNudge" is OPTIONAL and MUST NOT reveal the solution.
+- Use "on_track" ONLY to ask ONE clarifying probe when the direction is promising but incomplete; keep the same question. You may use "on_track" AT MOST ONCE per question — if the candidate has ALREADY received one probe on this question, you MUST return a terminal "correct" or "incorrect" and MUST NOT return "on_track" again.
+- "feedback" assesses the candidate's OWN answer — it MUST NEVER contain a solution, algorithm, pseudocode, code, or the answer. Never reveal the approach, even when the candidate is close or asks for it.
+- "optimalNudge" is OPTIONAL and MUST NOT reveal the solution — only point them to go read/figure it out.
 - Emit the JSON block LAST; do not wrap it in extra prose after the fence.`;
 
 // ---------------------------------------------------------------------------
@@ -396,6 +420,91 @@ export function appendAssistantTurn(
     ...session,
     transcript: [...session.transcript, { role: 'assistant', content, at }],
   };
+}
+
+/**
+ * Append ONE non-terminal `on_track` probe turn for the CURRENT question: the
+ * candidate's answer (user) followed by the Quiz Master's probe (assistant).
+ * Does NOT advance the deck and does NOT record an outcome. Pure.
+ *
+ * Recording the `user` turn here (in addition to the probe) is what lets
+ * {@link nudgeCountForCurrentQuestion} count nudges for the current question
+ * WITHOUT a new `QuizSession` field: within a question we only ever add
+ * `user`+`assistant` pairs after the single `assistant` presentation turn, so
+ * the current question's `user` turns after its presentation boundary are
+ * exactly its spent nudges.
+ */
+export function appendNudgeTurn(
+  session: QuizSession,
+  answer: string,
+  probe: string,
+  at: IsoTimestamp,
+): QuizSession {
+  return {
+    ...session,
+    transcript: [
+      ...session.transcript,
+      { role: 'user', content: answer, at },
+      { role: 'assistant', content: probe, at },
+    ],
+  };
+}
+
+/**
+ * How many `on_track` nudges have already been given for the CURRENT question
+ * (the one at `currentIndex`, not yet answered terminally).
+ *
+ * Derived purely from the persisted transcript (no new field), exploiting the
+ * exact way turns are appended:
+ *  - a question is presented with a single `assistant` turn
+ *    ({@link appendAssistantTurn});
+ *  - each `on_track` probe appends a `user` + `assistant` pair
+ *    ({@link appendNudgeTurn}), so within a question we never see two
+ *    `assistant` turns back-to-back;
+ *  - a TERMINAL answer appends a `user` + `assistant` pair too
+ *    ({@link advanceSession}) and then the NEXT question's presentation appends
+ *    another `assistant` turn — producing the ONLY place two `assistant` turns
+ *    are adjacent.
+ *
+ * Therefore the current question's block begins at the last `assistant` turn
+ * that starts a block (index 0, or preceded by another `assistant`), and the
+ * nudges spent on it equal the `user` turns after that boundary. Resets
+ * naturally each question and survives resume.
+ */
+export function nudgeCountForCurrentQuestion(session: QuizSession): number {
+  const t = session.transcript;
+  // Find the start of the current question's block: the last `assistant` turn
+  // that is either the very first turn or preceded by another `assistant`.
+  let blockStart = -1;
+  for (let i = t.length - 1; i >= 0; i--) {
+    if (
+      t[i]?.role === 'assistant' &&
+      (i === 0 || t[i - 1]?.role === 'assistant')
+    ) {
+      blockStart = i;
+      break;
+    }
+  }
+  if (blockStart === -1) {
+    // No presentation boundary found (e.g. empty transcript) → no nudges.
+    return 0;
+  }
+  let nudges = 0;
+  for (let i = blockStart + 1; i < t.length; i++) {
+    if (t[i]?.role === 'user') {
+      nudges++;
+    }
+  }
+  return nudges;
+}
+
+/**
+ * True when the current question has ALREADY consumed its single allowed
+ * `on_track` nudge (quiz-fix-a: at most one nudge per question). The engine
+ * uses this to COERCE a second model `on_track` into a terminal `incorrect`.
+ */
+export function nudgeAlreadyUsed(session: QuizSession): boolean {
+  return nudgeCountForCurrentQuestion(session) >= 1;
 }
 
 // ---------------------------------------------------------------------------

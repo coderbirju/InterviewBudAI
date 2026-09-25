@@ -43,6 +43,8 @@ import {
   shuffleDeck,
   advanceSession,
   appendAssistantTurn,
+  appendNudgeTurn,
+  nudgeAlreadyUsed,
   currentProblemId,
   isDeckExhausted,
   quizProgress,
@@ -970,10 +972,18 @@ export async function handleApiRoute(
 
       const at = nowDate(deps).toISOString() as IsoTimestamp;
 
-      // 'on_track' → a single non-terminal probe: stay on the same question,
-      // append the probe to the transcript, do NOT advance or write outcomes.
-      if (verdict.verdict === 'on_track') {
-        const updated = appendAssistantTurn(session, verdict.feedback, at);
+      // AT-MOST-ONE-NUDGE ENGINE ENFORCEMENT (quiz-fix-a):
+      // If the model returns 'on_track' but this question has ALREADY consumed
+      // its single allowed probe, COERCE it to a terminal 'incorrect' so the
+      // at-most-one-nudge guarantee holds even if the model misbehaves.
+      const coerceToIncorrect =
+        verdict.verdict === 'on_track' && nudgeAlreadyUsed(session);
+
+      // 'on_track' (first, un-coerced) → a single non-terminal probe: stay on
+      // the same question, record the answer + probe in the transcript (so the
+      // nudge is counted and survives resume), do NOT advance or write outcomes.
+      if (verdict.verdict === 'on_track' && !coerceToIncorrect) {
+        const updated = appendNudgeTurn(session, answer, verdict.feedback, at);
         await storage.writeQuizSession(updated);
         return json(200, {
           verdict: 'on_track',
@@ -987,8 +997,12 @@ export async function handleApiRoute(
         });
       }
 
-      // Terminal verdict (correct | incorrect).
-      const terminalVerdict = verdict.verdict;
+      // Terminal verdict (correct | incorrect). A coerced second 'on_track'
+      // becomes 'incorrect'; the model's feedback (a probe) is still shown, but
+      // the turn is terminal and the deck advances.
+      const terminalVerdict: 'correct' | 'incorrect' = coerceToIncorrect
+        ? 'incorrect'
+        : (verdict.verdict as 'correct' | 'incorrect');
 
       // On INCORRECT: flip the note status to 'to_revisit' (preserve other
       // fields; storage keeps `completed` consistent). Do this BEFORE advancing
