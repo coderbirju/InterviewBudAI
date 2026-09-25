@@ -152,9 +152,10 @@ export default function App(): JSX.Element {
           <>
             <h1 className="text-2xl font-bold tracking-tight">Interview</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Talk through problems with your AI interview coach. It asks
-              probing questions and gives feedback on your reasoning — it
-              won&apos;t hand you the answer.
+              Quickfire Quiz Master — a rapid drill over the problems
+              you&apos;ve marked done. Recognise the pattern, type your
+              approach, and get a direction check. It won&apos;t hand you the
+              answer.
             </p>
             <div className="mt-8">
               <Interview />
