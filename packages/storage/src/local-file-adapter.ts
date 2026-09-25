@@ -10,6 +10,9 @@
  *   ${basePath}/competency.json             -> CompetencyMap
  *   ${basePath}/weaknesses.json             -> WeaknessRegister
  *   ${basePath}/notes/${problemId}.md       -> IntuitionNote (ADR 0005)
+ *   ${basePath}/quiz-sessions/${sessionId}.json -> QuizSession (ADR 0007)
+ *   ${basePath}/quiz-sessions/active.json    -> { sessionId } active pointer (ADR 0007)
+ *   ${basePath}/competency-signals.json      -> CompetencySignals (ADR 0007)
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -27,6 +30,16 @@ import type {
   IntuitionNote,
   NoteStatus,
   IsoTimestamp,
+  QuizSession,
+  QuizSessionId,
+  QuizAnswerRecord,
+  QuizTranscriptEntry,
+  QuizVerdict,
+  QuizSessionStatus,
+  CompetencySignals,
+  TopicCompetency,
+  PatternSignal,
+  TopicStrength,
 } from './index.js';
 import { resolveNoteStatus, isNoteStatus } from './index.js';
 
@@ -92,6 +105,109 @@ function isWeaknessRegister(value: unknown): value is WeaknessRegister {
   const { entries } = value;
   if (!Array.isArray(entries)) return false;
   return entries.every(isWeaknessEntry);
+}
+
+function isQuizVerdict(value: unknown): value is QuizVerdict {
+  return value === 'correct' || value === 'incorrect';
+}
+
+function isQuizSessionStatus(value: unknown): value is QuizSessionStatus {
+  return value === 'active' || value === 'complete';
+}
+
+function isQuizAnswerRecord(value: unknown): value is QuizAnswerRecord {
+  if (!isRecord(value)) return false;
+  const { problemId, verdict, at } = value;
+  return (
+    typeof problemId === 'string' &&
+    isQuizVerdict(verdict) &&
+    typeof at === 'string'
+  );
+}
+
+function isQuizTranscriptEntry(value: unknown): value is QuizTranscriptEntry {
+  if (!isRecord(value)) return false;
+  const { role, content, at } = value;
+  return (
+    (role === 'user' || role === 'assistant' || role === 'system') &&
+    typeof content === 'string' &&
+    typeof at === 'string'
+  );
+}
+
+function isQuizSession(value: unknown): value is QuizSession {
+  if (!isRecord(value)) return false;
+  const {
+    sessionId,
+    createdAt,
+    deck,
+    currentIndex,
+    answered,
+    transcript,
+    status,
+  } = value;
+  if (typeof sessionId !== 'string') return false;
+  if (typeof createdAt !== 'string') return false;
+  if (!Array.isArray(deck) || !deck.every((d) => typeof d === 'string')) {
+    return false;
+  }
+  if (typeof currentIndex !== 'number' || !Number.isInteger(currentIndex)) {
+    return false;
+  }
+  if (!Array.isArray(answered) || !answered.every(isQuizAnswerRecord)) {
+    return false;
+  }
+  if (!Array.isArray(transcript) || !transcript.every(isQuizTranscriptEntry)) {
+    return false;
+  }
+  return isQuizSessionStatus(status);
+}
+
+function isTopicStrength(value: unknown): value is TopicStrength {
+  return (
+    value === 'unknown' ||
+    value === 'weak' ||
+    value === 'improving' ||
+    value === 'strong'
+  );
+}
+
+function isTopicCompetency(value: unknown): value is TopicCompetency {
+  if (!isRecord(value)) return false;
+  const { topicId, correct, incorrect, lastSeen, strength } = value;
+  return (
+    typeof topicId === 'string' &&
+    typeof correct === 'number' &&
+    typeof incorrect === 'number' &&
+    typeof lastSeen === 'string' &&
+    isTopicStrength(strength)
+  );
+}
+
+function isPatternSignal(value: unknown): value is PatternSignal {
+  if (!isRecord(value)) return false;
+  const { id, description, topics, occurrences, lastObserved } = value;
+  return (
+    typeof id === 'string' &&
+    typeof description === 'string' &&
+    Array.isArray(topics) &&
+    topics.every((t) => typeof t === 'string') &&
+    typeof occurrences === 'number' &&
+    typeof lastObserved === 'string'
+  );
+}
+
+function isCompetencySignals(value: unknown): value is CompetencySignals {
+  if (!isRecord(value)) return false;
+  const { topics, patterns, lastUpdated } = value;
+  if (!isRecord(topics)) return false;
+  for (const key of Object.keys(topics)) {
+    if (!isTopicCompetency(topics[key])) return false;
+  }
+  if (!Array.isArray(patterns) || !patterns.every(isPatternSignal)) {
+    return false;
+  }
+  return typeof lastUpdated === 'string';
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +458,140 @@ export class LocalFileStorageAdapter implements StorageAdapter {
 
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, fileContent, 'utf-8');
+  }
+
+  // -------------------------------------------------------------------------
+  // Quiz Session Methods (ADR 0007 — Quickfire Quiz Master)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Read the current active quiz session via the active-session pointer.
+   *
+   * Tolerant: a missing/malformed pointer, a dangling reference, or a
+   * malformed session file all resolve to `null` (never throws).
+   */
+  async readActiveQuizSession(): Promise<QuizSession | null> {
+    const pointerPath = safeJoin(this.basePath, 'quiz-sessions', 'active.json');
+
+    let activeId: string;
+    try {
+      const content = await readFile(pointerPath, 'utf-8');
+      const parsed: unknown = JSON.parse(content);
+      if (!isRecord(parsed) || typeof parsed.sessionId !== 'string') {
+        return null;
+      }
+      activeId = parsed.sessionId;
+    } catch {
+      // No pointer (or unreadable) -> no active session.
+      return null;
+    }
+
+    return this.readQuizSession(activeId);
+  }
+
+  /**
+   * Read a specific quiz session by ID.
+   *
+   * Tolerant: file-not-found or malformed content resolve to `null`.
+   */
+  async readQuizSession(sessionId: QuizSessionId): Promise<QuizSession | null> {
+    const safeId = sanitizeSessionId(sessionId);
+    const filePath = safeJoin(this.basePath, 'quiz-sessions', `${safeId}.json`);
+
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const parsed: unknown = JSON.parse(content);
+      if (isQuizSession(parsed)) {
+        return parsed;
+      }
+      // Malformed data -> null (never throw).
+      return null;
+    } catch {
+      // File not found or read/parse error -> null.
+      return null;
+    }
+  }
+
+  /**
+   * Persist a quiz session and maintain the active-session pointer.
+   *
+   * An `'active'` session becomes the current one (pointer updated). A
+   * `'complete'` session clears the pointer if it referenced this session, so
+   * a fresh session must be started next.
+   */
+  async writeQuizSession(session: QuizSession): Promise<void> {
+    const safeId = sanitizeSessionId(session.sessionId);
+    const filePath = safeJoin(this.basePath, 'quiz-sessions', `${safeId}.json`);
+
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, JSON.stringify(session, null, 2) + '\n', 'utf-8');
+
+    const pointerPath = safeJoin(this.basePath, 'quiz-sessions', 'active.json');
+
+    if (session.status === 'active') {
+      // Point at this session so it resumes.
+      await writeFile(
+        pointerPath,
+        JSON.stringify({ sessionId: safeId }, null, 2) + '\n',
+        'utf-8',
+      );
+    } else {
+      // Session complete: clear the pointer only if it referenced this one.
+      try {
+        const content = await readFile(pointerPath, 'utf-8');
+        const parsed: unknown = JSON.parse(content);
+        if (isRecord(parsed) && parsed.sessionId === safeId) {
+          await writeFile(
+            pointerPath,
+            JSON.stringify({ sessionId: null }, null, 2) + '\n',
+            'utf-8',
+          );
+        }
+      } catch {
+        // No pointer to clear -> nothing to do.
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Competency Signal Methods (ADR 0007 — competency intelligence)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Read the competency-signals dataset (weak/strong topics + patterns).
+   *
+   * Tolerant: missing/malformed -> an empty dataset (never throws).
+   */
+  async readCompetencySignals(): Promise<CompetencySignals> {
+    const emptySignals: CompetencySignals = {
+      topics: {},
+      patterns: [],
+      lastUpdated: new Date(0).toISOString() as IsoTimestamp,
+    };
+    const filePath = safeJoin(this.basePath, 'competency-signals.json');
+
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const parsed: unknown = JSON.parse(content);
+      if (isCompetencySignals(parsed)) {
+        return parsed;
+      }
+      // Malformed data -> empty.
+      return emptySignals;
+    } catch {
+      // File not found or read/parse error -> empty.
+      return emptySignals;
+    }
+  }
+
+  /**
+   * Persist the competency-signals dataset as human-readable/diffable JSON.
+   */
+  async writeCompetencySignals(signals: CompetencySignals): Promise<void> {
+    const filePath = safeJoin(this.basePath, 'competency-signals.json');
+
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, JSON.stringify(signals, null, 2) + '\n', 'utf-8');
   }
 
   /**
