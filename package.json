@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "workspaces": [
     "packages/*"
@@ -20,6 +20,7 @@
     "build": "tsc --build && npm run build:ui --workspace=@ibai/web",
     "build:ui": "npm run build:ui --workspace=@ibai/web",
     "test": "vitest run && npm run test:ui --workspace=@ibai/web",
+    "start": "node packages/web/bin/start.mjs",
     "verify": "npm run typecheck && npm run lint && npm run format && npm run build && npm run test",
     "clean": "tsc --build --clean"
   },

@@ -79,10 +79,15 @@ The root `npm test` (and `npm run verify`) runs both the Node test suite and thi
 ### Run (single server serves the SPA at `/`)
 
 ```bash
-npm run build                                   # ensure dist/ and dist-ui/ exist
-npm --workspace @ibai/web run start             # existing server, serves the SPA at /
+npm start                                       # from repo root: builds if needed, then serves
 # open http://127.0.0.1:4173/
 ```
+
+`npm start` (root) runs `packages/web/bin/start.mjs`: an incremental
+`tsc --build` (a no-op when `dist/` is current), a Vite build only when
+`dist-ui/` is missing or older than `web-ui/`, then the server. To skip the
+build check entirely, use `npm --workspace @ibai/web run serve` (runs
+`dist/server-bin.js` directly).
 
 If the SPA bundle is absent (you ran the server without `build:ui`), `/` **degrades gracefully** with a short "run `npm run build:ui`" message; `/api/*` and `/setup` still work.
 
@@ -198,19 +203,45 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 ## Quick Start
 
 ```bash
-# Build
-npm run build
-
-# Configure a provider (choose one)
-export IBAI_OLLAMA_MODEL=llama3  # For Ollama
-# OR
-export ANTHROPIC_API_KEY=sk-ant-... && export IBAI_ANTHROPIC_MODEL=claude-sonnet-4-20250514  # For Anthropic
-
-# Start the server
-npm --workspace @ibai/web run start
+npm ci
+cp .env.example .env    # optional: fill in a provider (or export the vars)
+npm start               # builds if needed, then serves http://127.0.0.1:4173/
 ```
 
 Open http://127.0.0.1:4173/ — mark problems Done on Home, then take a quiz under **Interview**.
+
+### Startup banner
+
+On boot the server prints the URL, the data directory, and the provider
+status, e.g.:
+
+```
+InterviewBudAI is running at http://127.0.0.1:4173/
+  Data:     /Users/you/.interviewbudai/data (created on first run)
+  Provider: no model configured — quiz disabled; set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL or IBAI_OLLAMA_MODEL
+  Press Ctrl+C to stop.
+```
+
+Only the provider kind and model name are shown — never an API key.
+
+### First run and the data directory
+
+- **Default (`~/.interviewbudai/data`, the canonical location):** if you did not
+  set `--data-dir` / `IBAI_DATA_DIR` and the directory does not exist, boot
+  creates it (`mkdir -p`, mode `0700`) so the app is usable immediately.
+- **Explicit (`--data-dir` / `IBAI_DATA_DIR`):** never auto-created (a typo
+  must not silently create a stray directory). The banner says it does not
+  exist yet; create it yourself or use `/setup`.
+- **`/setup`** still lets you choose a different location (stored in a cookie).
+
+### `.env` loading
+
+`server-bin` loads the **repo-root** `.env` (whatever directory you start
+from, e.g. `npm start` at the root or `npm -w @ibai/web start`) using Node's
+built-in `process.loadEnvFile` — no dependency. The path is fixed, not
+configurable. Variables already exported in your shell take precedence. A
+`.env` that cannot be read or parsed prints a one-line warning and the server
+starts without it. Requires Node 20.12+ (the repo `engines` minimum).
 
 ## Building
 
@@ -222,15 +253,15 @@ npm run build
 
 ```bash
 # With default settings (data dir: ~/.interviewbudai/data, port: 4173)
-npm --workspace @ibai/web run start
+npm start
 
-# With custom data directory
-IBAI_DATA_DIR=/path/to/data npm --workspace @ibai/web run start
+# With custom data directory (must exist, or create it via /setup)
+IBAI_DATA_DIR=/path/to/data npm start
 
 # With custom port
-IBAI_WEB_PORT=8080 npm --workspace @ibai/web run start
+IBAI_WEB_PORT=8080 npm start
 
-# Using CLI flags
+# Using CLI flags (after a build)
 node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 ```
 
@@ -238,18 +269,18 @@ node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 
 | Setting | CLI Flag | Environment Variable | Default |
 |---------|----------|---------------------|----------|
-| Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/data` |
+| Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/data` (auto-created) |
 | Port | `--port=<port>` | `IBAI_WEB_PORT` | `4173` |
 | Ollama URL | — | `IBAI_OLLAMA_URL` | `http://127.0.0.1:11434` |
 | Ollama Model | — | `IBAI_OLLAMA_MODEL` | *(required for Ollama)* |
-| Anthropic API Key | — | `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
+| Anthropic API Key | — | `IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
 | Anthropic Model | — | `IBAI_ANTHROPIC_MODEL` | *(required for Anthropic)* |
 
-Precedence: CLI flag > environment variable > default.
+Precedence: CLI flag > environment variable (shell > `.env`) > default. The host is always `127.0.0.1` (not configurable).
 
 ## Privacy & Security
 
-- **Localhost-only** — Server binds to 127.0.0.1 by default
+- **Localhost-only** — Server always binds to 127.0.0.1 (not configurable)
 - **No telemetry** — No usage data is collected or transmitted
 - **Local-first** — All user data stored locally in your data directory
 - **Provider calls only** — The only network calls are to your configured LLM provider
