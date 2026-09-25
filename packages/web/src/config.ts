@@ -9,6 +9,7 @@ import * as path from 'node:path';
 export function resolveDataDir(
   env: NodeJS.ProcessEnv = process.env,
   argv?: string[],
+  homeDir?: string,
 ): string {
   // Check CLI flag first
   if (argv) {
@@ -25,7 +26,123 @@ export function resolveDataDir(
   }
 
   // Default to homedir
-  return path.join(os.homedir(), '.interviewbudai', 'data');
+  return defaultDataDirFor(homeDir);
+}
+
+/**
+ * The canonical default data directory: `<home>/.interviewbudai/data`.
+ */
+export function defaultDataDirFor(homeDir: string = os.homedir()): string {
+  return path.join(homeDir, '.interviewbudai', 'data');
+}
+
+/**
+ * True when the user chose a data directory explicitly (--data-dir flag or
+ * IBAI_DATA_DIR env), as opposed to falling back to the default.
+ */
+export function isDataDirExplicit(
+  env: NodeJS.ProcessEnv = process.env,
+  argv?: string[],
+): boolean {
+  if (argv?.some((arg) => arg.startsWith('--data-dir='))) return true;
+  return Boolean(env.IBAI_DATA_DIR);
+}
+
+export interface BootDataDir {
+  /** Absolute data directory the server will use by default. */
+  readonly dataDir: string;
+  /** Chosen via --data-dir / IBAI_DATA_DIR (never auto-created). */
+  readonly explicit: boolean;
+  /** This boot created the default directory (first run). */
+  readonly created: boolean;
+  /** The directory exists after boot preparation. */
+  readonly exists: boolean;
+}
+
+/**
+ * Resolve the data directory at boot and, on first run, create the canonical
+ * default (`~/.interviewbudai/data`, mode 0700) so the app is usable
+ * immediately without visiting /setup.
+ *
+ * An EXPLICIT directory (--data-dir / IBAI_DATA_DIR) is never created here: a
+ * typo in an explicit path must not silently create a stray directory. The
+ * caller reports it as missing; /setup can still create it.
+ */
+export function prepareBootDataDir(
+  env: NodeJS.ProcessEnv = process.env,
+  argv?: string[],
+  homeDir?: string,
+): BootDataDir {
+  const dataDir = resolveDataDir(env, argv, homeDir);
+  const explicit = isDataDirExplicit(env, argv);
+
+  if (directoryExists(dataDir)) {
+    return { dataDir, explicit, created: false, exists: true };
+  }
+  if (explicit) {
+    return { dataDir, explicit, created: false, exists: false };
+  }
+
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  // mkdir's mode is filtered by the umask; enforce owner-only explicitly.
+  fs.chmodSync(dataDir, 0o700);
+  return { dataDir, explicit, created: true, exists: true };
+}
+
+export type ProviderStatus =
+  | { readonly kind: 'anthropic'; readonly model: string }
+  | { readonly kind: 'ollama'; readonly model: string }
+  | { readonly kind: 'none'; readonly hint?: string };
+
+/**
+ * Describe which provider the server will use, WITHOUT exposing secrets (the
+ * API key is only checked for presence). Mirrors the selection order in
+ * startServer: Anthropic (key + model) first, then Ollama (model).
+ */
+export function resolveProviderStatus(
+  env: NodeJS.ProcessEnv = process.env,
+): ProviderStatus {
+  const hasKey = Boolean(resolveAnthropicApiKey(env));
+  const anthropicModel = resolveAnthropicModel(env);
+  const ollamaModel = resolveOllamaModel(env);
+
+  if (hasKey && anthropicModel) {
+    return { kind: 'anthropic', model: anthropicModel };
+  }
+  if (ollamaModel) {
+    return { kind: 'ollama', model: ollamaModel };
+  }
+  if (hasKey) {
+    return {
+      kind: 'none',
+      hint: 'an Anthropic API key is set but IBAI_ANTHROPIC_MODEL is missing',
+    };
+  }
+  if (anthropicModel) {
+    return {
+      kind: 'none',
+      hint: 'IBAI_ANTHROPIC_MODEL is set but ANTHROPIC_API_KEY is missing',
+    };
+  }
+  return { kind: 'none' };
+}
+
+export type DotEnvResult = 'loaded' | 'absent' | 'unsupported';
+
+/**
+ * Load a `.env` file into the process environment using Node's built-in
+ * `process.loadEnvFile` (Node >= 20.12; no dependency). Variables already set
+ * in the shell take precedence over the file. No-op when the file is absent;
+ * returns 'unsupported' on older Node versions that lack the API.
+ */
+export function loadDotEnv(
+  file: string = path.resolve('.env'),
+  proc: { loadEnvFile?: (p: string) => void } = process,
+): DotEnvResult {
+  if (!fs.existsSync(file)) return 'absent';
+  if (typeof proc.loadEnvFile !== 'function') return 'unsupported';
+  proc.loadEnvFile(file);
+  return 'loaded';
 }
 
 /**
