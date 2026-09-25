@@ -9,6 +9,7 @@ import type {
   ApiProgressResponse,
   ApiNoteResponse,
   ApiConfigResponse,
+  ApiCompetencyResponse,
 } from './api.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
@@ -183,6 +184,87 @@ describe('api progress', () => {
     const body = JSON.parse(res.body) as ApiProgressResponse;
     expect(body.completed).toBe(0);
     expect(body.byStatus.none).toBe(body.total);
+  });
+});
+
+describe('api competency', () => {
+  it('GET /api/competency returns seeded signals (topics sorted weak-first + patterns)', async () => {
+    // Seed the competency-signals store via the real adapter.
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const at = '2026-09-24T12:00:00.000Z' as IsoTimestamp;
+    await adapter.writeCompetencySignals({
+      topics: {
+        'Arrays & Hashing': {
+          topicId: 'Arrays & Hashing',
+          correct: 5,
+          incorrect: 1,
+          lastSeen: at,
+          strength: 'strong',
+        },
+        'Dynamic Programming': {
+          topicId: 'Dynamic Programming',
+          correct: 1,
+          incorrect: 4,
+          lastSeen: at,
+          strength: 'weak',
+        },
+      },
+      patterns: [
+        {
+          id: 'miss:lc-322',
+          description: 'Missed "Coin Change".',
+          topics: ['Dynamic Programming'],
+          occurrences: 3,
+          lastObserved: at,
+        },
+      ],
+      lastUpdated: at,
+    });
+
+    const handler = createCoachHandler(makeDeps());
+    const res = await handler({ method: 'GET', url: '/api/competency' });
+    expect(res.status).toBe(200);
+    expect(res.contentType).toBe('application/json; charset=utf-8');
+    const body = JSON.parse(res.body) as ApiCompetencyResponse;
+
+    // Two topics, sorted weak-first.
+    expect(body.topics).toHaveLength(2);
+    expect(body.topics[0]!.topicId).toBe('Dynamic Programming');
+    expect(body.topics[0]!.strength).toBe('weak');
+    expect(body.topics[0]!.correct).toBe(1);
+    expect(body.topics[0]!.incorrect).toBe(4);
+    expect(body.topics[1]!.topicId).toBe('Arrays & Hashing');
+    expect(body.topics[1]!.strength).toBe('strong');
+
+    // The recurring pattern is surfaced verbatim (user's own words, no solution).
+    expect(body.patterns).toHaveLength(1);
+    expect(body.patterns[0]!.id).toBe('miss:lc-322');
+    expect(body.patterns[0]!.occurrences).toBe(3);
+    expect(body.patterns[0]!.description).toContain('Coin Change');
+  });
+
+  it('GET /api/competency is safe empty when no signals exist yet', async () => {
+    const handler = createCoachHandler(makeDeps());
+    const res = await handler({ method: 'GET', url: '/api/competency' });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as ApiCompetencyResponse;
+    expect(body).toEqual({ topics: [], patterns: [] });
+  });
+
+  it('GET /api/competency is safe empty with no DB configured', async () => {
+    const handler = createCoachHandler(makeNoDbDeps());
+    const res = await handler({ method: 'GET', url: '/api/competency' });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as ApiCompetencyResponse;
+    expect(body).toEqual({ topics: [], patterns: [] });
+  });
+
+  it('POST /api/competency → 405 JSON (read-only)', async () => {
+    const handler = createCoachHandler(makeDeps());
+    const res = await handler({ method: 'POST', url: '/api/competency' });
+    expect(res.status).toBe(405);
+    expect(res.contentType).toBe('application/json; charset=utf-8');
+    expect(JSON.parse(res.body)).toHaveProperty('error');
   });
 });
 

@@ -5,6 +5,7 @@ import App from './App';
 import * as api from './lib/api';
 import type {
   CatalogResponse,
+  CompetencyResponse,
   ConfigResponse,
   ProgressResponse,
 } from './lib/api';
@@ -16,6 +17,7 @@ vi.mock('./lib/api', async () => {
     fetchConfig: vi.fn(),
     fetchProgress: vi.fn(),
     fetchCatalog: vi.fn(),
+    fetchCompetency: vi.fn(),
   };
 });
 
@@ -63,11 +65,14 @@ const CATALOG: CatalogResponse = {
   },
 };
 
+const COMPETENCY_EMPTY: CompetencyResponse = { topics: [], patterns: [] };
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockedApi.fetchConfig.mockResolvedValue(CONFIG);
   mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
   mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+  mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY_EMPTY);
   // Start each test from the SPA root.
   window.history.pushState({}, '', '/');
 });
