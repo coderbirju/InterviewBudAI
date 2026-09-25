@@ -107,7 +107,19 @@ export function Home(): JSX.Element {
     filterFromSearch(currentSearch()),
   );
 
-  // Mirror the filter into the URL query (replace, not push).
+  // The URL is the source of truth for the filter. Re-derive it whenever the
+  // location changes while Home stays mounted: browser Back/Forward, and
+  // in-app `navigate()` (which dispatches `popstate`) — e.g. clicking the
+  // Problems nav link / wordmark to a bare `/` clears the filter.
+  useEffect(() => {
+    function onPopState(): void {
+      setFilter(filterFromSearch(currentSearch()));
+    }
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // Mirror user filter edits into the URL query (replace, not push).
   useEffect(() => {
     replaceSearch(searchWithFilter(currentSearch(), filter));
   }, [filter]);
