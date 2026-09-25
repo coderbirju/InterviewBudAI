@@ -22,7 +22,7 @@ Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.
 
 ### SPA views
 
-- **Home** (`/`) — global progress banner (`GET /api/progress`) + categorized accordion problem list (`GET /api/catalog`) with an interactive 4-state Status control that optimistically updates and `POST`s to `/api/notes/:id`. No Solution/Video/Code columns (the project ships no answers, charter §6.2).
+- **Home** (`/`) — global progress banner (`GET /api/progress`) + categorized accordion problem list (`GET /api/catalog`) with an interactive 4-state Status control that optimistically updates and `POST`s to `/api/notes/:id`. No Solution/Video/Code columns (the project ships no answers, charter §6.2). A **search + filter bar** narrows the catalog client-side (no extra API): instant case-insensitive search on title or problem id, plus multi-select **Difficulty** (Easy/Medium/Hard) and **Status** (Not started/Done/To revisit/Didn't understand) chips — OR within a facet, AND across facets. While filtering, matching topics auto-expand, empty topics are hidden, each header shows an "N matches" badge, and the bar shows "N of M problems" with **Clear filters**; zero matches shows a friendly empty state. The filter lives in the URL query (`/?q=sum&difficulty=Easy,Hard&status=to_revisit`, written with `history.replaceState`) so reload, browser Back/Forward and the Notes page's **Back to problems** link all keep it (the URL is the source of truth: clicking the Problems nav link to a bare `/` clears it; facet values parse case-insensitively). Clearing restores whichever topics you had open before filtering, and a topic you collapse while filtering stays collapsed as you type. Changing a row's status under an active filter keeps that row visible until the filter next changes. Pure logic: `web-ui/src/lib/home.ts` (`filterCatalog`, `filterFromSearch`, `searchWithFilter`).
 - **Notes** (`/notes/:id`) — the intuition editor: status control + free-text intuition + time/space complexity, saved via `POST /api/notes/:id`.
 - **Analytics** (`/analytics`) — hand-built inline-SVG progress charts (status breakdown + per-topic completion) driven by pure geometry helpers — no external chart library/CDN. It also surfaces a **Competency** section (ADR 0007 Q4) fed by `GET /api/competency`: per-topic **strength** bars (weak=red / improving=amber / strong=emerald / slate=too little data) with each topic's correct/incorrect tally, worst-first, plus a **recurring miss patterns** list (the topics to focus next — the user's own recurring gaps, never a solution, §6.2). When no quiz signals exist yet it shows a "Take a quiz session to build your competency map" empty state linking to `/interview`; loading + API-error states are handled like the rest of the page.
 - **Interview** (`/interview`) — the **Quickfire Quiz Master** (ADR 0007 Q3, amended by quiz-fix-a), replacing the old generic interview chat. On load it resumes the single active session via `GET /api/quiz/session` (current question + prior transcript + progress); with none it offers a **Start quiz** entry (`POST /api/quiz/start`). Each question shows a real problem you marked **Done** **directly** from the catalog — its title, a difficulty badge, and an **Open problem** link (new tab, `rel="noopener noreferrer"`); no invented story, no hints, no model call — type your approach and `POST /api/quiz/answer` returns a **verdict**: `correct` (emerald "Correct ✓" + optional optimal nudge) → advance; `incorrect` (amber "Marked for revisit" + feedback) → advance; `on_track` → the same question (title stays visible) with **one** probe shown in its own card, also re-shown after a reload (at most one nudge per question; a second `on_track` is coerced to `incorrect`). The Quiz Master **never reveals the answer**. The prior verdict card is cleared when the next question renders. A progress bar tracks `answered / deckSize`; when the deck is exhausted a **Session complete** summary (correct / to-revisit tallies) offers **New session** (`POST /api/quiz/new`, reshuffle from the current done-set). Empty done-set → a friendly "mark problems as Done first" state linking Home; provider **required** → the "Configure a model" state; provider/verdict failures → a friendly inline banner that never loses the session.
@@ -39,8 +39,8 @@ packages/web/
   web-ui/       React SPA source (Vite build → dist-ui/)  ← separate pipeline
     index.html
     src/main.tsx, src/App.tsx, src/index.css
-    src/components/  ProgressBanner, CategoryAccordion, ProblemRow,
-                     StatusControl, DifficultyBadge, Home, Notes,
+    src/components/  ProgressBanner, CatalogFilterBar, CategoryAccordion,
+                     ProblemRow, StatusControl, DifficultyBadge, Home, Notes,
                      Analytics, StatusBreakdownChart, TopicCompletionChart,
                      CompetencyChart, Interview
     src/lib/         api.ts (typed M1 client), home.ts (pure helpers),
@@ -79,10 +79,15 @@ The root `npm test` (and `npm run verify`) runs both the Node test suite and thi
 ### Run (single server serves the SPA at `/`)
 
 ```bash
-npm run build                                   # ensure dist/ and dist-ui/ exist
-npm --workspace @ibai/web run start             # existing server, serves the SPA at /
+npm start                                       # from repo root: builds if needed, then serves
 # open http://127.0.0.1:4173/
 ```
+
+`npm start` (root) runs `packages/web/bin/start.mjs`: an incremental
+`tsc --build` (a no-op when `dist/` is current), a Vite build only when
+`dist-ui/` is missing or older than `web-ui/`, then the server. To skip the
+build check entirely, use `npm --workspace @ibai/web run serve` (runs
+`dist/server-bin.js` directly).
 
 If the SPA bundle is absent (you ran the server without `build:ui`), `/` **degrades gracefully** with a short "run `npm run build:ui`" message; `/api/*` and `/setup` still work.
 
@@ -126,10 +131,11 @@ without a presentable question. The MODEL is the sole source of the
 **never reveals the answer** (§6.2). Every `question` object is
 `{ problemId, wrapped, title, difficulty, url, probe? }` — `wrapped` is kept for
 wire stability and holds `"<title> (<difficulty>)"`; `probe` is the `on_track`
-nudge already given for the current question, if any. The four routes below
-require a configured **provider** (start/new still return `400 no model
-configured` without one, because answers need a model);
-session-management routes (`GET /api/quiz/sessions`, `POST /api/quiz/end`,
+nudge already given for the current question, if any. Only
+`POST /api/quiz/start`, `/new`, and `/answer` require a configured
+**provider** (start/new still return `400 no model configured` without one,
+because answers need a model); `GET /api/quiz/session` (resume) does not.
+Session-management routes (`GET /api/quiz/sessions`, `POST /api/quiz/end`,
 `POST /api/quiz/resume`, `POST /api/quiz/delete`, `DELETE /api/quiz/session/:id`)
 are described under SPA views above.
 
@@ -205,19 +211,45 @@ export IBAI_OLLAMA_URL=http://127.0.0.1:11434
 ## Quick Start
 
 ```bash
-# Build
-npm run build
-
-# Configure a provider (choose one)
-export IBAI_OLLAMA_MODEL=llama3  # For Ollama
-# OR
-export ANTHROPIC_API_KEY=sk-ant-... && export IBAI_ANTHROPIC_MODEL=claude-sonnet-4-20250514  # For Anthropic
-
-# Start the server
-npm --workspace @ibai/web run start
+npm ci
+cp .env.example .env    # optional: fill in a provider (or export the vars)
+npm start               # builds if needed, then serves http://127.0.0.1:4173/
 ```
 
 Open http://127.0.0.1:4173/ — mark problems Done on Home, then take a quiz under **Interview**.
+
+### Startup banner
+
+On boot the server prints the URL, the data directory, and the provider
+status, e.g.:
+
+```
+InterviewBudAI is running at http://127.0.0.1:4173/
+  Data:     /Users/you/.interviewbudai/data (created on first run)
+  Provider: no model configured — quiz disabled; set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL or IBAI_OLLAMA_MODEL
+  Press Ctrl+C to stop.
+```
+
+Only the provider kind and model name are shown — never an API key.
+
+### First run and the data directory
+
+- **Default (`~/.interviewbudai/data`, the canonical location):** if you did not
+  set `--data-dir` / `IBAI_DATA_DIR` and the directory does not exist, boot
+  creates it (`mkdir -p`, mode `0700`) so the app is usable immediately.
+- **Explicit (`--data-dir` / `IBAI_DATA_DIR`):** never auto-created (a typo
+  must not silently create a stray directory). The banner says it does not
+  exist yet; create it yourself or use `/setup`.
+- **`/setup`** still lets you choose a different location (stored in a cookie).
+
+### `.env` loading
+
+`server-bin` loads the **repo-root** `.env` (whatever directory you start
+from, e.g. `npm start` at the root or `npm -w @ibai/web start`) using Node's
+built-in `process.loadEnvFile` — no dependency. The path is fixed, not
+configurable. Variables already exported in your shell take precedence. A
+`.env` that cannot be read or parsed prints a one-line warning and the server
+starts without it. Requires Node 20.12+ (the repo `engines` minimum).
 
 ## Building
 
@@ -229,15 +261,15 @@ npm run build
 
 ```bash
 # With default settings (data dir: ~/.interviewbudai/data, port: 4173)
-npm --workspace @ibai/web run start
+npm start
 
-# With custom data directory
-IBAI_DATA_DIR=/path/to/data npm --workspace @ibai/web run start
+# With custom data directory (must exist, or create it via /setup)
+IBAI_DATA_DIR=/path/to/data npm start
 
 # With custom port
-IBAI_WEB_PORT=8080 npm --workspace @ibai/web run start
+IBAI_WEB_PORT=8080 npm start
 
-# Using CLI flags
+# Using CLI flags (after a build)
 node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 ```
 
@@ -245,18 +277,18 @@ node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 
 | Setting | CLI Flag | Environment Variable | Default |
 |---------|----------|---------------------|----------|
-| Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/data` |
+| Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/data` (auto-created) |
 | Port | `--port=<port>` | `IBAI_WEB_PORT` | `4173` |
 | Ollama URL | — | `IBAI_OLLAMA_URL` | `http://127.0.0.1:11434` |
 | Ollama Model | — | `IBAI_OLLAMA_MODEL` | *(required for Ollama)* |
-| Anthropic API Key | — | `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
+| Anthropic API Key | — | `IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
 | Anthropic Model | — | `IBAI_ANTHROPIC_MODEL` | *(required for Anthropic)* |
 
-Precedence: CLI flag > environment variable > default.
+Precedence: CLI flag > environment variable (shell > `.env`) > default. The host is always `127.0.0.1` (not configurable).
 
 ## Privacy & Security
 
-- **Localhost-only** — Server binds to 127.0.0.1 by default
+- **Localhost-only** — Server always binds to 127.0.0.1 (not configurable)
 - **No telemetry** — No usage data is collected or transmitted
 - **Local-first** — All user data stored locally in your data directory
 - **Provider calls only** — The only network calls are to your configured LLM provider
