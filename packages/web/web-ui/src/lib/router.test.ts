@@ -6,7 +6,33 @@ import {
   interviewHref,
   homeHref,
   APP_BASE,
+  currentSearch,
+  replaceSearch,
+  rememberHomeSearch,
+  lastHomeHref,
 } from './router';
+
+describe('router query helpers', () => {
+  it('lastHomeHref carries the remembered Home query', () => {
+    expect(lastHomeHref()).toBe('/');
+    rememberHomeSearch('?q=sum');
+    expect(lastHomeHref()).toBe('/?q=sum');
+    rememberHomeSearch('');
+    expect(lastHomeHref()).toBe('/');
+  });
+
+  it('replaceSearch swaps the query in place; currentSearch reads it', () => {
+    window.history.replaceState({}, '', '/');
+    const before = window.history.length;
+    replaceSearch('?q=sum');
+    expect(window.location.pathname).toBe('/');
+    expect(currentSearch()).toBe('?q=sum');
+    replaceSearch('');
+    expect(currentSearch()).toBe('');
+    // Replace, not push — the back stack does not grow.
+    expect(window.history.length).toBe(before);
+  });
+});
 
 describe('router.parseRoute', () => {
   it('resolves the root and trailing slash to home', () => {

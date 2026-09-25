@@ -15,7 +15,7 @@ import type {
   FullNote,
   NoteStatus,
 } from '../lib/api';
-import { homeHref, navigate } from '../lib/router';
+import { lastHomeHref, navigate } from '../lib/router';
 import { StatusControl } from './StatusControl';
 
 /**
@@ -47,10 +47,12 @@ type SaveState =
 
 /** A single labelled shell used for every page state (keeps the chrome consistent). */
 function PageShell({ children }: { children: React.ReactNode }): JSX.Element {
+  // Return to Home with the user's last search/filter (W3), not a bare `/`.
+  const backHref = lastHomeHref();
   return (
     <div>
       <a
-        href={homeHref()}
+        href={backHref}
         onClick={(e) => {
           // Client-side nav (no full reload) when the browser supports it.
           if (
@@ -62,7 +64,7 @@ function PageShell({ children }: { children: React.ReactNode }): JSX.Element {
             !e.altKey
           ) {
             e.preventDefault();
-            navigate(homeHref());
+            navigate(backHref);
           }
         }}
         className="inline-flex items-center gap-1.5 text-sm text-slate-400 transition-all duration-200 hover:text-emerald-400"
