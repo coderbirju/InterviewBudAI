@@ -55,6 +55,9 @@ import {
   appendAssistantTurn,
   appendNudgeTurn,
   nudgeAlreadyUsed,
+  ensureCurrentQuestionPresented,
+  currentProbe,
+  presentProblem,
   currentProblemId,
   isDeckExhausted,
   quizProgress,
@@ -393,11 +396,28 @@ function parseChatMessages(value: unknown): ApiChatMessage[] | null {
 // Quiz Master shapes + helpers (ADR 0007 Q2)
 // ---------------------------------------------------------------------------
 
-/** A wrapped question presented to the SPA (model-authored wording). */
+/**
+ * A question presented to the SPA. Built DETERMINISTICALLY from the catalog
+ * (ADR 0007 A1/A8) — no model call — so it can always be (re-)presented.
+ */
 export interface ApiQuizQuestion {
   readonly problemId: string;
-  /** Model-generated wrapped presentation (no title, no hints, no answer). */
+  /**
+   * Presentation text (`"<title> (<difficulty>)"`). The field name is kept for
+   * wire stability (A1); it is NOT a model-authored rephrasing.
+   */
   readonly wrapped: string;
+  /** The problem's real title (additive, A8). */
+  readonly title: string;
+  /** The problem's difficulty (additive, A8). */
+  readonly difficulty: Problem['difficulty'];
+  /** External problem link from the catalog (additive, A8). */
+  readonly url: string;
+  /**
+   * The `on_track` probe already given for this question, if any (additive,
+   * A8) — shown separately from the problem so the title never disappears.
+   */
+  readonly probe?: string;
 }
 
 /** Session-state summary returned alongside questions. */
@@ -491,19 +511,52 @@ async function readDoneProblemIds(
   return done;
 }
 
-/** Ask the model for a WRAPPED presentation of a problem (model-authored). */
-async function generateWrapped(
-  provider: LlmProvider,
+/**
+ * Build the wire question for a catalog problem — deterministic, no model call
+ * (ADR 0007 A8). `probe` is the current question's spent `on_track` nudge, if
+ * any.
+ */
+function toQuizQuestion(
   problem: Problem,
-): Promise<string> {
-  const messages = buildQuizPrompt('wrap', { problem });
-  const response = await provider.complete({ messages });
-  const wrapped =
-    typeof response.content === 'string' ? response.content.trim() : '';
-  if (!wrapped) {
-    throw new Error('Empty response from model');
+  probe?: string | null,
+): ApiQuizQuestion {
+  return {
+    problemId: problem.id,
+    wrapped: presentProblem(problem),
+    title: problem.title,
+    difficulty: problem.difficulty,
+    url: problem.url,
+    ...(probe ? { probe } : {}),
+  };
+}
+
+/**
+ * Resolve the CURRENT question of a session for (re-)presentation, healing a
+ * missing presentation turn in memory (legacy orphans). Returns `null` when the
+ * deck is exhausted or the current id is no longer in the catalog — i.e. the
+ * session has nothing to present and must not be reported as an answerable
+ * active quiz.
+ */
+function presentCurrent(
+  deps: ApiDeps,
+  session: QuizSession,
+): { session: QuizSession; problem: Problem; question: ApiQuizQuestion } | null {
+  const currentId = currentProblemId(session);
+  const problem = currentId ? deps.catalog.getById(currentId) : undefined;
+  if (!problem) {
+    return null;
   }
-  return wrapped;
+  const at = nowDate(deps).toISOString() as IsoTimestamp;
+  const healed = ensureCurrentQuestionPresented(
+    session,
+    presentProblem(problem),
+    at,
+  );
+  return {
+    session: healed,
+    problem,
+    question: toQuizQuestion(problem, currentProbe(healed)),
+  };
 }
 
 /** Build the API state summary from a session. */
@@ -557,15 +610,16 @@ function parseSessionIdBody(body: string | undefined): string | null {
 
 /**
  * Build a fresh shuffled session from the CURRENT done-set and present its
- * first wrapped question. Shared by POST /api/quiz/start and POST /api/quiz/new.
+ * first question. Shared by POST /api/quiz/start and POST /api/quiz/new.
  *
  * Returns a `{ empty: true }` state (no session, no writes) when the done-set is
- * empty. Persists the session (active) before presenting, then appends the
- * wrapped turn and persists again so the presented question survives a resume.
+ * empty. The first question is presented DETERMINISTICALLY from the catalog
+ * (no model call), and the session is persisted ONCE with that presentation
+ * turn already in its transcript — so an active session can never exist
+ * without a presentable question (ADR 0007 A8).
  */
 async function startFreshSession(
   deps: ApiDeps,
-  provider: LlmProvider,
   storage: StorageAdapter,
 ): Promise<HandlerResponse> {
   const problems = deps.catalog.list();
@@ -588,39 +642,32 @@ async function startFreshSession(
     .toString(36)
     .padStart(6, '0')}`;
 
-  let session: QuizSession = {
-    sessionId,
-    createdAt: at,
-    deck,
-    currentIndex: 0,
-    answered: [],
-    transcript: [],
-    status: 'active',
-  };
-  await storage.writeQuizSession(session);
-
-  const firstId = currentProblemId(session);
-  const problem = firstId ? deps.catalog.getById(firstId) : undefined;
+  // The deck is built from catalog ids, so its first problem always resolves;
+  // guard anyway BEFORE writing so we never persist an unpresentable session.
+  const problem = deps.catalog.getById(deck[0]!);
   if (!problem) {
-    // Deck referenced an unknown id (catalog changed) — treat as empty.
     return json(200, { empty: true, message: 'mark problems complete first' });
   }
 
-  let wrapped: string;
-  try {
-    wrapped = await generateWrapped(provider, problem);
-  } catch (error) {
-    return providerErrorResponse(error);
-  }
-
-  session = appendAssistantTurn(session, wrapped, at);
+  const session: QuizSession = appendAssistantTurn(
+    {
+      sessionId,
+      createdAt: at,
+      deck,
+      currentIndex: 0,
+      answered: [],
+      transcript: [],
+      status: 'active',
+    },
+    presentProblem(problem),
+    at,
+  );
   await storage.writeQuizSession(session);
 
-  const question: ApiQuizQuestion = { problemId: problem.id, wrapped };
   return json(200, {
     empty: false,
     session: toQuizState(session),
-    question,
+    question: toQuizQuestion(problem),
   });
 }
 
@@ -924,7 +971,9 @@ export async function handleApiRoute(
       }
       // `new` discards any active session implicitly by building a fresh one
       // (writing the new active pointer). `start` reuses the same builder.
-      return startFreshSession(deps, deps.provider, storage);
+      // The provider is still REQUIRED here (answers need a model), even
+      // though presenting the question no longer calls it.
+      return startFreshSession(deps, storage);
     }
 
     // ----- /api/quiz/sessions (GET) — list past + active sessions -----
@@ -983,27 +1032,34 @@ export async function handleApiRoute(
       if (!target) {
         return json(404, { error: 'unknown quiz session' });
       }
-      // Re-activate: mark it active again so it becomes the resumable session
-      // (writeQuizSession points active.json at it). If the deck was exhausted
-      // it stays effectively complete (currentIndex past the end) but is now
-      // the active pointer, so the SPA can view/continue it coherently.
-      const reactivated: QuizSession = { ...target, status: 'active' };
+      // Re-present the CURRENT question deterministically from the catalog
+      // (healing a legacy missing presentation turn). If there is nothing to
+      // present (deck exhausted / problem gone from the catalog) the session
+      // is NOT re-activated — an active session must always be answerable —
+      // and it is returned as complete, viewable only.
+      const presented = presentCurrent(deps, target);
+      if (!presented) {
+        const finished: QuizSession = { ...target, status: 'complete' };
+        if (target.status !== 'complete') {
+          await storage.writeQuizSession(finished);
+        }
+        return json(200, {
+          ok: true,
+          session: toQuizState(finished),
+          question: null,
+          transcript: finished.transcript,
+        });
+      }
+      // Re-activate: writeQuizSession points active.json at it.
+      const reactivated: QuizSession = {
+        ...presented.session,
+        status: 'active',
+      };
       await storage.writeQuizSession(reactivated);
-
-      // Re-present the last wrapped question from the transcript, if any.
-      const currentId = currentProblemId(reactivated);
-      const problem = currentId ? deps.catalog.getById(currentId) : undefined;
-      const lastAssistant = [...reactivated.transcript]
-        .reverse()
-        .find((t) => t.role === 'assistant');
-      const question: ApiQuizQuestion | null =
-        problem && lastAssistant
-          ? { problemId: problem.id, wrapped: lastAssistant.content }
-          : null;
       return json(200, {
         ok: true,
         session: toQuizState(reactivated),
-        question,
+        question: presented.question,
         transcript: reactivated.transcript,
       });
     }
@@ -1056,21 +1112,18 @@ export async function handleApiRoute(
       if (!session || session.status !== 'active') {
         return json(200, { active: false });
       }
-      const currentId = currentProblemId(session);
-      const problem = currentId ? deps.catalog.getById(currentId) : undefined;
-      // Re-present the last wrapped question from the transcript if available.
-      const lastAssistant = [...session.transcript]
-        .reverse()
-        .find((t) => t.role === 'assistant');
-      const question: ApiQuizQuestion | null =
-        problem && lastAssistant
-          ? { problemId: problem.id, wrapped: lastAssistant.content }
-          : null;
+      // Re-present the CURRENT question deterministically from the catalog
+      // (read-only: any legacy repair is only in memory here; /answer and
+      // /resume persist it). Nothing presentable → not an active quiz.
+      const presented = presentCurrent(deps, session);
+      if (!presented) {
+        return json(200, { active: false });
+      }
       return json(200, {
         active: true,
-        session: toQuizState(session),
-        question,
-        transcript: session.transcript,
+        session: toQuizState(presented.session),
+        question: presented.question,
+        transcript: presented.session.transcript,
       });
     }
 
@@ -1113,15 +1166,20 @@ export async function handleApiRoute(
       }
       const answer = rawAnswer.trim();
 
-      const session = await storage.readActiveQuizSession();
-      if (!session || session.status !== 'active') {
+      const stored = await storage.readActiveQuizSession();
+      if (!stored || stored.status !== 'active') {
         return json(404, { error: 'no active quiz session' });
       }
-      const problemId = currentProblemId(session);
-      const problem = problemId ? deps.catalog.getById(problemId) : undefined;
-      if (!problemId || !problem) {
+      // Resolve (and, for legacy orphans, heal in memory) the current
+      // question — the same one GET /api/quiz/session presented. The repair is
+      // only persisted together with this turn's write (fail-closed intact).
+      const presented = presentCurrent(deps, stored);
+      if (!presented) {
         return json(404, { error: 'no current question' });
       }
+      const { session, problem } = presented;
+      const problemId = problem.id;
+      const question = toQuizQuestion(problem);
 
       // Read the user's OWN intuition note for personalization (never a
       // shipped answer). Missing note is fine.
@@ -1136,7 +1194,7 @@ export async function handleApiRoute(
       // Call the model for a structured verdict; parse UNTRUSTED, fail closed.
       let verdict;
       try {
-        const messages = buildQuizPrompt('evaluate', {
+        const messages = buildQuizPrompt({
           problem,
           intuition,
           answer,
@@ -1178,7 +1236,8 @@ export async function handleApiRoute(
             : {}),
           terminal: false,
           session: toQuizState(updated),
-          question: { problemId, wrapped: verdict.feedback },
+          // The problem stays displayed; the probe travels separately.
+          question: { ...question, probe: verdict.feedback },
         });
       }
 
@@ -1253,7 +1312,7 @@ export async function handleApiRoute(
         });
       }
 
-      // Otherwise present the next wrapped question.
+      // Otherwise present the next question.
       const nextId = currentProblemId(advanced);
       const nextProblem = nextId ? deps.catalog.getById(nextId) : undefined;
       if (!nextProblem) {
@@ -1270,27 +1329,9 @@ export async function handleApiRoute(
         });
       }
 
-      let nextWrapped: string;
-      try {
-        nextWrapped = await generateWrapped(deps.provider, nextProblem);
-      } catch {
-        // Verdict already persisted below; if the NEXT wrap fails, still save
-        // the advanced session (without the new wrap turn) so it's resumable.
-        await storage.writeQuizSession(advanced);
-        return json(200, {
-          verdict: terminalVerdict,
-          feedback: verdict.feedback,
-          ...(verdict.optimalNudge
-            ? { optimalNudge: verdict.optimalNudge }
-            : {}),
-          terminal: true,
-          complete: false,
-          session: toQuizState(advanced),
-          question: null,
-        });
-      }
-
-      advanced = appendAssistantTurn(advanced, nextWrapped, at);
+      // Present the next question deterministically (no model call) and
+      // persist ONCE with its presentation turn, so it is always resumable.
+      advanced = appendAssistantTurn(advanced, presentProblem(nextProblem), at);
       await storage.writeQuizSession(advanced);
       return json(200, {
         verdict: terminalVerdict,
@@ -1299,7 +1340,7 @@ export async function handleApiRoute(
         terminal: true,
         complete: false,
         session: toQuizState(advanced),
-        question: { problemId: nextProblem.id, wrapped: nextWrapped },
+        question: toQuizQuestion(nextProblem),
       });
     }
 
