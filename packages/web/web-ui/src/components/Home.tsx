@@ -23,7 +23,11 @@ import {
   searchWithFilter,
 } from '../lib/home';
 import type { CatalogFilter } from '../lib/home';
-import { currentSearch, replaceSearch } from '../lib/router';
+import {
+  currentSearch,
+  rememberHomeSearch,
+  replaceSearch,
+} from '../lib/router';
 
 /**
  * The M2 Home view. Fetches config + progress + catalog, and renders:
@@ -121,7 +125,9 @@ export function Home(): JSX.Element {
 
   // Mirror user filter edits into the URL query (replace, not push).
   useEffect(() => {
-    replaceSearch(searchWithFilter(currentSearch(), filter));
+    const search = searchWithFilter(currentSearch(), filter);
+    replaceSearch(search);
+    rememberHomeSearch(search);
   }, [filter]);
 
   const filterActive = isFilterActive(filter);
