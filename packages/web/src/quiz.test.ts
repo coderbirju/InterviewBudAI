@@ -27,6 +27,8 @@ import {
 } from './quiz.js';
 
 const AT = '2026-09-24T12:00:00.000Z' as IsoTimestamp;
+const AT_LATER = '2026-09-24T12:01:00.000Z' as IsoTimestamp;
+const AT_LATEST = '2026-09-24T12:02:00.000Z' as IsoTimestamp;
 
 const PROBLEM: Problem = {
   id: 'lc-1',
@@ -319,9 +321,55 @@ describe('session helpers', () => {
       userTurn: 'a',
       assistantTurn: 'ok',
     });
-    s = appendNudgeTurn(s, 'partial', 'probe?', AT);
-    expect(ensureCurrentQuestionPresented(s, 'Q2', AT)).toBe(s);
+    // The probe is a later request, so it carries a later timestamp.
+    s = appendNudgeTurn(s, 'partial', 'probe?', AT_LATER);
+    expect(ensureCurrentQuestionPresented(s, 'Q2', AT_LATER)).toBe(s);
     expect(nudgeAlreadyUsed(s)).toBe(true);
+    expect(currentProbe(s)).toBe('probe?');
+  });
+
+  it('heals the common legacy orphan: Q1 nudged → Q1 final answer → Q2 never presented', () => {
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    s = appendNudgeTurn(s, 'partial', 'Q1 probe?', AT);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT_LATER,
+      userTurn: 'full answer',
+      assistantTurn: 'Q1 verdict feedback',
+    });
+    // Q2's presentation failed in the old build → nothing appended.
+    const healed = ensureCurrentQuestionPresented(s, 'Q2', AT_LATER);
+    expect(healed).not.toBe(s);
+    expect(healed.transcript[healed.transcript.length - 1]).toEqual({
+      role: 'assistant',
+      content: 'Q2',
+      at: AT_LATER,
+    });
+    expect(nudgeAlreadyUsed(healed)).toBe(false);
+    expect(currentProbe(healed)).toBeNull();
+  });
+
+  it('fallback without any presentation turn decides from the tail', () => {
+    // Orphan from the start: Q1 nudged + answered, Q2 never presented.
+    const s = makeSession({
+      currentIndex: 1,
+      answered: [{ problemId: 'lc-1', verdict: 'correct', at: AT_LATER }],
+      transcript: [
+        { role: 'user', content: 'partial', at: AT },
+        { role: 'assistant', content: 'probe?', at: AT },
+        { role: 'user', content: 'full', at: AT_LATER },
+        { role: 'assistant', content: 'verdict', at: AT_LATER },
+      ],
+    });
+    expect(nudgeCountForCurrentQuestion(s)).toBe(0);
+    expect(currentProbe(s)).toBeNull();
+    // ...and then a probe on the unpresented Q2 counts as its one nudge.
+    const nudged = appendNudgeTurn(s, 'q2 partial', 'q2 probe?', AT_LATEST);
+    expect(nudgeCountForCurrentQuestion(nudged)).toBe(1);
+    expect(ensureCurrentQuestionPresented(nudged, 'Q2', AT_LATEST)).toBe(
+      nudged,
+    );
   });
 
   it('ensureCurrentQuestionPresented is a no-op for well-formed or exhausted sessions', () => {
