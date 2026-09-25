@@ -8,6 +8,9 @@ import type { Problem } from '@ibai/curriculum';
 import {
   QUIZ_MASTER_PERSONA,
   buildQuizPrompt,
+  presentProblem,
+  ensureCurrentQuestionPresented,
+  currentProbe,
   parseVerdict,
   seededRandom,
   shuffleDeck,
@@ -24,6 +27,8 @@ import {
 } from './quiz.js';
 
 const AT = '2026-09-24T12:00:00.000Z' as IsoTimestamp;
+const AT_LATER = '2026-09-24T12:01:00.000Z' as IsoTimestamp;
+const AT_LATEST = '2026-09-24T12:02:00.000Z' as IsoTimestamp;
 
 const PROBLEM: Problem = {
   id: 'lc-1',
@@ -65,19 +70,18 @@ describe('shuffleDeck (seedable)', () => {
   });
 });
 
+describe('presentProblem (deterministic, no model — ADR 0007 A8)', () => {
+  it('presents the RAW problem: real title + difficulty, nothing else', () => {
+    expect(presentProblem(PROBLEM)).toBe('Two Sum (easy)');
+  });
+});
+
 describe('buildQuizPrompt', () => {
-  it('wrap mode: presents the RAW problem directly (title, no story wrapper, no hints)', () => {
-    const messages = buildQuizPrompt('wrap', { problem: PROBLEM });
+  it('prepends the persona as the system message', () => {
+    const messages = buildQuizPrompt({ problem: PROBLEM, answer: 'x' });
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.content).toBe(QUIZ_MASTER_PERSONA);
-    const user = messages[1]?.content ?? '';
-    // The real title is presented directly.
-    expect(user).toContain('Two Sum');
-    // No invented story wrapper — the instruction presents it DIRECTLY and
-    // explicitly forbids inventing a story/scenario.
-    expect(user).toContain('DIRECTLY');
-    expect(user).toContain('Do NOT invent a story');
-    expect(user).not.toContain('```json');
+    expect(messages[1]?.content).toContain('Two Sum');
   });
 
   it('persona forbids revealing the solution and caps nudges at one', () => {
@@ -88,8 +92,8 @@ describe('buildQuizPrompt', () => {
     expect(QUIZ_MASTER_PERSONA).toMatch(/TERMINAL/);
   });
 
-  it('evaluate mode: injects intuition + answer + strict verdict JSON', () => {
-    const messages = buildQuizPrompt('evaluate', {
+  it('injects intuition + answer + strict verdict JSON', () => {
+    const messages = buildQuizPrompt({
       problem: PROBLEM,
       intuition: 'I got confused by the two-pointer trick',
       answer: 'Use a hash map for complements',
@@ -101,8 +105,8 @@ describe('buildQuizPrompt', () => {
     expect(user).toContain('correct');
   });
 
-  it('evaluate mode: tolerates a missing intuition note', () => {
-    const messages = buildQuizPrompt('evaluate', {
+  it('tolerates a missing intuition note', () => {
+    const messages = buildQuizPrompt({
       problem: PROBLEM,
       intuition: null,
       answer: 'brute force',
@@ -263,6 +267,125 @@ describe('session helpers', () => {
     s = appendAssistantTurn(s, 'Q2 presented', AT);
     expect(nudgeCountForCurrentQuestion(s)).toBe(0);
     expect(nudgeAlreadyUsed(s)).toBe(false);
+  });
+
+  it('ensureCurrentQuestionPresented heals a legacy orphan (empty transcript)', () => {
+    const orphan = makeSession();
+    const healed = ensureCurrentQuestionPresented(orphan, 'Two Sum (easy)', AT);
+    expect(healed.transcript).toEqual([
+      { role: 'assistant', content: 'Two Sum (easy)', at: AT },
+    ]);
+    // Nudge accounting works on the healed session.
+    const nudged = appendNudgeTurn(healed, 'partial', 'probe?', AT);
+    expect(nudgeAlreadyUsed(nudged)).toBe(true);
+  });
+
+  it('ensureCurrentQuestionPresented heals a missing NEXT presentation', () => {
+    // Q1 presented + answered terminally, but Q2 was never presented.
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT,
+      userTurn: 'a',
+      assistantTurn: 'ok',
+    });
+    const healed = ensureCurrentQuestionPresented(s, 'Q2', AT);
+    expect(healed.transcript).toHaveLength(4);
+    expect(healed.transcript[3]?.content).toBe('Q2');
+    expect(nudgeAlreadyUsed(healed)).toBe(false);
+  });
+
+  it('does NOT heal an orphan that was already nudged (no second nudge)', () => {
+    // Legacy shape: answered while orphaned — on_track probe spent, but no
+    // presentation turn was ever written.
+    const nudgedOrphan = makeSession({
+      transcript: [
+        { role: 'user', content: 'partial', at: AT },
+        { role: 'assistant', content: 'probe?', at: AT },
+      ],
+    });
+    expect(nudgeAlreadyUsed(nudgedOrphan)).toBe(true);
+    const healed = ensureCurrentQuestionPresented(nudgedOrphan, 'Q1', AT);
+    expect(healed).toBe(nudgedOrphan);
+    expect(nudgeAlreadyUsed(healed)).toBe(true);
+  });
+
+  it('does NOT heal a missing next presentation once its nudge was spent', () => {
+    // Q1 answered, Q2 never presented, then a nudge on Q2.
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT,
+      userTurn: 'a',
+      assistantTurn: 'ok',
+    });
+    // The probe is a later request, so it carries a later timestamp.
+    s = appendNudgeTurn(s, 'partial', 'probe?', AT_LATER);
+    expect(ensureCurrentQuestionPresented(s, 'Q2', AT_LATER)).toBe(s);
+    expect(nudgeAlreadyUsed(s)).toBe(true);
+    expect(currentProbe(s)).toBe('probe?');
+  });
+
+  it('heals the common legacy orphan: Q1 nudged → Q1 final answer → Q2 never presented', () => {
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    s = appendNudgeTurn(s, 'partial', 'Q1 probe?', AT);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT_LATER,
+      userTurn: 'full answer',
+      assistantTurn: 'Q1 verdict feedback',
+    });
+    // Q2's presentation failed in the old build → nothing appended.
+    const healed = ensureCurrentQuestionPresented(s, 'Q2', AT_LATER);
+    expect(healed).not.toBe(s);
+    expect(healed.transcript[healed.transcript.length - 1]).toEqual({
+      role: 'assistant',
+      content: 'Q2',
+      at: AT_LATER,
+    });
+    expect(nudgeAlreadyUsed(healed)).toBe(false);
+    expect(currentProbe(healed)).toBeNull();
+  });
+
+  it('fallback without any presentation turn decides from the tail', () => {
+    // Orphan from the start: Q1 nudged + answered, Q2 never presented.
+    const s = makeSession({
+      currentIndex: 1,
+      answered: [{ problemId: 'lc-1', verdict: 'correct', at: AT_LATER }],
+      transcript: [
+        { role: 'user', content: 'partial', at: AT },
+        { role: 'assistant', content: 'probe?', at: AT },
+        { role: 'user', content: 'full', at: AT_LATER },
+        { role: 'assistant', content: 'verdict', at: AT_LATER },
+      ],
+    });
+    expect(nudgeCountForCurrentQuestion(s)).toBe(0);
+    expect(currentProbe(s)).toBeNull();
+    // ...and then a probe on the unpresented Q2 counts as its one nudge.
+    const nudged = appendNudgeTurn(s, 'q2 partial', 'q2 probe?', AT_LATEST);
+    expect(nudgeCountForCurrentQuestion(nudged)).toBe(1);
+    expect(ensureCurrentQuestionPresented(nudged, 'Q2', AT_LATEST)).toBe(
+      nudged,
+    );
+  });
+
+  it('ensureCurrentQuestionPresented is a no-op for well-formed or exhausted sessions', () => {
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    expect(ensureCurrentQuestionPresented(s, 'Q1', AT)).toBe(s);
+    s = appendNudgeTurn(s, 'partial', 'probe?', AT);
+    expect(ensureCurrentQuestionPresented(s, 'Q1', AT)).toBe(s);
+    const done = makeSession({ currentIndex: 3 });
+    expect(ensureCurrentQuestionPresented(done, 'x', AT)).toBe(done);
+  });
+
+  it('currentProbe returns the spent probe for the current question only', () => {
+    let s = appendAssistantTurn(makeSession(), 'Q1', AT);
+    expect(currentProbe(s)).toBeNull();
+    s = appendNudgeTurn(s, 'partial', 'what about duplicates?', AT);
+    expect(currentProbe(s)).toBe('what about duplicates?');
   });
 });
 

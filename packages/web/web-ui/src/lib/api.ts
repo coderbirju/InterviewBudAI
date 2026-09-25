@@ -12,8 +12,30 @@
 /** The four-state per-problem note status (mirrors storage `NoteStatus`). */
 export type NoteStatus = 'none' | 'done' | 'to_revisit' | 'did_not_understand';
 
-/** Problem difficulty (mirrors curriculum `Problem['difficulty']`). */
+/**
+ * Problem difficulty as the SPA uses it (display casing). NOTE: the server
+ * sends the curriculum's lowercase `'easy'|'medium'|'hard'`; the client
+ * boundary normalizes it via {@link normalizeDifficulty} (the single source of
+ * truth) so badges and filters always see this casing.
+ */
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
+
+/**
+ * Normalize a wire difficulty (any casing, e.g. the catalog's `'easy'`) to the
+ * SPA's {@link Difficulty}; `null` when absent/unknown.
+ */
+export function normalizeDifficulty(raw: unknown): Difficulty | null {
+  switch (typeof raw === 'string' ? raw.toLowerCase() : '') {
+    case 'easy':
+      return 'Easy';
+    case 'medium':
+      return 'Medium';
+    case 'hard':
+      return 'Hard';
+    default:
+      return null;
+  }
+}
 
 /** Per-status counts across a set of problems (mirrors `StatusCounts`). */
 export interface StatusCounts {
@@ -181,8 +203,26 @@ export function fetchConfig(): Promise<ConfigResponse> {
 }
 
 /** GET /api/catalog — the categorized problem list. */
-export function fetchCatalog(): Promise<CatalogResponse> {
-  return getJson<CatalogResponse>('/api/catalog');
+export async function fetchCatalog(): Promise<CatalogResponse> {
+  return normalizeCatalog(await getJson<CatalogResponse>('/api/catalog'));
+}
+
+/**
+ * Normalize a raw /api/catalog payload at the client boundary: the wire
+ * difficulty is lowercase, the SPA's {@link Difficulty} is display-cased.
+ * Unknown values pass through unchanged (neutral badge, match no chip).
+ */
+export function normalizeCatalog(raw: CatalogResponse): CatalogResponse {
+  return {
+    ...raw,
+    topics: raw.topics.map((topic) => ({
+      ...topic,
+      problems: topic.problems.map((p) => ({
+        ...p,
+        difficulty: normalizeDifficulty(p.difficulty) ?? p.difficulty,
+      })),
+    })),
+  };
 }
 
 /** GET /api/progress — the global progress banner data. */
@@ -315,13 +355,20 @@ export async function postChat(
 export type QuizVerdict = 'correct' | 'incorrect' | 'on_track';
 
 /**
- * A wrapped question presented to the SPA. `wrapped` is the MODEL-authored
- * short rephrasing (no title, no hints, no answer) and is rendered verbatim via
- * JSX (auto-escaped) — never as HTML (charter §6.2 / §7.3).
+ * A question presented to the SPA, built deterministically from the catalog
+ * (ADR 0007 A1/A8 — the real problem, no model call). `wrapped` is the
+ * presentation text (field name kept for wire stability); `title`,
+ * `difficulty`, `url` and the optional current `probe` are additive. All values
+ * render via JSX (auto-escaped) — never as HTML (charter §6.2 / §7.3).
  */
 export interface QuizQuestion {
   readonly problemId: string;
   readonly wrapped: string;
+  readonly title?: string;
+  /** Catalog difficulty as sent by the server (e.g. `'easy'`). */
+  readonly difficulty?: string;
+  readonly url?: string;
+  readonly probe?: string;
 }
 
 /** Session-state summary returned alongside questions (mirrors `ApiQuizState`). */
@@ -342,8 +389,8 @@ export interface QuizTranscriptEntry {
 
 /**
  * GET /api/quiz/session result. Either no active session, or an active session
- * with its current wrapped question (may be `null` if it could not be
- * re-presented), progress, and full transcript for resume.
+ * with its current question (catalog-built; `null` only when there is
+ * nothing to present), progress, and full transcript for resume.
  */
 export type QuizSessionResult =
   | { readonly active: false }
@@ -369,7 +416,7 @@ export type QuizStartResult =
 
 /**
  * POST /api/quiz/answer result. `on_track` is non-terminal (stay on the same
- * question, `question.wrapped` carries the probe). A terminal verdict
+ * question, the problem stays in `question`, the probe is in `feedback` and `question.probe`). A terminal verdict
  * (`correct` | `incorrect`) either advances to the next question or, when
  * `complete` is true, ends the session (`question` is `null`).
  */
@@ -433,7 +480,7 @@ export function getQuizSession(): Promise<QuizSessionResult> {
 
 /**
  * POST /api/quiz/start — build a fresh shuffled deck from the current done-set
- * and present its first wrapped question. Resolves to `{ empty: true }` when no
+ * and present its first question. Resolves to `{ empty: true }` when no
  * problems are marked done. Throws `ApiError(400)` when no model is configured
  * (message `no model configured`) or `ApiError(502)` on a provider failure.
  */
@@ -453,7 +500,7 @@ export function newQuiz(): Promise<QuizStartResult> {
 /**
  * POST /api/quiz/answer — submit the user's typed approach for the current
  * question. Resolves with the verdict, model feedback, optional optimal nudge,
- * and either the next wrapped question or a completion marker. Throws
+ * and either the next question or a completion marker. Throws
  * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 502
  * provider/verdict failure) — the caller preserves the transcript.
  */
