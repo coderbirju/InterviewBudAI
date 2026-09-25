@@ -299,6 +299,36 @@ export interface QuizSession {
   readonly status: QuizSessionStatus;
 }
 
+/**
+ * A lightweight, list-oriented summary of a persisted {@link QuizSession}
+ * (ADR 0007 — session management, quiz-fix-b).
+ *
+ * Returned by {@link StorageAdapter.listQuizSessions} so a front-end can render
+ * a scannable list of past + active sessions (created time, progress, outcome
+ * tallies, status) WITHOUT loading each full session (deck + transcript). Every
+ * field is derived from the user's OWN session data — no shipped answers
+ * (§6.2).
+ */
+export interface QuizSessionSummary {
+  /** Opaque session identifier (matches the on-disk filename stem). */
+  readonly sessionId: QuizSessionId;
+  /** When the session (and its shuffled deck) was created. */
+  readonly createdAt: IsoTimestamp;
+  /** Lifecycle state (`'active'` = resumable-active; `'complete'` = finished). */
+  readonly status: QuizSessionStatus;
+  /** Total number of questions in this session's deck. */
+  readonly deckSize: number;
+  /** How many questions have been answered so far (terminal outcomes). */
+  readonly answeredCount: number;
+  /** How many of the answered questions were verdicted `'correct'`. */
+  readonly correctCount: number;
+  /**
+   * Whether THIS session is currently the active/resumable one (matches the
+   * `active.json` pointer). At most one session is active at a time.
+   */
+  readonly isActive: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Competency Signal Types (ADR 0007 — competency intelligence)
 // ---------------------------------------------------------------------------
@@ -518,6 +548,39 @@ export interface StorageAdapter {
    * @param session - The quiz session to persist.
    */
   writeQuizSession?(session: QuizSession): Promise<void>;
+
+  /**
+   * List a lightweight summary of every persisted quiz session (ADR 0007 —
+   * session management, quiz-fix-b).
+   *
+   * Scans the quiz-session store, skipping the active-session pointer and any
+   * malformed session files, and returns one {@link QuizSessionSummary} per
+   * well-formed session, sorted NEWEST-FIRST (by `createdAt` descending). Used
+   * to render the sessions list (past + active) in the Quiz section.
+   *
+   * @remarks
+   * OPTIONAL/additive so existing adapters keep compiling. Tolerant: a missing
+   * store or malformed files degrade to an empty list / are skipped — never
+   * throws.
+   */
+  listQuizSessions?(): Promise<QuizSessionSummary[]>;
+
+  /**
+   * Delete a persisted quiz session by ID (ADR 0007 — session management,
+   * quiz-fix-b).
+   *
+   * Removes the session file. If the deleted session was the active/resumable
+   * one, the active pointer is cleared so {@link StorageAdapter.readActiveQuizSession}
+   * returns `null` afterwards.
+   *
+   * @remarks
+   * OPTIONAL/additive. Path-safe (reuses the same sanitisation as the other
+   * quiz methods) and tolerant: deleting a missing session is a no-op — never
+   * throws.
+   *
+   * @param sessionId - The quiz session ID to delete.
+   */
+  deleteQuizSession?(sessionId: QuizSessionId): Promise<void>;
 
   // ---------------------------------------------------------------------------
   // Competency Signal Methods (ADR 0007 — competency intelligence)

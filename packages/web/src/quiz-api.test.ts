@@ -675,3 +675,276 @@ describe('POST /api/quiz/new', () => {
     expect(res.status).toBe(405);
   });
 });
+
+describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () => {
+  async function startSession(): Promise<ApiDeps> {
+    const provider = new FakeQuizProvider();
+    const deps = makeQuizDeps(provider);
+    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    return deps;
+  }
+
+  it('end sets the active session complete, clears active, but keeps it listed', async () => {
+    await seedDone(DONE_IDS);
+    const deps = await startSession();
+
+    const endRes = await handleApiRoute(
+      'POST',
+      '/api/quiz/end',
+      deps,
+      undefined,
+      '{}',
+    );
+    expect(endRes.status).toBe(200);
+    const endBody = JSON.parse(endRes.body) as {
+      ok: boolean;
+      session: { status: string };
+    };
+    expect(endBody.ok).toBe(true);
+    expect(endBody.session.status).toBe('complete');
+
+    // No longer the active/resumable session.
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    expect(await adapter.readActiveQuizSession()).toBeNull();
+
+    // But it REMAINS listed.
+    const listRes = await handleApiRoute(
+      'GET',
+      '/api/quiz/sessions',
+      deps,
+      undefined,
+      undefined,
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = JSON.parse(listRes.body) as {
+      sessions: Array<{ status: string; isActive: boolean }>;
+    };
+    expect(listBody.sessions).toHaveLength(1);
+    expect(listBody.sessions[0]?.status).toBe('complete');
+    expect(listBody.sessions[0]?.isActive).toBe(false);
+  });
+
+  it('end with no active session → 404', async () => {
+    await seedDone(DONE_IDS);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/end',
+      deps,
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/quiz/end → 405', async () => {
+    const res = await handleApiRoute(
+      'GET',
+      '/api/quiz/end',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      undefined,
+    );
+    expect(res.status).toBe(405);
+  });
+
+  it('GET /api/quiz/sessions is empty-safe with no sessions', async () => {
+    await seedDone(DONE_IDS);
+    const res = await handleApiRoute(
+      'GET',
+      '/api/quiz/sessions',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      undefined,
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ sessions: [] });
+  });
+
+  it('POST /api/quiz/sessions → 405', async () => {
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/sessions',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(405);
+  });
+});
+
+describe('POST /api/quiz/resume (session management)', () => {
+  it('re-activates a listed (ended) session and re-presents its question', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider();
+    const deps = makeQuizDeps(provider);
+    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const sessionId = (await adapter.readActiveQuizSession())!.sessionId;
+
+    // End it so it is no longer active.
+    await handleApiRoute('POST', '/api/quiz/end', deps, undefined, '{}');
+    expect(await adapter.readActiveQuizSession()).toBeNull();
+
+    // Resume it.
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/resume',
+      deps,
+      undefined,
+      JSON.stringify({ sessionId }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as {
+      ok: boolean;
+      session: { sessionId: string; status: string };
+      question: { wrapped: string } | null;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.session.status).toBe('active');
+
+    // It is the active session again.
+    const active = await adapter.readActiveQuizSession();
+    expect(active?.sessionId).toBe(sessionId);
+    // The wrapped question is re-presented from the transcript.
+    expect(body.question?.wrapped).toBe('A wrapped little story.');
+  });
+
+  it('resume unknown id → 404', async () => {
+    await seedDone(DONE_IDS);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/resume',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      JSON.stringify({ sessionId: 'nope' }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('resume with missing sessionId → 400', async () => {
+    await seedDone(DONE_IDS);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/resume',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/quiz/resume → 405', async () => {
+    const res = await handleApiRoute(
+      'GET',
+      '/api/quiz/resume',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      undefined,
+    );
+    expect(res.status).toBe(405);
+  });
+});
+
+describe('delete a quiz session (session management)', () => {
+  async function startAndGetId(deps: ApiDeps): Promise<string> {
+    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    return (await adapter.readActiveQuizSession())!.sessionId;
+  }
+
+  it('POST /api/quiz/delete removes the session (gone from the list)', async () => {
+    await seedDone(DONE_IDS);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    const sessionId = await startAndGetId(deps);
+
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/delete',
+      deps,
+      undefined,
+      JSON.stringify({ sessionId }),
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true });
+
+    const listRes = await handleApiRoute(
+      'GET',
+      '/api/quiz/sessions',
+      deps,
+      undefined,
+      undefined,
+    );
+    expect(JSON.parse(listRes.body)).toEqual({ sessions: [] });
+    // Deleting the active session also cleared the active pointer.
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    expect(await adapter.readActiveQuizSession()).toBeNull();
+  });
+
+  it('DELETE /api/quiz/session/:id removes the session (REST form)', async () => {
+    await seedDone(DONE_IDS);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    const sessionId = await startAndGetId(deps);
+
+    const res = await handleApiRoute(
+      'DELETE',
+      `/api/quiz/session/${encodeURIComponent(sessionId)}`,
+      deps,
+      undefined,
+      undefined,
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true });
+
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    expect(await adapter.readQuizSession(sessionId)).toBeNull();
+  });
+
+  it('POST /api/quiz/delete with missing sessionId → 400', async () => {
+    await seedDone(DONE_IDS);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/delete',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('deleting a missing session is a no-op ok:true (idempotent)', async () => {
+    await seedDone(DONE_IDS);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/delete',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      JSON.stringify({ sessionId: 'ghost' }),
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  it('GET /api/quiz/delete → 405', async () => {
+    const res = await handleApiRoute(
+      'GET',
+      '/api/quiz/delete',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      undefined,
+    );
+    expect(res.status).toBe(405);
+  });
+
+  it('POST /api/quiz/session/:id (wrong method) → 405', async () => {
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/session/abc',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(405);
+  });
+});
