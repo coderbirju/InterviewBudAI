@@ -157,19 +157,15 @@ describe('Quickfire Quiz Master', () => {
     await user.type(screen.getByLabelText(/your answer/i), 'Use a hash map');
     await user.click(screen.getByRole('button', { name: /submit answer/i }));
 
-    // Verdict shown.
-    expect(await screen.findByText(/Correct/)).toBeInTheDocument();
-    expect(
-      screen.getByText('Great — a hash map in one pass.'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Consider the space tradeoff.'),
-    ).toBeInTheDocument();
-    // Advanced to the next question + progress incremented.
+    // Advanced to the next question + progress incremented. On advance the
+    // prior verdict card is cleared (quiz-fix-a Fix 3): the fresh question must
+    // not carry the previous answer's verdict/feedback.
     expect(
       await screen.findByText('A second wrapped question.'),
     ).toBeInTheDocument();
     expect(screen.getByText('1 / 3 answered')).toBeInTheDocument();
+    expect(screen.queryByText('Great — a hash map in one pass.')).toBeNull();
+    expect(screen.queryByText('Consider the space tradeoff.')).toBeNull();
   });
 
   it('submitting an incorrect answer shows revisit + advances', async () => {
@@ -196,13 +192,46 @@ describe('Quickfire Quiz Master', () => {
     );
     await user.click(screen.getByRole('button', { name: /submit answer/i }));
 
-    expect(await screen.findByText(/marked for revisit/i)).toBeInTheDocument();
-    expect(
-      screen.getByText('That misses the sorted-array insight.'),
-    ).toBeInTheDocument();
+    // Advanced to the next question; the prior verdict card is cleared on
+    // advance (quiz-fix-a Fix 3) so it does not linger over the fresh question.
     expect(
       await screen.findByText('Next wrapped question.'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/marked for revisit/i)).toBeNull();
+    expect(
+      screen.queryByText('That misses the sorted-array insight.'),
+    ).toBeNull();
+  });
+
+  it('clears the prior verdict card when the next question renders (quiz-fix-a Fix 3)', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    // First answer: correct, advances to a second question.
+    mockedApi.answerQuiz.mockResolvedValueOnce({
+      verdict: 'correct',
+      feedback: 'First verdict feedback text.',
+      terminal: true,
+      complete: false,
+      session: STATE({ index: 1, answered: 1 }),
+      question: { problemId: 'lc-2', wrapped: 'The second wrapped question.' },
+    });
+
+    render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    );
+    await screen.findByText('A wrapped question about arrays.');
+
+    await user.type(screen.getByLabelText(/your answer/i), 'Use a hash map');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+
+    // Next question is shown …
+    expect(
+      await screen.findByText('The second wrapped question.'),
+    ).toBeInTheDocument();
+    // … and the PRIOR verdict card is gone (no lingering "Correct" / feedback).
+    expect(screen.queryByText('First verdict feedback text.')).toBeNull();
+    expect(screen.queryByText(/^Correct/)).toBeNull();
   });
 
   it('an on_track verdict stays on the same question and shows the probe', async () => {

@@ -13,6 +13,9 @@ import {
   shuffleDeck,
   advanceSession,
   appendAssistantTurn,
+  appendNudgeTurn,
+  nudgeAlreadyUsed,
+  nudgeCountForCurrentQuestion,
   currentProblemId,
   isDeckExhausted,
   quizProgress,
@@ -63,14 +66,26 @@ describe('shuffleDeck (seedable)', () => {
 });
 
 describe('buildQuizPrompt', () => {
-  it('wrap mode: persona + wrap instruction, no verdict JSON', () => {
+  it('wrap mode: presents the RAW problem directly (title, no story wrapper, no hints)', () => {
     const messages = buildQuizPrompt('wrap', { problem: PROBLEM });
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.content).toBe(QUIZ_MASTER_PERSONA);
     const user = messages[1]?.content ?? '';
+    // The real title is presented directly.
     expect(user).toContain('Two Sum');
-    expect(user).toContain('WRAPPED');
+    // No invented story wrapper — the instruction presents it DIRECTLY and
+    // explicitly forbids inventing a story/scenario.
+    expect(user).toContain('DIRECTLY');
+    expect(user).toContain('Do NOT invent a story');
     expect(user).not.toContain('```json');
+  });
+
+  it('persona forbids revealing the solution and caps nudges at one', () => {
+    // Persona-level guarantee (§6.2): the Quiz Master must never reveal the
+    // answer and must not give more than one on_track nudge per question.
+    expect(QUIZ_MASTER_PERSONA).toMatch(/NEVER reveal/i);
+    expect(QUIZ_MASTER_PERSONA).toMatch(/AT MOST ONE/i);
+    expect(QUIZ_MASTER_PERSONA).toMatch(/TERMINAL/);
   });
 
   it('evaluate mode: injects intuition + answer + strict verdict JSON', () => {
@@ -208,6 +223,46 @@ describe('session helpers', () => {
       content: 'wrapped question',
       at: AT,
     });
+  });
+
+  it('nudge tracking: fresh question has no nudge used', () => {
+    const s = appendAssistantTurn(makeSession(), 'presented question', AT);
+    expect(nudgeCountForCurrentQuestion(s)).toBe(0);
+    expect(nudgeAlreadyUsed(s)).toBe(false);
+  });
+
+  it('appendNudgeTurn records the answer + probe and counts as one nudge', () => {
+    let s = appendAssistantTurn(makeSession(), 'presented question', AT);
+    s = appendNudgeTurn(s, 'my first answer', 'what is the complexity?', AT);
+    // Does not advance / record an outcome.
+    expect(s.currentIndex).toBe(0);
+    expect(s.answered).toHaveLength(0);
+    expect(s.transcript.map((t) => t.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+    ]);
+    // Exactly one nudge is now used for the current question.
+    expect(nudgeCountForCurrentQuestion(s)).toBe(1);
+    expect(nudgeAlreadyUsed(s)).toBe(true);
+  });
+
+  it('nudge tracking resets on the next question after a terminal advance', () => {
+    // Q1: one nudge, then a terminal correct advances to Q2.
+    let s = appendAssistantTurn(makeSession(), 'Q1 presented', AT);
+    s = appendNudgeTurn(s, 'partial', 'probe?', AT);
+    expect(nudgeAlreadyUsed(s)).toBe(true);
+    s = advanceSession(s, {
+      problemId: 'lc-1',
+      verdict: 'correct',
+      at: AT,
+      userTurn: 'full answer',
+      assistantTurn: 'correct!',
+    });
+    // Present Q2; nudge budget is fresh again (user turns == answered).
+    s = appendAssistantTurn(s, 'Q2 presented', AT);
+    expect(nudgeCountForCurrentQuestion(s)).toBe(0);
+    expect(nudgeAlreadyUsed(s)).toBe(false);
   });
 });
 
