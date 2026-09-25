@@ -187,14 +187,15 @@ export function Interview(): JSX.Element {
     try {
       const result: QuizAnswerResult = await answerQuiz(answer);
       setSession(result.session);
-      setVerdictCard({
-        verdict: result.verdict,
-        feedback: result.feedback,
-        ...(result.optimalNudge ? { optimalNudge: result.optimalNudge } : {}),
-      });
 
       if (result.verdict === 'on_track') {
-        // Non-terminal: stay on the SAME question, clear the draft to re-answer.
+        // Non-terminal: stay on the SAME question. Show the probe verdict card
+        // (it belongs to the current question) and clear the draft to re-answer.
+        setVerdictCard({
+          verdict: result.verdict,
+          feedback: result.feedback,
+          ...(result.optimalNudge ? { optimalNudge: result.optimalNudge } : {}),
+        });
         setDraft('');
         return;
       }
@@ -208,11 +209,17 @@ export function Interview(): JSX.Element {
       setDraft('');
 
       if (result.complete || !result.question) {
+        // Session finished: the completion summary owns the screen, so the
+        // per-answer verdict card must not linger.
+        setVerdictCard(null);
         setQuestion(null);
         setPhase({ kind: 'complete' });
         return;
       }
-      // Advance to the next wrapped question.
+      // Advance to the next wrapped question. CLEAR the prior verdict card so
+      // the previous answer's verdict does not linger over the fresh question
+      // (quiz-fix-a Fix 3): a new question must never show the old verdict.
+      setVerdictCard(null);
       setQuestion(result.question);
     } catch (err) {
       // Preserve the session + transcript; surface an inline message.
