@@ -254,3 +254,161 @@ export async function postChat(
   }
   return (await res.json()) as ChatResponse;
 }
+
+// ---------------------------------------------------------------------------
+// Quiz Master (ADR 0007 Q3) — typed client for the /api/quiz/* endpoints.
+//
+// These mirror the server `ApiQuizQuestion` / `ApiQuizState` and the quiz
+// route payloads in `packages/web/src/api.ts` EXACTLY. The SPA consumes the Q2
+// contract unchanged — no server-contract changes in Q3.
+// ---------------------------------------------------------------------------
+
+/** The Quiz Master verdict for a submitted answer (mirrors the server). */
+export type QuizVerdict = 'correct' | 'incorrect' | 'on_track';
+
+/**
+ * A wrapped question presented to the SPA. `wrapped` is the MODEL-authored
+ * short rephrasing (no title, no hints, no answer) and is rendered verbatim via
+ * JSX (auto-escaped) — never as HTML (charter §6.2 / §7.3).
+ */
+export interface QuizQuestion {
+  readonly problemId: string;
+  readonly wrapped: string;
+}
+
+/** Session-state summary returned alongside questions (mirrors `ApiQuizState`). */
+export interface QuizState {
+  readonly sessionId: string;
+  readonly deckSize: number;
+  readonly index: number;
+  readonly answered: number;
+  readonly status: 'active' | 'complete';
+}
+
+/** A persisted transcript entry (mirrors storage `QuizTranscriptEntry`). */
+export interface QuizTranscriptEntry {
+  readonly role: 'user' | 'assistant' | 'system';
+  readonly content: string;
+  readonly at: string;
+}
+
+/**
+ * GET /api/quiz/session result. Either no active session, or an active session
+ * with its current wrapped question (may be `null` if it could not be
+ * re-presented), progress, and full transcript for resume.
+ */
+export type QuizSessionResult =
+  | { readonly active: false }
+  | {
+      readonly active: true;
+      readonly session: QuizState;
+      readonly question: QuizQuestion | null;
+      readonly transcript: readonly QuizTranscriptEntry[];
+    };
+
+/**
+ * POST /api/quiz/start and POST /api/quiz/new result. Either an empty-deck
+ * marker (no problems marked done) or a fresh session presenting its first
+ * wrapped question.
+ */
+export type QuizStartResult =
+  | { readonly empty: true; readonly message: string }
+  | {
+      readonly empty: false;
+      readonly session: QuizState;
+      readonly question: QuizQuestion;
+    };
+
+/**
+ * POST /api/quiz/answer result. `on_track` is non-terminal (stay on the same
+ * question, `question.wrapped` carries the probe). A terminal verdict
+ * (`correct` | `incorrect`) either advances to the next question or, when
+ * `complete` is true, ends the session (`question` is `null`).
+ */
+export type QuizAnswerResult =
+  | {
+      readonly verdict: 'on_track';
+      readonly feedback: string;
+      readonly optimalNudge?: string;
+      readonly terminal: false;
+      readonly session: QuizState;
+      readonly question: QuizQuestion;
+    }
+  | {
+      readonly verdict: 'correct' | 'incorrect';
+      readonly feedback: string;
+      readonly optimalNudge?: string;
+      readonly terminal: true;
+      readonly complete: boolean;
+      readonly session: QuizState;
+      readonly question: QuizQuestion | null;
+    };
+
+/**
+ * Shared POST helper for the quiz routes. Sends the (optional) JSON body and,
+ * on a non-2xx response, throws an `ApiError` carrying the server's JSON
+ * `error` message and HTTP status so the UI can show a friendly inline banner
+ * and special-case the provider-required `400` (no model configured).
+ */
+async function postQuiz<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) {
+    let message = `POST ${path} failed (${res.status})`;
+    try {
+      const data = (await res.json()) as { error?: unknown };
+      if (typeof data.error === 'string' && data.error.trim()) {
+        message = data.error;
+      }
+    } catch {
+      // Non-JSON error body — keep the generic message.
+    }
+    throw new ApiError(message, res.status);
+  }
+  return (await res.json()) as T;
+}
+
+/**
+ * GET /api/quiz/session — resume the single active session if one exists. A
+ * missing/inactive session resolves to `{ active: false }` (200), so the page
+ * can offer to start a new quiz. Throws `ApiError` only on a genuine non-2xx.
+ */
+export function getQuizSession(): Promise<QuizSessionResult> {
+  return getJson<QuizSessionResult>('/api/quiz/session');
+}
+
+/**
+ * POST /api/quiz/start — build a fresh shuffled deck from the current done-set
+ * and present its first wrapped question. Resolves to `{ empty: true }` when no
+ * problems are marked done. Throws `ApiError(400)` when no model is configured
+ * (message `no model configured`) or `ApiError(502)` on a provider failure.
+ */
+export function startQuiz(): Promise<QuizStartResult> {
+  return postQuiz<QuizStartResult>('/api/quiz/start');
+}
+
+/**
+ * POST /api/quiz/new — reshuffle a brand-new deck from the CURRENT done-set and
+ * restart the flow (discarding any active session). Same result shape and error
+ * modes as `startQuiz`.
+ */
+export function newQuiz(): Promise<QuizStartResult> {
+  return postQuiz<QuizStartResult>('/api/quiz/new');
+}
+
+/**
+ * POST /api/quiz/answer — submit the user's typed approach for the current
+ * question. Resolves with the verdict, model feedback, optional optimal nudge,
+ * and either the next wrapped question or a completion marker. Throws
+ * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 502
+ * provider/verdict failure) — the caller preserves the transcript.
+ */
+export function answerQuiz(answer: string): Promise<QuizAnswerResult> {
+  return postQuiz<QuizAnswerResult>('/api/quiz/answer', { answer });
+}
