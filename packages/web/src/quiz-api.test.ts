@@ -129,7 +129,7 @@ afterEach(() => {
 });
 
 describe('POST /api/quiz/start', () => {
-  it('builds a shuffled deck from the done-set and returns the first wrapped question', async () => {
+  it('builds a shuffled deck from the done-set and presents the first problem from the catalog', async () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider();
     const res = await handleApiRoute(
@@ -143,15 +143,28 @@ describe('POST /api/quiz/start', () => {
     const body = JSON.parse(res.body) as {
       empty: boolean;
       session: { deckSize: number; index: number; status: string };
-      question: { problemId: string; wrapped: string };
+      question: {
+        problemId: string;
+        wrapped: string;
+        title: string;
+        difficulty: string;
+        url: string;
+      };
     };
     expect(body.empty).toBe(false);
     expect(body.session.deckSize).toBe(DONE_IDS.length);
     expect(body.session.index).toBe(0);
     expect(body.session.status).toBe('active');
     expect(DONE_IDS).toContain(body.question.problemId);
-    expect(body.question.wrapped).toBe('A wrapped little story.');
-    expect(provider.wrapCalls).toBe(1);
+    // Presented DIRECTLY from the catalog (A8) — no model call on start.
+    const problem = CATALOG.getById(body.question.problemId)!;
+    expect(body.question.title).toBe(problem.title);
+    expect(body.question.difficulty).toBe(problem.difficulty);
+    expect(body.question.url).toBe(problem.url);
+    expect(body.question.wrapped).toBe(
+      `${problem.title} (${problem.difficulty})`,
+    );
+    expect(provider.calls).toBe(0);
 
     // Deck is deterministic under the seeded shuffle.
     const adapter = new LocalFileStorageAdapter(tmpDir);
@@ -205,7 +218,7 @@ describe('POST /api/quiz/start', () => {
 });
 
 describe('GET /api/quiz/session (resume)', () => {
-  it('returns the active session with the current wrapped question', async () => {
+  it('returns the active session with the current catalog question', async () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider();
     await handleApiRoute(
@@ -226,11 +239,14 @@ describe('GET /api/quiz/session (resume)', () => {
     const body = JSON.parse(res.body) as {
       active: boolean;
       session: { deckSize: number };
-      question: { wrapped: string } | null;
+      question: { problemId: string; title: string } | null;
     };
     expect(body.active).toBe(true);
     expect(body.session.deckSize).toBe(DONE_IDS.length);
-    expect(body.question?.wrapped).toBe('A wrapped little story.');
+    expect(body.question?.title).toBe(
+      CATALOG.getById(body.question.problemId)?.title,
+    );
+    expect(provider.calls).toBe(0);
   });
 
   it('no active session → { active:false }', async () => {
@@ -799,7 +815,7 @@ describe('POST /api/quiz/resume (session management)', () => {
     const body = JSON.parse(res.body) as {
       ok: boolean;
       session: { sessionId: string; status: string };
-      question: { wrapped: string } | null;
+      question: { problemId: string; title: string } | null;
     };
     expect(body.ok).toBe(true);
     expect(body.session.status).toBe('active');
@@ -807,8 +823,46 @@ describe('POST /api/quiz/resume (session management)', () => {
     // It is the active session again.
     const active = await adapter.readActiveQuizSession();
     expect(active?.sessionId).toBe(sessionId);
-    // The wrapped question is re-presented from the transcript.
-    expect(body.question?.wrapped).toBe('A wrapped little story.');
+    // The current question is re-presented from the catalog.
+    expect(body.question?.problemId).toBe(active?.deck[0]);
+    expect(body.question?.title).toBe(
+      CATALOG.getById(active!.deck[0]!)?.title,
+    );
+  });
+
+  it('resuming an exhausted session does NOT re-activate it (no empty active view)', async () => {
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const deck = DONE_IDS.slice(0, 1);
+    await adapter.writeQuizSession({
+      sessionId: 'quiz-done',
+      createdAt: '2026-09-24T12:00:00.000Z' as IsoTimestamp,
+      deck,
+      currentIndex: 1,
+      answered: [
+        {
+          problemId: deck[0]!,
+          verdict: 'correct',
+          at: '2026-09-24T12:00:00.000Z' as IsoTimestamp,
+        },
+      ],
+      transcript: [],
+      status: 'complete',
+    });
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/resume',
+      makeQuizDeps(new FakeQuizProvider()),
+      undefined,
+      JSON.stringify({ sessionId: 'quiz-done' }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as {
+      session: { status: string };
+      question: unknown;
+    };
+    expect(body.question).toBeNull();
+    expect(body.session.status).toBe('complete');
+    expect(await adapter.readActiveQuizSession()).toBeNull();
   });
 
   it('resume unknown id → 404', async () => {
@@ -946,5 +1000,172 @@ describe('delete a quiz session (session management)', () => {
       '{}',
     );
     expect(res.status).toBe(405);
+  });
+});
+
+describe('quiz reliability (W1) — no orphan sessions, catalog presentation', () => {
+  const ON_TRACK_PROBE =
+    '```json\n{"verdict":"on_track","feedback":"What about <b>duplicates</b>?"}\n```';
+
+  async function answer(deps: ApiDeps, text: string) {
+    return handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      undefined,
+      JSON.stringify({ answer: text }),
+    );
+  }
+
+  it('start never calls the provider, so a failing provider cannot orphan a session', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider({
+      rejectWith: new Error('ECONNREFUSED'),
+    });
+    const deps = makeQuizDeps(provider);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/start',
+      deps,
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(200);
+    expect(provider.calls).toBe(0);
+
+    // A reload always finds a presentable question for the active session.
+    const reload = await handleApiRoute(
+      'GET',
+      '/api/quiz/session',
+      deps,
+      undefined,
+      undefined,
+    );
+    const body = JSON.parse(reload.body) as {
+      active: boolean;
+      question: { title: string } | null;
+    };
+    expect(body.active).toBe(true);
+    expect(body.question?.title).toBeTruthy();
+  });
+
+  it('POST /api/quiz/new also never calls the provider', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider();
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/new',
+      makeQuizDeps(provider),
+      undefined,
+      '{}',
+    );
+    expect(res.status).toBe(200);
+    expect(provider.calls).toBe(0);
+  });
+
+  it('a legacy orphan (active, empty transcript) is resumable and answerable', async () => {
+    await seedDone(DONE_IDS);
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    await adapter.writeQuizSession({
+      sessionId: 'quiz-orphan',
+      createdAt: '2026-09-24T12:00:00.000Z' as IsoTimestamp,
+      deck: DONE_IDS,
+      currentIndex: 0,
+      answered: [],
+      transcript: [],
+      status: 'active',
+    });
+    const provider = new SequencedQuizProvider([
+      ON_TRACK_PROBE,
+      ON_TRACK_PROBE,
+    ]);
+    const deps = makeQuizDeps(provider);
+
+    const get = await handleApiRoute(
+      'GET',
+      '/api/quiz/session',
+      deps,
+      undefined,
+      undefined,
+    );
+    const got = JSON.parse(get.body) as {
+      active: boolean;
+      question: { problemId: string; title: string } | null;
+    };
+    expect(got.active).toBe(true);
+    expect(got.question?.problemId).toBe(DONE_IDS[0]);
+    expect(got.question?.title).toBe(CATALOG.getById(DONE_IDS[0]!)?.title);
+
+    // The one-nudge cap still holds on the healed session: the first on_track
+    // stays, a second is coerced to a terminal incorrect.
+    const first = JSON.parse((await answer(deps, 'partial')).body) as {
+      verdict: string;
+    };
+    expect(first.verdict).toBe('on_track');
+    const second = JSON.parse((await answer(deps, 'still partial')).body) as {
+      verdict: string;
+      terminal: boolean;
+    };
+    expect(second.verdict).toBe('incorrect');
+    expect(second.terminal).toBe(true);
+  });
+
+  it('on_track keeps the problem title and returns the probe separately (also on resume)', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new SequencedQuizProvider([ON_TRACK_PROBE]);
+    const deps = makeQuizDeps(provider);
+    const startRes = await handleApiRoute(
+      'POST',
+      '/api/quiz/start',
+      deps,
+      undefined,
+      '{}',
+    );
+    const start = JSON.parse(startRes.body) as {
+      question: { problemId: string; title: string };
+    };
+
+    const res = JSON.parse((await answer(deps, 'hash map?')).body) as {
+      verdict: string;
+      question: {
+        problemId: string;
+        title: string;
+        wrapped: string;
+        probe?: string;
+      };
+    };
+    expect(res.verdict).toBe('on_track');
+    expect(res.question.problemId).toBe(start.question.problemId);
+    expect(res.question.title).toBe(start.question.title);
+    expect(res.question.wrapped).not.toContain('duplicates');
+    expect(res.question.probe).toBe('What about <b>duplicates</b>?');
+
+    const reloadRes = await handleApiRoute(
+      'GET',
+      '/api/quiz/session',
+      deps,
+      undefined,
+      undefined,
+    );
+    const reload = JSON.parse(reloadRes.body) as {
+      question: { title: string; probe?: string };
+    };
+    expect(reload.question.title).toBe(start.question.title);
+    expect(reload.question.probe).toBe('What about <b>duplicates</b>?');
+  });
+
+  it('a terminal answer presents the next problem from the catalog (only the verdict hits the model)', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider();
+    const deps = makeQuizDeps(provider);
+    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    const res = JSON.parse((await answer(deps, 'hash map')).body) as {
+      question: { problemId: string; title: string; url: string } | null;
+    };
+    const next = CATALOG.getById(res.question!.problemId)!;
+    expect(res.question?.title).toBe(next.title);
+    expect(res.question?.url).toBe(next.url);
+    expect(provider.calls).toBe(1);
+    expect(provider.evalCalls).toBe(1);
   });
 });
