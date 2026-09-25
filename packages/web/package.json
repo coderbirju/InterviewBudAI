@@ -18,7 +18,8 @@
     "typecheck:ui": "tsc --noEmit --project web-ui/tsconfig.json",
     "test:ui": "vitest run --config web-ui/vitest.config.ts",
     "clean": "tsc --build --clean",
-    "start": "node ./dist/server-bin.js"
+    "start": "node ./bin/start.mjs",
+    "serve": "node ./dist/server-bin.js"
   },
   "dependencies": {
     "@ibai/core": "0.0.0",

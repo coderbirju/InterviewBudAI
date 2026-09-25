@@ -3,7 +3,8 @@ import { LocalFileStorageAdapter } from '@ibai/storage';
 import { AnthropicProvider, OllamaProvider } from '@ibai/providers';
 import type { LlmProvider } from '@ibai/providers';
 import {
-  resolveDataDir,
+  prepareBootDataDir,
+  resolveProviderStatus,
   resolvePort,
   resolveHost,
   resolveOllamaUrl,
@@ -11,6 +12,7 @@ import {
   resolveAnthropicApiKey,
   resolveAnthropicModel,
 } from './config.js';
+import type { BootDataDir, ProviderStatus } from './config.js';
 import { createCoachHandler } from './handler.js';
 
 export interface ServerHandle {
@@ -21,6 +23,51 @@ export interface ServerHandle {
 export interface StartServerOptions {
   env?: NodeJS.ProcessEnv;
   argv?: string[];
+  /** Home directory for the default data dir (tests inject a temp dir). */
+  homeDir?: string;
+  /** Sink for the startup banner lines (default: console.log). */
+  log?: (line: string) => void;
+}
+
+/** Shown when no provider is configured (the quiz needs one). */
+export const NO_PROVIDER_MESSAGE =
+  'no model configured — quiz disabled; set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL or IBAI_OLLAMA_MODEL';
+
+/**
+ * Build the human-readable startup banner. Pure; never includes secrets (the
+ * provider status carries only the provider kind and model name).
+ */
+export function formatStartupBanner(input: {
+  url: string;
+  data: BootDataDir;
+  provider: ProviderStatus;
+}): string[] {
+  const { url, data, provider } = input;
+
+  let dataLine = `  Data:     ${data.dataDir}`;
+  if (data.created) {
+    dataLine += ' (created on first run)';
+  } else if (!data.exists) {
+    dataLine +=
+      ' (does not exist yet — create it, or choose a location at /setup)';
+  }
+
+  let providerLine: string;
+  if (provider.kind === 'anthropic') {
+    providerLine = `  Provider: Anthropic (model: ${provider.model})`;
+  } else if (provider.kind === 'ollama') {
+    providerLine = `  Provider: Ollama (model: ${provider.model})`;
+  } else {
+    providerLine = `  Provider: ${NO_PROVIDER_MESSAGE}`;
+    if (provider.hint) providerLine += ` (${provider.hint})`;
+  }
+
+  return [
+    `InterviewBudAI is running at ${url}/`,
+    dataLine,
+    providerLine,
+    '  Press Ctrl+C to stop.',
+  ];
 }
 
 /**
@@ -51,8 +98,12 @@ export async function startServer(
 ): Promise<ServerHandle> {
   const env = opts?.env ?? process.env;
   const argv = opts?.argv;
+  const log = opts?.log ?? ((line: string) => console.log(line));
 
-  const dataDir = resolveDataDir(env, argv);
+  // First run: create the canonical default data dir so the app is usable
+  // immediately. Explicit --data-dir / IBAI_DATA_DIR paths are not created.
+  const bootData = prepareBootDataDir(env, argv, opts?.homeDir);
+  const dataDir = bootData.dataDir;
   const port = resolvePort(env, argv);
   const host = resolveHost();
 
@@ -127,11 +178,19 @@ export async function startServer(
     }
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // Surface bind failures (e.g. port already in use) instead of hanging.
+    server.once('error', reject);
     server.listen(port, host, () => {
+      server.off('error', reject);
       const url = `http://${host}:${port}`;
-      console.log(`InterviewBudAI web server running at ${url}`);
-      console.log(`Provider: ${providerLabel}`);
+      for (const line of formatStartupBanner({
+        url,
+        data: bootData,
+        provider: resolveProviderStatus(env),
+      })) {
+        log(line);
+      }
 
       resolve({
         url,
