@@ -42,32 +42,19 @@ The plan command uses your assessment data to generate a personalized session pl
 
 ### Coach Command
 
-Run a coaching session with AI-powered feedback:
+Run a coaching session with AI evaluation. The model evaluates your typed answers and returns per-topic verdicts; the engine fails closed on malformed model output (no storage writes).
 
 ```bash
-# Using Ollama (local-first)
-ibai coach --model llama3
+# Ollama (local-first)
+ibai coach --model llama3 --answer "Use a hash map for O(1) lookup" --answer "BFS for shortest path"
 
-# Using Anthropic
-ANTHROPIC_API_KEY=your-key ibai coach --provider anthropic --model claude-3-5-sonnet-20241022
+# Anthropic
+IBAI_ANTHROPIC_API_KEY=your-key IBAI_ANTHROPIC_MODEL=<model-name> ibai coach --provider anthropic --answer "..."
 ```
 
-The coach command uses **AI-evaluation**: the model evaluates your typed answers and returns structured per-topic verdicts (succeeded/failed with feedback). The engine fails closed on malformed model output — no storage writes occur if the model response cannot be validated.
+**Provider REQUIRED:** Anthropic (`IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY`, plus `IBAI_ANTHROPIC_MODEL`) or Ollama (`--model` / `IBAI_OLLAMA_MODEL`). Without `--provider`, Anthropic is chosen if its key + model are set, else Ollama if a model is set.
 
-**Provider REQUIRED:** Configure either Ollama (--model) or Anthropic (--provider anthropic with ANTHROPIC_API_KEY/IBAI_ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL).
-
-#### Recording Answers
-
-Use `--answer` to provide your answer for evaluation:
-
-```bash
-ibai coach --model llama3 --answer "topicId:Your typed answer here"
-```
-
-Format: `topicId:answer-text`
-
-- `topicId`: The topic identifier from your session plan
-- `answer-text`: Your typed reasoning/solution for the model to evaluate
+`--answer` is repeatable; answers map **in order** to the topics of your session plan (see `ibai plan`). Fewer answers than topics proceeds with a warning.
 
 ### Options
 
@@ -100,7 +87,7 @@ Default: `http://127.0.0.1:11434` (or `IBAI_OLLAMA_URL` env var)
 
 #### `--model <name>`
 
-Ollama model name (required for coach command):
+Ollama model name (coach command, Ollama provider):
 
 ```bash
 ibai coach --model llama3
@@ -108,13 +95,13 @@ ibai coach --model llama3
 
 Can also be set via `IBAI_OLLAMA_MODEL` environment variable.
 
-#### `--outcome <spec>`
+#### `--provider <name>`
 
-Topic outcome (coach command only, repeatable):
+`anthropic` or `ollama` (coach command only). Default: auto-detect from env.
 
-```bash
-ibai coach --model llama3 --outcome graphs:pass --outcome trees:fail:traversal-issues
-```
+#### `--answer <text>`
+
+Your answer for the next plan topic (coach command only, repeatable).
 
 #### `--help`
 
@@ -141,6 +128,8 @@ The CLI determines the data directory using this precedence:
 | `IBAI_DATA_DIR` | Default data directory path |
 | `IBAI_OLLAMA_URL` | Ollama endpoint URL (default: `http://127.0.0.1:11434`) |
 | `IBAI_OLLAMA_MODEL` | Ollama model name (required for coach if `--model` not provided) |
+| `IBAI_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` | Anthropic API key (never commit) |
+| `IBAI_ANTHROPIC_MODEL` | Anthropic model name |
 
 ## Output Examples
 
