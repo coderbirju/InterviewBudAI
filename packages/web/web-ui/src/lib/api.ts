@@ -55,6 +55,45 @@ export interface ProgressResponse {
   readonly byStatus: StatusCounts;
 }
 
+/** Derived qualitative strength band for a topic (mirrors storage `TopicStrength`). */
+export type TopicStrength = 'unknown' | 'weak' | 'improving' | 'strong';
+
+/**
+ * A per-topic competency entry (mirrors the server `ApiCompetencyTopic`). The
+ * `strength` band is already derived server-side; `correct`/`incorrect` are the
+ * user's OWN quiz outcomes.
+ */
+export interface CompetencyTopic {
+  readonly topicId: string;
+  readonly correct: number;
+  readonly incorrect: number;
+  readonly strength: TopicStrength;
+  readonly lastSeen: string | null;
+}
+
+/**
+ * A recurring miss pattern (mirrors the server `ApiCompetencyPattern`). The
+ * `description` summarises the user's OWN recurring gap — never a solution.
+ * Rendered verbatim via JSX (auto-escaped).
+ */
+export interface CompetencyPattern {
+  readonly id: string;
+  readonly description: string;
+  readonly topics: readonly string[];
+  readonly occurrences: number;
+  readonly lastObserved: string | null;
+}
+
+/**
+ * GET /api/competency response shape (mirrors the server
+ * `ApiCompetencyResponse`). Safe empty (`{ topics: [], patterns: [] }`) when no
+ * DB is configured or no quiz signals exist yet.
+ */
+export interface CompetencyResponse {
+  readonly topics: readonly CompetencyTopic[];
+  readonly patterns: readonly CompetencyPattern[];
+}
+
 /** GET /api/config response shape. */
 export interface ConfigResponse {
   readonly dbConfigured: boolean;
@@ -149,6 +188,15 @@ export function fetchCatalog(): Promise<CatalogResponse> {
 /** GET /api/progress — the global progress banner data. */
 export function fetchProgress(): Promise<ProgressResponse> {
   return getJson<ProgressResponse>('/api/progress');
+}
+
+/**
+ * GET /api/competency — the quiz-derived competency signals (weak/strong topics
+ * + recurring miss patterns). Resolves to `{ topics: [], patterns: [] }` when
+ * no DB is configured or no signals exist yet. Read-only.
+ */
+export function fetchCompetency(): Promise<CompetencyResponse> {
+  return getJson<CompetencyResponse>('/api/competency');
 }
 
 /**

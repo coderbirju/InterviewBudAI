@@ -57,6 +57,9 @@ export type {
   ApiCatalogTopic,
   ApiCatalogResponse,
   ApiProgressResponse,
+  ApiCompetencyTopic,
+  ApiCompetencyPattern,
+  ApiCompetencyResponse,
   ApiNoteResponse,
   ApiConfigResponse,
 } from './api.js';

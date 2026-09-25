@@ -16,6 +16,8 @@
  *   GET  /api/notes/:id   — saved note for a problem (404 unknown id)
  *   POST /api/notes/:id   — upsert a note (validated; 404 unknown id)
  *   GET  /api/progress    — overall progress counts for the banner
+ *   GET  /api/competency  — quiz-derived competency signals (weak/strong topics
+ *                           + recurring miss patterns); safe empty when no DB
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
  *   POST /api/chat        — one interview-coach chat turn (provider REQUIRED;
  *                           the MODEL is the only source of assistant text)
@@ -29,6 +31,8 @@ import type {
   QuizSession,
   QuizSessionId,
   CompetencySignals,
+  TopicId,
+  TopicStrength,
 } from '@ibai/storage';
 import { isNoteStatus, resolveNoteStatus } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
@@ -96,6 +100,43 @@ export interface ApiProgressResponse {
   readonly completed: number;
   readonly total: number;
   readonly byStatus: StatusCounts;
+}
+
+/**
+ * A per-topic competency entry returned by GET /api/competency. Mirrors
+ * storage `TopicCompetency` with the derived `strength` band already computed
+ * (via `deriveTopicStrength`) so the SPA shares one derivation rule.
+ */
+export interface ApiCompetencyTopic {
+  readonly topicId: TopicId;
+  readonly correct: number;
+  readonly incorrect: number;
+  readonly strength: TopicStrength;
+  readonly lastSeen: string | null;
+}
+
+/**
+ * A recurring miss pattern returned by GET /api/competency. Mirrors storage
+ * `PatternSignal` — the `description` summarises the USER's own recurring gap,
+ * never a shipped solution (§6.2).
+ */
+export interface ApiCompetencyPattern {
+  readonly id: string;
+  readonly description: string;
+  readonly topics: readonly TopicId[];
+  readonly occurrences: number;
+  readonly lastObserved: string | null;
+}
+
+/**
+ * GET /api/competency response shape. The quiz-derived competency-intelligence
+ * signals for the active data dir: per-topic tallies + strength bands and the
+ * recurring miss patterns. Safe empty (`{ topics: [], patterns: [] }`) when no
+ * DB is configured or no signals exist yet. Read-only.
+ */
+export interface ApiCompetencyResponse {
+  readonly topics: readonly ApiCompetencyTopic[];
+  readonly patterns: readonly ApiCompetencyPattern[];
 }
 
 /** GET /api/notes/:id response shape (a saved or empty note). */
@@ -570,6 +611,21 @@ export async function handleApiRoute(
         byStatus,
       };
       return json(200, response);
+    }
+
+    // ----- /api/competency (GET) -----
+    if (pathname === '/api/competency') {
+      if (method !== 'GET') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const { storage } = resolveActiveStorage(cookieDataDir, deps);
+      // No DB / adapter without the method → safe empty (read-only).
+      if (!storage?.readCompetencySignals) {
+        const empty: ApiCompetencyResponse = { topics: [], patterns: [] };
+        return json(200, empty);
+      }
+      const signals = await storage.readCompetencySignals();
+      return json(200, toCompetencyResponse(signals));
     }
 
     // ----- /api/config (GET) -----
@@ -1055,6 +1111,63 @@ export async function handleApiRoute(
       error instanceof Error ? error.message : 'internal server error';
     return json(500, { error: message });
   }
+}
+
+/**
+ * Map the stored {@link CompetencySignals} dataset to the flat, sorted
+ * GET /api/competency response. Topics are emitted as an array (the on-disk
+ * shape keys them by id) sorted weak→strong then by most misses so the SPA can
+ * render a scannable list without re-sorting; patterns are ordered by most
+ * occurrences then most recently observed. Every value is the user's OWN
+ * outcome/pattern — no shipped solutions (§6.2). Read-only, pure mapping.
+ */
+function toCompetencyResponse(
+  signals: CompetencySignals,
+): ApiCompetencyResponse {
+  // Strength ordering for a weak-first scan (unknown sinks to the bottom).
+  const order: Record<TopicStrength, number> = {
+    weak: 0,
+    improving: 1,
+    strong: 2,
+    unknown: 3,
+  };
+  const topics: ApiCompetencyTopic[] = Object.values(signals.topics)
+    .map((t) => ({
+      topicId: t.topicId,
+      correct: t.correct,
+      incorrect: t.incorrect,
+      strength: t.strength,
+      lastSeen: t.lastSeen ?? null,
+    }))
+    .sort((a, b) => {
+      const byStrength = order[a.strength] - order[b.strength];
+      if (byStrength !== 0) {
+        return byStrength;
+      }
+      const byMisses = b.incorrect - a.incorrect;
+      if (byMisses !== 0) {
+        return byMisses;
+      }
+      return a.topicId.localeCompare(b.topicId);
+    });
+
+  const patterns: ApiCompetencyPattern[] = signals.patterns
+    .map((p) => ({
+      id: p.id,
+      description: p.description,
+      topics: [...p.topics],
+      occurrences: p.occurrences,
+      lastObserved: p.lastObserved ?? null,
+    }))
+    .sort((a, b) => {
+      const byOccurrences = b.occurrences - a.occurrences;
+      if (byOccurrences !== 0) {
+        return byOccurrences;
+      }
+      return (b.lastObserved ?? '').localeCompare(a.lastObserved ?? '');
+    });
+
+  return { topics, patterns };
 }
 
 /**
