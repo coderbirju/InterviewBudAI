@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Home } from './Home';
 import * as api from '../lib/api';
+import { navigate } from '../lib/router';
 import type {
   CatalogResponse,
   ConfigResponse,
@@ -232,6 +233,41 @@ describe('Home search & filters', () => {
       'true',
     );
     expect(screen.getByText('Two Sum')).toBeInTheDocument();
+    expect(screen.getByText('1 of 4 problems')).toBeInTheDocument();
+  });
+
+  it('in-app navigate to bare / clears an active filter (URL stays in sync)', async () => {
+    const user = userEvent.setup();
+    await renderBig();
+    const search = screen.getByLabelText(/search problems/i);
+    await user.type(search, 'sum');
+    expect(window.location.search).toBe('?q=sum');
+
+    // e.g. clicking the Problems nav link / wordmark while on Home.
+    act(() => navigate('/'));
+
+    expect(search).toHaveValue('');
+    expect(window.location.search).toBe('');
+    expect(screen.getByText('4 problems')).toBeInTheDocument();
+    expect(screen.getByText('Stack')).toBeInTheDocument();
+  });
+
+  it('popstate (Back/Forward) to /?q=… re-applies that filter', async () => {
+    await renderBig();
+    expect(screen.getByText('Stack')).toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, '', '/?q=valid&difficulty=Easy');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(screen.getByLabelText(/search problems/i)).toHaveValue('valid');
+    expect(screen.getByRole('button', { name: 'Easy' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText('Valid Parentheses')).toBeInTheDocument();
+    expect(screen.queryByText('Arrays & Hashing')).not.toBeInTheDocument();
     expect(screen.getByText('1 of 4 problems')).toBeInTheDocument();
   });
 });
