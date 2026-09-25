@@ -4,6 +4,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
+  ExternalLink,
   ListChecks,
   Loader2,
   Play,
@@ -23,6 +24,7 @@ import {
   getQuizSession,
   listQuizSessions,
   newQuiz,
+  normalizeDifficulty,
   resumeQuiz,
   startQuiz,
 } from '../lib/api';
@@ -35,14 +37,16 @@ import type {
   QuizVerdict,
 } from '../lib/api';
 import { homeHref } from '../lib/router';
+import { DifficultyBadge } from './DifficultyBadge';
 
 /**
  * The Quickfire Quiz Master (ADR 0007 Q3). This SPA page at `/interview`
  * REPLACES the old generic interview chat (ADR 0005 D6 / ADR 0006 M5) with a
  * structured quiz: the model quizzes the user on the problems they marked
- * `done`, presenting each one WRAPPED (a short rephrasing — no title, no
- * hints), reads the user's typed approach, and evaluates the DIRECTION of their
- * reasoning without ever handing over the answer.
+ * `done`, presenting each one DIRECTLY (its real title, difficulty and
+ * LeetCode link from the catalog — ADR 0007 A1/A8, no hints), reads the user's
+ * typed approach, and evaluates the DIRECTION of their reasoning without ever
+ * handing over the answer.
  *
  * Flow (quickfire feel — question → answer → verdict → next):
  *  1. ON LOAD it calls `GET /api/quiz/session` to RESUME the single active
@@ -70,6 +74,16 @@ interface VerdictCard {
   readonly verdict: QuizVerdict;
   readonly feedback: string;
   readonly optimalNudge?: string;
+}
+
+/**
+ * On resume, re-show a probe already given for the current question (the
+ * server's `question.probe`) as the on_track card, separate from the problem.
+ */
+function probeCard(question: QuizQuestion): VerdictCard | null {
+  return question.probe
+    ? { verdict: 'on_track', feedback: question.probe }
+    : null;
 }
 
 /** A local tally of terminal verdicts, for the session-complete summary. */
@@ -142,10 +156,11 @@ export function Interview(): JSX.Element {
         if (cancelled) {
           return;
         }
-        if (result.active) {
+        if (result.active && result.question) {
           setSession(result.session);
           setQuestion(result.question);
           setTranscript(result.transcript);
+          setVerdictCard(probeCard(result.question));
           setPhase({ kind: 'active' });
         } else {
           setPhase({ kind: 'idle' });
@@ -313,9 +328,22 @@ export function Interview(): JSX.Element {
         setSession(result.session);
         setQuestion(result.question);
         setTranscript(result.transcript);
-        setVerdictCard(null);
-        setTally({ correct: 0, revisit: 0 });
         setDraft('');
+        if (!result.question) {
+          // Nothing left to answer (deck exhausted): show it as complete with
+          // the tallies from its list summary — never an empty active view.
+          const summary = sessions.find((s) => s.sessionId === sessionId);
+          const correct = summary?.correctCount ?? 0;
+          setTally({
+            correct,
+            revisit: Math.max(0, (summary?.answeredCount ?? 0) - correct),
+          });
+          setVerdictCard(null);
+          setPhase({ kind: 'complete' });
+          return;
+        }
+        setTally({ correct: 0, revisit: 0 });
+        setVerdictCard(probeCard(result.question));
         setPhase({ kind: 'active' });
       } catch (err) {
         setError(describeError(err));
@@ -323,7 +351,7 @@ export function Interview(): JSX.Element {
         setRowBusyId(null);
       }
     },
-    [rowBusyId, describeError],
+    [rowBusyId, sessions, describeError],
   );
 
   /**
@@ -435,9 +463,9 @@ export function Interview(): JSX.Element {
             Quickfire Quiz Master
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
-            A rapid drill over the problems you&apos;ve marked done. Each
-            question is a short rephrasing — recognise the pattern, type your
-            approach, get a direction check. No answers handed over.
+            A rapid drill over the problems you&apos;ve marked Done. You&apos;ll
+            be shown each real problem and asked to explain your approach, then
+            get a direction check. No answers handed over.
           </p>
           <button
             type="button"
@@ -571,18 +599,8 @@ export function Interview(): JSX.Element {
       {/* Prior transcript (resumed sessions / earlier turns this session). */}
       {transcript.length > 0 && <TranscriptHistory entries={transcript} />}
 
-      {/* Current wrapped question (model-authored, JSX-escaped). */}
-      {question && (
-        <div className="rounded-xl border border-slate-800 bg-slate-800/60 p-5">
-          <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-emerald-400">
-            Question {session ? session.index + 1 : ''}
-            {session ? ` of ${session.deckSize}` : ''}
-          </span>
-          <p className="whitespace-pre-wrap text-base text-slate-100">
-            {question.wrapped}
-          </p>
-        </div>
-      )}
+      {/* Current question: the real problem from the catalog (JSX-escaped). */}
+      {question && <QuestionCard question={question} session={session} />}
 
       {/* Verdict card for the most recent answered turn. */}
       {verdictCard && <VerdictBlock card={verdictCard} />}
@@ -645,6 +663,54 @@ export function Interview(): JSX.Element {
       </form>
 
       <div ref={scrollAnchorRef} />
+    </div>
+  );
+}
+
+/**
+ * The current question card: the real problem title, its difficulty badge and
+ * an external link to the problem (new tab, `rel="noopener noreferrer"`). The
+ * title stays put across an `on_track` probe — the probe renders separately in
+ * the verdict card. Falls back to `wrapped` for older payloads. JSX-escaped.
+ */
+function QuestionCard({
+  question,
+  session,
+}: {
+  readonly question: QuizQuestion;
+  readonly session: QuizState | null;
+}): JSX.Element {
+  const difficulty = normalizeDifficulty(question.difficulty);
+  return (
+    <div
+      className="rounded-xl border border-slate-800 bg-slate-800/60 p-5"
+      aria-label="Current question"
+      role="group"
+    >
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-emerald-400">
+        Question {session ? session.index + 1 : ''}
+        {session ? ` of ${session.deckSize}` : ''}
+      </span>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="whitespace-pre-wrap text-base font-semibold text-slate-100">
+          {question.title ?? question.wrapped}
+        </p>
+        {difficulty && <DifficultyBadge difficulty={difficulty} />}
+      </div>
+      {question.url && (
+        <a
+          href={question.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1.5 text-sm text-emerald-400 transition-all duration-200 hover:text-emerald-300"
+        >
+          <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+          Open problem
+        </a>
+      )}
+      <p className="mt-3 text-sm text-slate-400">
+        Explain your approach — the pattern, the data structure, the key steps.
+      </p>
     </div>
   );
 }

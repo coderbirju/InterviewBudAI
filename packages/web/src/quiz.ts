@@ -1,16 +1,18 @@
 /**
  * Quiz Master engine (ADR 0007 — Q2).
  *
- * PURE, testable core of the Quickfire Quiz Master: prompt construction
- * (persona + wrapped-question + evaluation instructions + injected user
- * intuition), UNTRUSTED model-output parsing (fail-closed, mirroring
+ * PURE, testable core of the Quickfire Quiz Master: deterministic question
+ * presentation from the catalog (title + difficulty + link — ADR 0007 A1/A8),
+ * evaluation-prompt construction (persona + evaluation instructions + injected
+ * user intuition), UNTRUSTED model-output parsing (fail-closed, mirroring
  * `coach()`), a seedable deck shuffle, session advance / no-repeat logic, and
  * competency-signal update derivation.
  *
  * Design rules (charter §6.2, ADR 0007):
- *  - The MODEL is the sole source of question wording AND verdicts. This module
- *    NEVER authors canonical answers/solutions/hints — it only shapes prompts
- *    and parses/validates the model's structured output.
+ *  - Questions are presented DIRECTLY from the catalog (no model call); the
+ *    MODEL is the sole source of VERDICTS. This module NEVER authors canonical
+ *    answers/solutions/hints — it only shapes prompts and parses/validates the
+ *    model's structured output.
  *  - Model output is UNTRUSTED: parsing fails closed (throws) on malformed
  *    output so the caller performs NO storage writes and NO fabricated verdict.
  *  - Everything here is pure (no I/O): the HTTP layer (`api.ts`) owns the
@@ -40,9 +42,9 @@ import type { PromptMessage } from '@ibai/providers';
  * the `system` message.
  *
  * quiz-fix-a founder amendments:
- *  - NO WRAPPER: present each problem DIRECTLY by its real title (and, if the
- *    model knows it, the standard one-line statement) — no invented story, no
- *    hints.
+ *  - NO WRAPPER: each problem is presented DIRECTLY by the app from the
+ *    catalog (real title + difficulty + link; ADR 0007 A8) — no model call, no
+ *    invented story, no hints.
  *  - NEVER REVEAL: the Quiz Master MUST NEVER reveal, state, or write out the
  *    solution / answer / optimal approach — not when the candidate is close,
  *    not on request. Reinforced hard.
@@ -55,10 +57,9 @@ import type { PromptMessage } from '@ibai/providers';
 export const QUIZ_MASTER_PERSONA =
   'You are the Quickfire Quiz Master for software-engineering interview prep. ' +
   'You quiz the candidate on problems they have already marked as done. ' +
-  'Present each problem DIRECTLY: state its real title, and if you know the ' +
-  'standard problem you may briefly state it in one neutral line. Do NOT ' +
-  'invent a story, do NOT rephrase it into a disguised scenario, and do NOT ' +
-  'give any hint about the approach. The candidate types their ' +
+  'Each problem has already been shown to the candidate DIRECTLY by its real ' +
+  'title, difficulty, and link. Do NOT give any hint about the approach. ' +
+  'The candidate types their ' +
   'approach/reasoning (not necessarily code). You EVALUATE the DIRECTION of ' +
   'that reasoning using YOUR OWN general knowledge of the well-known problem, ' +
   "cross-referenced with the candidate's OWN saved intuition note (provided " +
@@ -80,21 +81,6 @@ export const QUIZ_MASTER_PERSONA =
   '(5) After a single "on_track" nudge, the candidate\'s NEXT answer is ' +
   'TERMINAL: judge it "correct" or "incorrect" — NEVER a second "on_track". ' +
   "Judge only the candidate's own reasoning; do not fill in gaps for them.";
-
-/**
- * Instruction to present the current problem DIRECTLY (quiz-fix-a: no wrapper).
- * Used when we ask the model to present the next question. The model authors
- * the wording (§6.2); we only constrain the shape: the real title (plus an
- * optional one-line standard statement the model knows), NO story, NO hints,
- * NO answer.
- */
-export const WRAP_INSTRUCTION =
-  'Present the CURRENT problem DIRECTLY to the candidate. State the real ' +
-  'problem title. If you know the standard problem, you MAY add one neutral ' +
-  'line restating what it asks. Do NOT invent a story or scenario, do NOT ' +
-  'disguise or rephrase it into something else, and do NOT reveal or hint at ' +
-  'the approach, algorithm, or answer. Output ONLY the problem presentation — ' +
-  'no preamble, no solution, no hint.';
 
 /**
  * Instruction for the structured, machine-parseable verdict block. Mirrors the
@@ -178,10 +164,17 @@ export function shuffleDeck<T>(items: readonly T[], random: RandomSource): T[] {
 // Prompt construction (PURE)
 // ---------------------------------------------------------------------------
 
-/** The kind of turn we ask the model to perform. */
-export type QuizPromptMode = 'wrap' | 'evaluate';
+/**
+ * The deterministic, model-free presentation text for a problem (ADR 0007
+ * A1/A8): its real title and difficulty, straight from the catalog. Used as
+ * both the `question.wrapped` wire text and the transcript presentation turn.
+ * No story, no hints, no answer (§6.2).
+ */
+export function presentProblem(problem: Problem): string {
+  return `${problem.title} (${problem.difficulty})`;
+}
 
-/** Inputs shared by both prompt modes. */
+/** Inputs for the evaluation prompt. */
 export interface QuizPromptContext {
   /** The current problem being quizzed (from the catalog). */
   readonly problem: Problem;
@@ -190,24 +183,21 @@ export interface QuizPromptContext {
    * as PERSONALIZATION only — it is the user's OWN text, never a shipped answer.
    */
   readonly intuition?: string | null;
-  /** The user's typed answer/reasoning — required for the `evaluate` mode. */
-  readonly answer?: string;
+  /** The user's typed answer/reasoning. */
+  readonly answer: string;
 }
 
 /**
- * Build the prompt messages for either presenting a WRAPPED question (`wrap`)
- * or EVALUATING the user's answer (`evaluate`).
+ * Build the prompt messages for EVALUATING the user's answer to the current
+ * problem (the only model call in the quiz — presentation is model-free).
  *
- * Both modes prepend the {@link QUIZ_MASTER_PERSONA}. The `problem` metadata
+ * Prepends the {@link QUIZ_MASTER_PERSONA}. The `problem` metadata
  * (title/topics/difficulty) is given to the model as context so it can draw on
- * ITS OWN knowledge of the well-known problem; we ship no solution. For
- * `evaluate`, the user's intuition note is injected as personalization and the
- * strict verdict-JSON instruction is appended.
+ * ITS OWN knowledge of the well-known problem; we ship no solution. The user's
+ * intuition note is injected as personalization and the strict verdict-JSON
+ * instruction is appended.
  */
-export function buildQuizPrompt(
-  mode: QuizPromptMode,
-  ctx: QuizPromptContext,
-): PromptMessage[] {
+export function buildQuizPrompt(ctx: QuizPromptContext): PromptMessage[] {
   const messages: PromptMessage[] = [
     { role: 'system', content: QUIZ_MASTER_PERSONA },
   ];
@@ -220,19 +210,12 @@ export function buildQuizPrompt(
     `- Topics: ${topics}\n` +
     `- Difficulty: ${ctx.problem.difficulty}\n`;
 
-  if (mode === 'wrap') {
-    user += `\n${WRAP_INSTRUCTION}`;
-    messages.push({ role: 'user', content: user });
-    return messages;
-  }
-
-  // evaluate
   const intuition = (ctx.intuition ?? '').trim();
   user +=
     `\nThe candidate's OWN saved intuition note for this problem ` +
     `(personalization signal — may be empty):\n` +
     (intuition.length > 0 ? `"""\n${intuition}\n"""\n` : '(no saved note)\n');
-  user += `\nThe candidate's typed answer/reasoning:\n"""\n${(ctx.answer ?? '').trim()}\n"""\n`;
+  user += `\nThe candidate's typed answer/reasoning:\n"""\n${ctx.answer.trim()}\n"""\n`;
   user += `\n${VERDICT_JSON_INSTRUCTION}`;
   messages.push({ role: 'user', content: user });
   return messages;
@@ -408,7 +391,7 @@ export function advanceSession(
 }
 
 /**
- * Append a WRAPPED-question turn (assistant) to the transcript without
+ * Append a question-presentation turn (assistant) to the transcript without
  * advancing. Used when presenting the next question. Pure.
  */
 export function appendAssistantTurn(
@@ -486,8 +469,12 @@ export function nudgeCountForCurrentQuestion(session: QuizSession): number {
     }
   }
   if (blockStart === -1) {
-    // No presentation boundary found (e.g. empty transcript) → no nudges.
-    return 0;
+    // No presentation boundary (empty transcript, or a legacy orphan that
+    // never had a presentation turn): decide from the transcript TAIL. Empty,
+    // or ending with the previous question's terminal-answer pair → nothing
+    // spent on the current question; otherwise the tail is its probe (the cap
+    // allows at most one).
+    return t.length === 0 || tailIsTerminalAnswer(session) ? 0 : 1;
   }
   let nudges = 0;
   for (let i = blockStart + 1; i < t.length; i++) {
@@ -505,6 +492,91 @@ export function nudgeCountForCurrentQuestion(session: QuizSession): number {
  */
 export function nudgeAlreadyUsed(session: QuizSession): boolean {
   return nudgeCountForCurrentQuestion(session) >= 1;
+}
+
+/**
+ * Count question-presentation turns in the transcript: `assistant` turns that
+ * start a question block (index 0, or preceded by another `assistant` turn —
+ * see {@link nudgeCountForCurrentQuestion}). In a well-formed session this is
+ * `currentIndex + 1` while a question is pending.
+ */
+function presentationCount(session: QuizSession): number {
+  const t = session.transcript;
+  let count = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (
+      t[i]?.role === 'assistant' &&
+      (i === 0 || t[i - 1]?.role === 'assistant')
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Ensure the CURRENT question has its presentation turn in the transcript.
+ *
+ * Sessions written by older builds could be left without one (the model call
+ * that presented the question failed after the session was persisted — the
+ * "orphan" bug). Appending the deterministic presentation restores the block
+ * boundary that {@link nudgeCountForCurrentQuestion} relies on, so the
+ * one-nudge cap works for healed sessions too. Returns the SAME object when no
+ * repair is needed (or the deck is exhausted). Pure.
+ */
+export function ensureCurrentQuestionPresented(
+  session: QuizSession,
+  presentation: string,
+  at: IsoTimestamp,
+): QuizSession {
+  if (isDeckExhausted(session)) {
+    return session;
+  }
+  if (presentationCount(session) >= session.currentIndex + 1) {
+    return session;
+  }
+  // Decide from the transcript TAIL: heal only when nothing has happened on
+  // the current (unpresented) question yet — the transcript is empty, or it
+  // ends with the terminal-answer pair of the previous question. If the tail
+  // is a probe, a nudge was spent while orphaned; appending a presentation
+  // boundary would reset the nudge count and grant a second nudge.
+  if (session.transcript.length > 0 && !tailIsTerminalAnswer(session)) {
+    return session;
+  }
+  return appendAssistantTurn(session, presentation, at);
+}
+
+/**
+ * True when the transcript ends with the terminal-answer pair (user +
+ * assistant) that {@link advanceSession} wrote for the LATEST answer record —
+ * both turns carry that record's `at`. A probe pair ({@link appendNudgeTurn})
+ * is written by a later request, so its `at` differs.
+ */
+function tailIsTerminalAnswer(session: QuizSession): boolean {
+  const t = session.transcript;
+  const last = t[t.length - 1];
+  const prev = t[t.length - 2];
+  const latest = session.answered[session.answered.length - 1];
+  return (
+    latest !== undefined &&
+    last?.role === 'assistant' &&
+    prev?.role === 'user' &&
+    last.at === latest.at &&
+    prev.at === latest.at
+  );
+}
+
+/**
+ * The `on_track` probe already given for the CURRENT question, if any (the
+ * last `assistant` turn once a nudge was spent), so a resumed session can show
+ * it separately from the problem. `null` when no nudge was given. Pure.
+ */
+export function currentProbe(session: QuizSession): string | null {
+  if (!nudgeAlreadyUsed(session)) {
+    return null;
+  }
+  const last = session.transcript[session.transcript.length - 1];
+  return last?.role === 'assistant' ? last.content : null;
 }
 
 // ---------------------------------------------------------------------------

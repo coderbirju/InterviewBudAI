@@ -425,3 +425,29 @@ via JSX (auto-escaped); no `dangerouslySetInnerHTML`; no user data committed.
 
 **Storage impact:** two additive OPTIONAL methods + one new exported type; no
 change to `QuizSession`/`CompetencySignals` or any existing method.
+
+## Amendment (w1-quiz-reliability, 2026-09-25) — deterministic presentation
+
+### A8 — Questions are presented from the catalog, not the model (refines A1)
+
+A1's "raw problem" presentation is now built **deterministically by the app**
+from the catalog (real title + difficulty + external link); the model is no
+longer called to present a question, and the `wrap` prompt mode is removed. The
+model is used only for **verdicts**. Consequences:
+
+- `start`/`new` persist the session **once, together with** its first
+  question's presentation turn, so a provider failure can never leave an
+  active session without a presentable question (the "orphan" bug). A
+  provider is still **required** for `start`/`new` (`400 no model
+  configured`) because answers need one.
+- `GET /api/quiz/session`, `POST /api/quiz/resume` and `/answer` re-present the
+  current question from the catalog (legacy orphans missing a presentation
+  turn are healed in memory and persisted with the next write). A session with
+  nothing to present (deck exhausted / problem gone) is reported
+  `{ active:false }` and is not re-activated by resume.
+- Wire shape is **additive only**: `question` gains `title`, `difficulty`,
+  `url`, and an optional `probe` (the current `on_track` nudge); `wrapped` is
+  kept and holds `"<title> (<difficulty>)"`. On `on_track` the problem stays in
+  `question` and the probe is shown separately.
+
+**Storage impact:** none (no `StorageAdapter` or `QuizSession` change).
