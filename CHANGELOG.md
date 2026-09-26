@@ -65,6 +65,12 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Topics are regrouped into 13 and always listed in learning order**
+  (Arrays, Binary Search, Sorting, Hashing, Linked List, Stack & Queue, Heap, Recursion, Backtracking, Trees, Graphs, Greedy, Dynamic
+  Programming) with readable labels on Home and Analytics. `arrays-2d`,
+  `two-pointers` and `sliding-window` merge into `arrays`; `miscellaneous` is
+  retired. Existing quiz stats for merged topics are combined at read time;
+  no data is rewritten and no migration is needed.
 - The web app is the product; the CLI is frozen (ADR 0008, #57).
 - Docs: ADR 0009 (data lifecycle — data page, CSV import, backups, format
   versioning, release strategy) and this changelog (#61). Releases will be
