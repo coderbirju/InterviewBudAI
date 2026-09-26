@@ -54,8 +54,10 @@ import {
   isNoteStatus,
   resolveNoteStatus,
   LocalFileStorageAdapter,
+  deriveTopicStrength,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
+import { canonicalTopicId, compareTopics, topicLabel } from '@ibai/curriculum';
 import { deriveGuidance } from '@ibai/core';
 import type { NextUpItem, QuizHint, TopicStanding } from '@ibai/core';
 import type { LlmProvider } from '@ibai/providers';
@@ -117,6 +119,8 @@ export interface ApiCatalogProblem {
 /** A topic group in the catalog response. */
 export interface ApiCatalogTopic {
   readonly topic: string;
+  /** Display label from the curriculum (`TOPIC_LABELS`); raw id when unknown. */
+  readonly label: string;
   readonly problems: readonly ApiCatalogProblem[];
 }
 
@@ -143,6 +147,8 @@ export interface ApiProgressResponse {
  */
 export interface ApiCompetencyTopic {
   readonly topicId: TopicId;
+  /** Display label from the curriculum (`TOPIC_LABELS`); raw id when unknown. */
+  readonly label: string;
   readonly correct: number;
   readonly incorrect: number;
   readonly strength: TopicStrength;
@@ -350,8 +356,9 @@ function resolveActiveStorage(deps: ApiDeps): {
 
 /**
  * Group problems by topic (a problem appears under each of its topics), topics
- * sorted alphabetically — matching the server-rendered catalog table so the SPA
- * renders the same structure.
+ * in the curriculum's learning order (`compareTopics`, ADR 0003 amendment
+ * 2026-09-26; unknown topics last, alphabetically). The SPA renders this order
+ * as-is and never re-sorts.
  */
 function groupByTopic(
   problems: readonly Problem[],
@@ -375,8 +382,12 @@ function groupByTopic(
     }
   }
   return Array.from(byTopic.keys())
-    .sort()
-    .map((topic) => ({ topic, problems: byTopic.get(topic) ?? [] }));
+    .sort(compareTopics)
+    .map((topic) => ({
+      topic,
+      label: topicLabel(topic),
+      problems: byTopic.get(topic) ?? [],
+    }));
 }
 
 /** Count how many problems resolve to a given status across the catalog. */
@@ -732,7 +743,7 @@ export async function handleApiRoute(
         return json(200, empty);
       }
       const signals = await storage.readCompetencySignals();
-      return json(200, toCompetencyResponse(signals));
+      return json(200, toCompetencyResponse(canonicalizeSignals(signals)));
     }
 
     // ----- /api/guidance (GET, ADR 0007 amendment w2a) -----
@@ -1332,7 +1343,7 @@ async function buildGuidanceResponse(
       status: note.status,
       lastUpdated: note.lastUpdated,
     })),
-    signals,
+    signals: canonicalizeSignals(signals),
     now: generatedAt,
   });
   return {
@@ -1340,6 +1351,87 @@ async function buildGuidanceResponse(
     generatedAt,
     ...guidance,
   };
+}
+
+/**
+ * Apply the curriculum's `TOPIC_ALIASES` to stored competency signals at READ
+ * time (ADR 0003 amendment 2026-09-26): retired topic ids fold into their
+ * successor (correct/incorrect summed, latest `lastSeen` kept, strength
+ * re-derived) and `null`-aliased ids are dropped. Pattern topic lists are
+ * mapped the same way. Nothing is written back — the on-disk format and data
+ * are unchanged (ADR 0009 D4). Tolerates a malformed dataset (untrusted, §7.3).
+ */
+export function canonicalizeSignals(
+  signals: CompetencySignals,
+): CompetencySignals {
+  const rawTopics: unknown = signals?.topics;
+  const merged = new Map<
+    TopicId,
+    { correct: number; incorrect: number; lastSeen: string | undefined }
+  >();
+  if (typeof rawTopics === 'object' && rawTopics !== null) {
+    for (const [key, value] of Object.entries(rawTopics)) {
+      if (typeof value !== 'object' || value === null) continue;
+      const t = value as Partial<Record<string, unknown>>;
+      const rawId = typeof t['topicId'] === 'string' ? t['topicId'] : key;
+      const id = canonicalTopicId(rawId);
+      if (id === null) continue;
+      const num = (v: unknown): number =>
+        typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+      const seen =
+        typeof t['lastSeen'] === 'string' ? t['lastSeen'] : undefined;
+      const acc = merged.get(id) ?? {
+        correct: 0,
+        incorrect: 0,
+        lastSeen: undefined,
+      };
+      acc.correct += num(t['correct']);
+      acc.incorrect += num(t['incorrect']);
+      if (
+        seen !== undefined &&
+        (acc.lastSeen === undefined || laterIso(seen, acc.lastSeen))
+      ) {
+        acc.lastSeen = seen;
+      }
+      merged.set(id, acc);
+    }
+  }
+  const topics: Record<TopicId, CompetencySignals['topics'][TopicId]> = {};
+  for (const [topicId, acc] of merged) {
+    topics[topicId] = {
+      topicId,
+      correct: acc.correct,
+      incorrect: acc.incorrect,
+      lastSeen: acc.lastSeen as IsoTimestamp,
+      strength: deriveTopicStrength(acc.correct, acc.incorrect),
+    };
+  }
+  const patterns = Array.isArray(signals?.patterns)
+    ? signals.patterns.map((p) => ({
+        ...p,
+        topics: Array.isArray(p?.topics)
+          ? [
+              ...new Set(
+                (p.topics as readonly unknown[])
+                  .map((t: unknown) =>
+                    typeof t === 'string' ? canonicalTopicId(t) : null,
+                  )
+                  .filter((t: TopicId | null): t is TopicId => t !== null),
+              ),
+            ]
+          : [],
+      }))
+    : [];
+  return { ...signals, topics, patterns };
+}
+
+/** `a` is strictly later than `b` (parsed dates; unparseable never wins). */
+function laterIso(a: string, b: string): boolean {
+  const ma = Date.parse(a);
+  const mb = Date.parse(b);
+  if (Number.isNaN(ma)) return false;
+  if (Number.isNaN(mb)) return true;
+  return ma > mb;
 }
 
 /**
@@ -1363,6 +1455,7 @@ function toCompetencyResponse(
   const topics: ApiCompetencyTopic[] = Object.values(signals.topics)
     .map((t) => ({
       topicId: t.topicId,
+      label: topicLabel(t.topicId),
       correct: t.correct,
       incorrect: t.incorrect,
       strength: t.strength,
