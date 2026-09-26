@@ -228,6 +228,82 @@ export function fetchCompetency(): Promise<CompetencyResponse> {
   return getJson<CompetencyResponse>('/api/competency');
 }
 
+// ---------------------------------------------------------------------------
+// Guidance (ADR 0007 amendment w2a) — GET /api/guidance. Mirrors the server
+// `ApiGuidanceResponse` and core `TopicStanding` / `NextUpItem` / `QuizHint`.
+// ---------------------------------------------------------------------------
+
+/** Whether a data folder exists (`no_db`), has no activity (`empty`), or has some. */
+export type GuidanceState = 'no_db' | 'empty' | 'ready';
+
+/** Where the user stands on one topic (mirrors core `TopicStanding`). */
+export interface GuidanceStanding {
+  readonly topicId: string;
+  readonly notes: {
+    readonly done: number;
+    readonly toRevisit: number;
+    readonly didNotUnderstand: number;
+    /** Catalog problems tagged with this topic. */
+    readonly total: number;
+  };
+  readonly quiz: { readonly correct: number; readonly incorrect: number };
+  readonly lastActivity: string | null;
+  /** Same band (and so the same color/label) Analytics shows. */
+  readonly band: TopicStrength;
+  readonly needsReview: boolean;
+}
+
+/** Why a problem is in next-up (mirrors core `NextUpKind`). */
+export type NextUpKind = 'revisit' | 'weak_topic' | 'continue' | 'start';
+
+/** One concrete problem to do next (mirrors core `NextUpItem`). */
+export interface GuidanceNextUp {
+  readonly kind: NextUpKind;
+  readonly problemId: string;
+  readonly title: string;
+  readonly url: string;
+  /** Display-cased at the client boundary (see {@link normalizeDifficulty}). */
+  readonly difficulty: Difficulty;
+  readonly topicId: string;
+  /** Count-based reason (never a hint); rendered as JSX text. */
+  readonly reason: string;
+}
+
+/** The quiz nudge (mirrors core `QuizHint`). */
+export interface GuidanceQuiz {
+  readonly doneCount: number;
+  readonly lastQuizAt: string | null;
+  readonly suggested: boolean;
+}
+
+/** GET /api/guidance response shape. */
+export interface GuidanceResponse {
+  readonly state: GuidanceState;
+  readonly generatedAt: string;
+  readonly standing: readonly GuidanceStanding[];
+  readonly nextUp: readonly GuidanceNextUp[];
+  readonly quiz: GuidanceQuiz;
+}
+
+/**
+ * Normalize a raw /api/guidance payload: next-up difficulties are lowercase on
+ * the wire; unknown values pass through unchanged (neutral badge).
+ */
+export function normalizeGuidance(raw: GuidanceResponse): GuidanceResponse {
+  return {
+    ...raw,
+    nextUp: raw.nextUp.map((item) => ({
+      ...item,
+      difficulty: normalizeDifficulty(item.difficulty) ?? item.difficulty,
+    })),
+  };
+}
+
+/** GET /api/guidance — where you stand + next-up problems + quiz nudge. Read-only. */
+export async function fetchGuidance(): Promise<GuidanceResponse> {
+  return normalizeGuidance(await getJson<GuidanceResponse>('/api/guidance'));
+}
+
 /**
  * POST /api/notes/:id — set a problem's status. The server keeps `completed`
  * consistent with `status === 'done'` and preserves other note fields. Returns
