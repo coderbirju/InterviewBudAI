@@ -176,6 +176,26 @@ describe('Home guidance card', () => {
     expect(await screen.findByText('3/9')).toBeInTheDocument();
   });
 
+  it('a failed refetch keeps the last good guidance', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+    await screen.findByRole('region', { name: 'Your guidance' });
+    expect(screen.getByText('2/9')).toBeInTheDocument();
+
+    routes['/api/guidance'] = () => ({ status: 500, body: { error: 'boom' } });
+    await setDone(user);
+    await waitFor(() => expect(guidanceCalls()).toBe(2));
+    // Let the rejected refetch settle before asserting.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByRole('region', { name: 'Your guidance' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('2/9')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('does not refetch guidance when the status save fails', async () => {
     const user = userEvent.setup();
     routes['/api/notes/lc-1'] = () => ({ status: 500, body: {} });

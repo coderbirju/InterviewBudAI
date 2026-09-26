@@ -52,8 +52,9 @@ import {
  * w2a: a guidance card ("Where you stand / Next up", `GET /api/guidance`) sits
  * between the banner and the filter bar. It is fetched in parallel with the
  * catalog and refetched after each saved status change; Home remounts when
- * returning from Notes, so that refetches too. A guidance error hides the card
- * only — the catalog is unaffected.
+ * returning from Notes, so that refetches too. A guidance error never affects
+ * the catalog: a failed first fetch shows no card, a failed refetch keeps the
+ * last good card.
  */
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -178,7 +179,10 @@ export function Home(): JSX.Element {
     rememberHomeSearch(search);
   }, [filter]);
 
-  /** (Re)fetch guidance; on failure hide the card, never the catalog. */
+  /**
+   * (Re)fetch guidance. A failure never touches the catalog: it keeps the last
+   * good guidance, so the card is hidden only if no fetch has ever succeeded.
+   */
   const loadGuidance = useCallback((): void => {
     const seq = ++guidanceSeq.current;
     fetchGuidance().then(
@@ -186,7 +190,7 @@ export function Home(): JSX.Element {
         if (seq === guidanceSeq.current) setGuidance(g);
       },
       () => {
-        if (seq === guidanceSeq.current) setGuidance(null);
+        // Keep whatever was last shown (null until a first success).
       },
     );
   }, []);
