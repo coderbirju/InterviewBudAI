@@ -204,8 +204,8 @@ function maxMs(a: number | null, b: number | null): number | null {
  * {@link MAX_REVISIT_SLOTS}), then weak/improving topics, then the in-progress
  * topic with the lowest done ratio, then unstarted topics (easiest first). A
  * first pass only takes problems whose topics are not yet represented; a
- * second pass fills any remaining slots without that restriction. No problem
- * appears twice. Only unattempted (`none`) problems are suggested as new work,
+ * second pass (repeated while it adds something) fills remaining slots without
+ * that restriction. No problem appears twice. Only unattempted (`none`) problems are suggested as new work,
  * easy → medium → hard → catalog order; hard only once the topic has
  * {@link HARD_GATE_DONE} done.
  */
@@ -434,7 +434,9 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
     )
     .map((u) => u.topicId);
 
-  for (const distinct of [true, false]) {
+  /** One pass over every source in priority order; returns items added. */
+  const runPass = (distinct: boolean): number => {
+    const before = nextUp.length;
     for (const r of revisits) {
       if (full() || revisitSlots >= MAX_REVISIT_SLOTS) break;
       const problem = r.entry.problem;
@@ -478,6 +480,15 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
       if (!problem) continue;
       add('start', problem, topicId, `Start ${label(topicId)}`);
     }
+    return nextUp.length - before;
+  };
+
+  // Distinct-topic pass first, then relaxed passes until full or exhausted
+  // (each relaxed pass adds at most one problem per topic, so a single topic
+  // can still fill every slot).
+  runPass(true);
+  while (!full() && runPass(false) > 0) {
+    // keep filling
   }
 
   // ---- Quiz hint ---------------------------------------------------------
