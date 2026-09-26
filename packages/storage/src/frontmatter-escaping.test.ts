@@ -157,9 +157,9 @@ describe('frontmatter string escaping: round-trip', () => {
         current = await adapter.readIntuitionNote('lc-1');
       }
       expect(current?.timeComplexity, JSON.stringify(value)).toBe(value);
-      expect(
-        await readFile(join(tempDir, 'notes', 'lc-1.md'), 'utf-8'),
-      ).toBe(firstFile);
+      expect(await readFile(join(tempDir, 'notes', 'lc-1.md'), 'utf-8')).toBe(
+        firstFile,
+      );
     }
   });
 
