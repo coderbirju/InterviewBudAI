@@ -86,6 +86,16 @@ describe('GuidanceCard — where you stand', () => {
     expect(unknown).toHaveStyle({ color: STRENGTH_COLORS.unknown });
   });
 
+  it('falls back to the unknown color and label for an unrecognised band', () => {
+    const odd = standing('arrays', 'mystery' as unknown as TopicStrength);
+    render(<GuidanceCard guidance={ready({ standing: [odd] })} />);
+    const label = within(screen.getByTestId('standing-chip')).getByText(
+      STRENGTH_LABELS.unknown,
+    );
+    expect(label).toHaveAttribute('data-band', 'unknown');
+    expect(label).toHaveStyle({ color: STRENGTH_COLORS.unknown });
+  });
+
   it('shows done/total and the review count prominently, even for unknown bands', () => {
     render(<GuidanceCard guidance={ready()} />);
     const [arrays, graphs] = screen.getAllByTestId('standing-chip');
