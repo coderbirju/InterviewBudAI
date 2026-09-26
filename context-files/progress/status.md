@@ -4,10 +4,10 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-25 — PRs #1–#52 merged or closed; review follow-up to #52 open on `architect/status-cleanup`._
+_Last updated: 2026-09-25 — PRs #1–#56 merged or closed; ADR 0008 (web-first) PR open on `architect/adr-0008-web-first`; W2 in progress._
 
 ## Legend
-✅ merged · 🟡 PR open · ⛔ blocked · ⬜ not started · ✖ closed unmerged
+✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ✖ closed unmerged
 
 ## Team model
 **Architect** (sole orchestrator; talks to founder) + skills in `skills/`
@@ -15,11 +15,14 @@ _Last updated: 2026-09-25 — PRs #1–#52 merged or closed; review follow-up to
 See `team-charter.md` §0, §9A.
 
 ## In progress
-- ✅ #52 status rewrite + stale-docs cleanup. 🟡 follow-up PR (code-review fixes) on `architect/status-cleanup`.
+- 🟡 ADR 0008 web-first product focus — `architect/adr-0008-web-first`.
+- 🔨 W2 localhost hardening — `feature/w2-localhost-hardening` (no PR yet).
 
-## Founder decision (2026-09-25)
-- **The web app is the product.** CLI is deprioritized/frozen. Web data-dir
-  default `~/.interviewbudai/data` is canonical.
+## Founder decision (2026-09-25) — recorded in ADR 0008
+- **The web app is the product.** CLI frozen (compiles + tests, no features).
+  Canonical data dir `~/.interviewbudai/data` (0700).
+- Consequence (ADR 0008 D2): front-end parity principle relaxed — web-only
+  features allowed.
 
 ## Current product (on `main`)
 - **Web** (`@ibai/web`): React SPA at `/` — Home (catalog + status), Notes,
@@ -31,6 +34,20 @@ See `team-charter.md` §0, §9A.
 - **Storage**: `LocalFileStorageAdapter` (sessions, summaries, competency map,
   weaknesses, notes, quiz sessions, competency signals).
 - **Curriculum**: curated links + difficulty catalog (no answers).
+
+## Milestone: Web usability (ADR 0008)
+| Item | What | Status |
+|---|---|---|
+| W1 | Quiz reliability — questions from catalog (ADR 0007 A8) | ✅ #56 |
+| W3 | Home catalog search + difficulty/status filters | ✅ #54 |
+| W4 | One-command start (`npm start`, first-run data dir 0700, `.env.example`) | ✅ #55 |
+| W2 | Localhost hardening (Host/Origin/CSRF/content-type) | 🔨 `feature/w2-localhost-hardening` (no PR yet) |
+| 2a | Growth loop: quiz signals → CompetencyMap/WeaknessRegister; "Where you stand / Next up" Home card | ⬜ |
+| 2b | User-added custom problems | ⬜ needs storage ADR |
+| 2c | Settings / provider status (active provider, test connection) | ⬜ key storage pending founder |
+| 2d | Server-side data dir as single source of truth (less cookie reliance) | ⬜ |
+| 3 | Backup/export or git-backing · OpenAI-compatible provider · System Design | ⬜ pending founder |
+| H | Hygiene: test cleanup (dup `@testing-library/dom`, popstate re-filter, `rememberHomeSearch` isolation, filter→notes→back test); remove `POST /api/chat` + `postChat`/`sendChat`; lc-209 double-topic | ⬜ |
 
 ## Milestones (all ✅)
 
@@ -72,6 +89,10 @@ See `team-charter.md` §0, §9A.
   #3 two-tier team model · #4 Storage + LLM interfaces (ADR 0002) · #11 UI rework backlog note.
 
 ## Blocked / needs founder action
+- **Open founder decisions (ADR 0008 D5):** System Design in v1 + shape; API
+  keys on disk?; meaning of "git-backed"; quiz-only vs free-form coach/plan;
+  distribution (clone+build vs npx); delete ADR 0004?; delete stale
+  branches/worktrees?
 - ⛔ **Branch protection on `main` — not enabled.** GitHub returns 403
   ("Upgrade to GitHub Pro or make this repository public") for both branch
   protection and rulesets on this private repo. Founder options: make the repo
@@ -82,27 +103,15 @@ See `team-charter.md` §0, §9A.
 - **ESLint 9** (flat config) upgrade — deferred; eslint@8 has dev-only audit warnings.
 - **Bulk import** of founder's Notion intuitions — deferred.
 - **Quiz difficulty knob** (ADR 0007 D2 "future") — not implemented.
-- **CompetencySignals → CompetencyMap/WeaknessRegister reconciliation** (ADR 0007
-  Consequences / Q4 row) — not implemented; quiz results do not feed `assess`/`plan`.
-- **Quiz engine lives in `packages/web`, not `core`** — conflicts with the
-  front-end parity principle in `01-architecture.md`; moot while the CLI is frozen,
-  but the doc should be reconciled (ADR).
-- **Web no longer exposes assess/plan** (Where You Stand / Next Session were
-  retired with the server pages in M6); only the frozen CLI has them.
-- **CLI-frozen known issues (not fixing):** CLI data-dir default `~/.ibai/data`
+- **Quiz engine in `packages/web`** — allowed by ADR 0008 D2 (parity relaxed).
+- **CLI-frozen known issues (ADR 0008 D1, not fixing):** CLI data-dir default `~/.ibai/data`
   differs from the canonical web default `~/.interviewbudai/data`; `ibai coach`
   with fewer `--answer`s than plan topics prints "Proceeding with partial
   answers" but exits 0 without running `coach()`.
-- **`POST /api/chat`** is unused by the SPA since Q3 (vestigial).
-- **No OpenAI provider** (listed in `01-architecture.md`; only Anthropic + Ollama ship).
-- **No System Design curriculum** — catalog is DSA only.
-- **`.env.example`** lists `IBAI_LLM_*` / `IBAI_STORAGE_*` vars no code reads.
 
 ## Next up (proposed)
-1. **Web usability roadmap — pending ADR 0008 (web-first).**
-2. `implement` — reconcile `CompetencySignals` into `CompetencyMap`/`WeaknessRegister`.
-3. `frontend` — restore "where you stand / next session" in the SPA.
-4. `integrate` — `OpenAIProvider` on the shared HTTP core.
-5. `architect-task` — ADR: System Design curriculum shape (links only).
-6. `scaffold` — ESLint 9 flat-config upgrade; prune unused `.env.example` vars.
-7. Later: quiz difficulty knob; bulk Notion import.
+1. W2 localhost hardening (in progress) → then Wave 2a growth loop.
+2. `architect-task` — storage-interface ADR for custom problems (Wave 2b).
+3. Wave 2c/2d; hygiene PRs in between.
+4. `scaffold` — ESLint 9 flat-config upgrade.
+5. Later: quiz difficulty knob; bulk Notion import.

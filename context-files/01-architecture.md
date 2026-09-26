@@ -51,7 +51,9 @@ packages/
   providers/    LLM provider interface + adapters (OpenAI, Anthropic, Ollama…).
   storage/      Storage interface + adapters (git/local default, then others).
   cli/          CLI front-end. Thin; delegates to core.
-  web/          Locally hosted web front-end. Thin; delegates to core.
+  web/          Locally hosted web front-end (the v1 product). Delegates to
+                core; may host web-only features, e.g. the Quiz Master
+                engine (ADR 0008 D2).
 ```
 
 **Dependency rule:** `cli` and `web` depend on `core`. `core` depends on the
@@ -98,9 +100,11 @@ exact shape; the sketch below is the intent.
 
 ## Front-end parity principle
 
-CLI and web are **thin** front-ends over the same engine. Any capability must be
-expressed in the engine first; front-ends expose it. A feature must never live
-only in one front-end's logic.
+**Relaxed by ADR 0008 (web-first).** The local web app is the v1 product; the
+CLI is frozen. Web-only features are allowed. Engine-first (domain logic in
+`core`) remains **preferred** where cheap but is not required — e.g. the Quiz
+Master engine may live in `packages/web`. The dependency rule above is
+unchanged. See `decisions/0008-web-first-product-focus.md`.
 
 ## Non-negotiables checklist (for reviews / CI intent)
 

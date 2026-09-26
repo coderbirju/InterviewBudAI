@@ -94,7 +94,7 @@ next focus, generating twist variants).
   problems/links/questions.
 - User authors/narrates intuition; system persists it.
 - Cross-session progress tracking + competency map that never resets.
-- CLI **and** a locally hosted web UI, on the same engine.
+- Local web UI (primary); CLI frozen per ADR 0008.
 - Pluggable LLM providers + pluggable storage.
 
 **Later feature rings (explicitly NOT v1):**
