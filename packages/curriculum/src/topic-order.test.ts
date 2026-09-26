@@ -35,6 +35,12 @@ describe('topic taxonomy', () => {
     expect(missing).toEqual([]);
   });
 
+  it('every TOPIC_ORDER topic has at least one catalog problem', () => {
+    const catalogTopics = new Set(CATALOG.flatMap((p) => p.topics));
+    const empty = TOPIC_ORDER.filter((t) => !catalogTopics.has(t));
+    expect(empty).toEqual([]);
+  });
+
   it('every topic has a label and no label is orphaned', () => {
     expect(Object.keys(TOPIC_LABELS).sort()).toEqual([...TOPIC_ORDER].sort());
     expect(topicLabel('stack')).toBe('Stack & Queue');

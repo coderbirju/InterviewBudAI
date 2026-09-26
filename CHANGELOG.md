@@ -69,7 +69,8 @@ and is listed there with what you need to do (ADR 0009 D4).
   (Arrays, Binary Search, Sorting, Hashing, Linked List, Stack & Queue, Heap, Recursion, Backtracking, Trees, Graphs, Greedy, Dynamic
   Programming) with readable labels on Home and Analytics. `arrays-2d`,
   `two-pointers` and `sliding-window` merge into `arrays`; `miscellaneous` is
-  retired. Existing quiz stats for merged topics are combined at read time;
+  retired; its problems and the combination/permutation/subset problems (plus
+  Word Search) are re-tagged in the catalog (every topic has problems). Existing quiz stats for merged topics are combined at read time;
   no data is rewritten and no migration is needed.
 - The web app is the product; the CLI is frozen (ADR 0008, #57).
 - Docs: ADR 0009 (data lifecycle — data page, CSV import, backups, format
