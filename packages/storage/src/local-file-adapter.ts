@@ -413,6 +413,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
    * Stored at `${basePath}/notes/<problemId>.md` as markdown with YAML-style
    * frontmatter (id, lastUpdated, optional attempts) followed by free-text body.
    *
+   * String frontmatter values round-trip verbatim (see
+   * `encodeFrontmatterString`); a complexity containing CR/LF is rejected
+   * with a `RangeError` (frontmatter values are single-line).
+   *
    * @param note - The intuition note to persist, including problemId and content
    */
   async writeIntuitionNote(note: IntuitionNote): Promise<void> {
@@ -439,18 +443,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       frontmatter += `\ncompleted: ${resolvedCompleted}`;
     }
     if (note.timeComplexity !== undefined) {
-      // Quote the value and escape embedded quotes/newlines
-      const escaped = note.timeComplexity
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, ' ');
-      frontmatter += `\ntimeComplexity: "${escaped}"`;
+      frontmatter += `\ntimeComplexity: ${encodeFrontmatterString(note.timeComplexity)}`;
     }
     if (note.spaceComplexity !== undefined) {
-      // Quote the value and escape embedded quotes/newlines
-      const escaped = note.spaceComplexity
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, ' ');
-      frontmatter += `\nspaceComplexity: "${escaped}"`;
+      frontmatter += `\nspaceComplexity: ${encodeFrontmatterString(note.spaceComplexity)}`;
     }
     frontmatter += '\n---\n';
 
@@ -763,16 +759,16 @@ export class LocalFileStorageAdapter implements StorageAdapter {
               }
             } else if (key === 'status' && value) {
               // Tolerant: only accept a known NoteStatus, else ignore.
-              const stripped = stripQuotes(value);
+              const stripped = decodeFrontmatterString(value);
               if (isNoteStatus(stripped)) {
                 parsedStatus = stripped;
               }
             } else if (key === 'timeComplexity' && value) {
-              // Strip surrounding quotes if present
-              parsedTimeComplexity = stripQuotes(value) || undefined;
+              parsedTimeComplexity =
+                decodeFrontmatterString(value) || undefined;
             } else if (key === 'spaceComplexity' && value) {
-              // Strip surrounding quotes if present
-              parsedSpaceComplexity = stripQuotes(value) || undefined;
+              parsedSpaceComplexity =
+                decodeFrontmatterString(value) || undefined;
             }
             // Note: we ignore 'id' from file, always use requestedId
           }
@@ -829,13 +825,108 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
 }
 
-/**
- * Strip surrounding double quotes from a string value if present.
- * Returns the inner content, or the original value if not quoted.
- */
-function stripQuotes(value: string): string {
-  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
-    return value.slice(1, -1);
+// ---------------------------------------------------------------------------
+// Frontmatter string values (timeComplexity, spaceComplexity, status)
+// ---------------------------------------------------------------------------
+//
+// A value is written as a double-quoted scalar on one line. Escaping is
+// minimal, so a value with no `"` and no trailing backslash is written
+// byte-for-byte as older versions wrote it (no git diff churn; older builds
+// still read it):
+//   - `"`                                      -> `\"`
+//   - a run of k backslashes followed by `"` or ending the value -> 2k
+//     backslashes (the CommandLineToArgvW rule)
+//   - any other backslash is literal (`O(n \log n)` stays as typed)
+//   - CR / LF are rejected (a frontmatter value is one line)
+//
+// Reading undoes exactly that. Older versions escaped `"` as `\"`, never
+// escaped backslashes, and read the value back without unescaping, so every
+// re-save added one backslash in front of each `"` (`"` -> `\"` -> `\\"` ...).
+// A value this writer can never produce — an even backslash run before an
+// inner `"`, a bare inner `"`, or an odd run at the end — is such a legacy
+// value and is normalized: each backslash run in front of a `"` is dropped
+// (the old writer put all of them there). A legacy value saved once (`\"`)
+// already decodes correctly by the rules above. An odd run of 3+ before a `"`
+// is indistinguishable from an intended `\"` and is decoded by the rules
+// above (stable from then on). Legacy values ending in an even backslash run
+// read with that run halved (old versions could not round-trip them either).
+
+/** Encode a frontmatter string value (see the rules above). */
+function encodeFrontmatterString(value: string): string {
+  if (/[\r\n]/.test(value)) {
+    throw new RangeError('a frontmatter value must be a single line');
   }
-  return value;
+  let out = '';
+  let i = 0;
+  while (i < value.length) {
+    const ch = value[i] as string;
+    if (ch === '\\') {
+      let j = i;
+      while (j < value.length && value[j] === '\\') j++;
+      const run = j - i;
+      const special = j === value.length || value[j] === '"';
+      out += '\\'.repeat(special ? run * 2 : run);
+      i = j;
+    } else {
+      out += ch === '"' ? '\\"' : ch;
+      i++;
+    }
+  }
+  return `"${out}"`;
+}
+
+/**
+ * Decode a (trimmed) frontmatter string value: unquoted values are returned
+ * as-is; double-quoted values are unescaped, legacy values normalized.
+ */
+function decodeFrontmatterString(value: string): string {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) {
+    return value;
+  }
+  const inner = value.slice(1, -1);
+  let out = '';
+  let i = 0;
+  while (i < inner.length) {
+    const ch = inner[i] as string;
+    if (ch === '\\') {
+      let j = i;
+      while (j < inner.length && inner[j] === '\\') j++;
+      const run = j - i;
+      if (j === inner.length) {
+        if (run % 2 !== 0) return decodeLegacyString(inner);
+        out += '\\'.repeat(run / 2);
+      } else if (inner[j] === '"') {
+        if (run % 2 === 0) return decodeLegacyString(inner);
+        out += '\\'.repeat((run - 1) / 2) + '"';
+        j++;
+      } else {
+        out += '\\'.repeat(run);
+      }
+      i = j;
+    } else if (ch === '"') {
+      return decodeLegacyString(inner);
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
+}
+
+/** Legacy (pre-fix) value: drop every backslash run in front of a `"`. */
+function decodeLegacyString(inner: string): string {
+  let out = '';
+  let i = 0;
+  while (i < inner.length) {
+    if (inner[i] === '\\') {
+      let j = i;
+      while (j < inner.length && inner[j] === '\\') j++;
+      if (inner[j] !== '"') out += inner.slice(i, j);
+      i = j;
+    } else {
+      out += inner[i] as string;
+      i++;
+    }
+  }
+  return out;
 }
