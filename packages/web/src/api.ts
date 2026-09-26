@@ -16,6 +16,8 @@
  *   GET  /api/progress    — overall progress counts for the banner
  *   GET  /api/competency  — quiz-derived competency signals (weak/strong topics
  *                           + recurring miss patterns); safe empty when no DB
+ *   GET  /api/guidance    — where you stand per topic + next-up problems + quiz
+ *                           nudge (derived at read time by core deriveGuidance)
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
  *   GET  /api/data-dir    — active folder, source, pinned, exists, noteCount,
  *                           formatVersion, legacyCandidates (ADR 0009 D1)
@@ -54,6 +56,8 @@ import {
   LocalFileStorageAdapter,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
+import { deriveGuidance } from '@ibai/core';
+import type { NextUpItem, QuizHint, TopicStanding } from '@ibai/core';
 import type { LlmProvider } from '@ibai/providers';
 import {
   buildQuizPrompt,
@@ -169,6 +173,21 @@ export interface ApiCompetencyResponse {
   readonly patterns: readonly ApiCompetencyPattern[];
 }
 
+/**
+ * GET /api/guidance response shape (ADR 0007 amendment w2a). Derived at read
+ * time from the catalog, note statuses and competency signals by core
+ * `deriveGuidance` — nothing is written. `state`: `no_db` (no data folder:
+ * empty lists), `empty` (no activity yet: `standing` empty, `nextUp` = starter
+ * problems), `ready` (activity found).
+ */
+export interface ApiGuidanceResponse {
+  readonly state: 'no_db' | 'empty' | 'ready';
+  readonly generatedAt: IsoTimestamp;
+  readonly standing: readonly TopicStanding[];
+  readonly nextUp: readonly NextUpItem[];
+  readonly quiz: QuizHint;
+}
+
 /** GET /api/notes/:id response shape (a saved or empty note). */
 export interface ApiNoteResponse {
   readonly problemId: string;
@@ -269,30 +288,41 @@ export interface ApiDeps {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** A saved note's resolved status + when it was last updated. */
+interface ResolvedNote {
+  readonly status: NoteStatus;
+  readonly lastUpdated: IsoTimestamp;
+}
+
 /**
- * Resolve status for every catalog problem against a storage adapter (or none).
- * Read-only and safe: a missing adapter or per-problem read error degrades to
- * `'none'`, so this never throws and works when no DB is configured.
+ * Resolve status (and `lastUpdated`) for every catalog problem that has a
+ * saved note. One read per catalog problem; shared by every route that needs
+ * note statuses. Read-only and safe: a missing adapter or per-problem read
+ * error degrades to "no note" (`'none'`), so this never throws and works when
+ * no DB is configured.
  */
 async function resolveStatuses(
   problems: readonly Problem[],
   storage: StorageAdapter | null,
-): Promise<Map<string, NoteStatus>> {
-  const statusById = new Map<string, NoteStatus>();
+): Promise<Map<string, ResolvedNote>> {
+  const notesById = new Map<string, ResolvedNote>();
   if (!storage?.readIntuitionNote) {
-    return statusById;
+    return notesById;
   }
   for (const problem of problems) {
     try {
       const note = await storage.readIntuitionNote(problem.id);
       if (note) {
-        statusById.set(problem.id, resolveNoteStatus(note));
+        notesById.set(problem.id, {
+          status: resolveNoteStatus(note),
+          lastUpdated: note.lastUpdated,
+        });
       }
     } catch {
       // Ignore per-problem read errors — treated as 'none'.
     }
   }
-  return statusById;
+  return notesById;
 }
 
 /**
@@ -325,11 +355,11 @@ function resolveActiveStorage(deps: ApiDeps): {
  */
 function groupByTopic(
   problems: readonly Problem[],
-  statusById: Map<string, NoteStatus>,
+  statusById: ReadonlyMap<string, ResolvedNote>,
 ): ApiCatalogTopic[] {
   const byTopic = new Map<string, ApiCatalogProblem[]>();
   for (const problem of problems) {
-    const status = statusById.get(problem.id) ?? 'none';
+    const status = statusById.get(problem.id)?.status ?? 'none';
     const enriched: ApiCatalogProblem = {
       id: problem.id,
       title: problem.title,
@@ -352,10 +382,10 @@ function groupByTopic(
 /** Count how many problems resolve to a given status across the catalog. */
 function statusCountsFor(
   problems: readonly Problem[],
-  statusById: Map<string, NoteStatus>,
+  statusById: ReadonlyMap<string, ResolvedNote>,
 ): StatusCounts {
   const statuses: NoteStatus[] = problems.map(
-    (p) => statusById.get(p.id) ?? 'none',
+    (p) => statusById.get(p.id)?.status ?? 'none',
   );
   return computeStatusCounts(statuses);
 }
@@ -462,21 +492,10 @@ async function readDoneProblemIds(
   problems: readonly Problem[],
   storage: StorageAdapter,
 ): Promise<string[]> {
-  const done: string[] = [];
-  if (!storage.readIntuitionNote) {
-    return done;
-  }
-  for (const problem of problems) {
-    try {
-      const note = await storage.readIntuitionNote(problem.id);
-      if (note && resolveNoteStatus(note) === 'done') {
-        done.push(problem.id);
-      }
-    } catch {
-      // Ignore per-problem read errors — treated as not done.
-    }
-  }
-  return done;
+  const notesById = await resolveStatuses(problems, storage);
+  return problems
+    .filter((p) => notesById.get(p.id)?.status === 'done')
+    .map((p) => p.id);
 }
 
 /**
@@ -714,6 +733,14 @@ export async function handleApiRoute(
       }
       const signals = await storage.readCompetencySignals();
       return json(200, toCompetencyResponse(signals));
+    }
+
+    // ----- /api/guidance (GET, ADR 0007 amendment w2a) -----
+    if (pathname === '/api/guidance') {
+      if (method !== 'GET') {
+        return json(405, { error: 'method not allowed' });
+      }
+      return json(200, await buildGuidanceResponse(deps));
     }
 
     // ----- /api/config (GET) -----
@@ -1263,6 +1290,56 @@ export async function handleApiRoute(
       error instanceof Error ? error.message : 'internal server error';
     return json(500, { error: message });
   }
+}
+
+/**
+ * Build GET /api/guidance: read note statuses (one pass) + competency signals,
+ * then derive guidance in core. Strictly read-only. Malformed or unreadable
+ * signals degrade to none; `lastQuizAt` comes from the signals' per-topic
+ * `lastSeen` (updated on every terminal quiz answer) — no session scan.
+ */
+async function buildGuidanceResponse(
+  deps: ApiDeps,
+): Promise<ApiGuidanceResponse> {
+  const generatedAt = nowDate(deps).toISOString() as IsoTimestamp;
+  const { storage } = resolveActiveStorage(deps);
+  if (!storage) {
+    return {
+      state: 'no_db',
+      generatedAt,
+      standing: [],
+      nextUp: [],
+      quiz: { doneCount: 0, lastQuizAt: null, suggested: false },
+    };
+  }
+  const problems = deps.catalog.list();
+  const notesById = await resolveStatuses(problems, storage);
+  let signals: CompetencySignals = emptyCompetencySignals(generatedAt);
+  if (storage.readCompetencySignals) {
+    try {
+      const read: unknown = await storage.readCompetencySignals();
+      if (typeof read === 'object' && read !== null) {
+        signals = read as CompetencySignals;
+      }
+    } catch {
+      // Unreadable signals → none (guidance still works from notes).
+    }
+  }
+  const guidance = deriveGuidance({
+    problems,
+    notes: Array.from(notesById, ([problemId, note]) => ({
+      problemId,
+      status: note.status,
+      lastUpdated: note.lastUpdated,
+    })),
+    signals,
+    now: generatedAt,
+  });
+  return {
+    state: guidance.standing.length === 0 ? 'empty' : 'ready',
+    generatedAt,
+    ...guidance,
+  };
 }
 
 /**
