@@ -9,16 +9,9 @@ import {
 } from './render.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
-import {
-  isPinnedSource,
-  resolvePort,
-  resolveServerDataDir,
-  validateSetupPath,
-  createDataDir,
-  writeLocalConfig,
-  localConfigPathFor,
-} from './config.js';
+import { resolvePort, resolveServerDataDir } from './config.js';
 import type { DataDirSource } from './config.js';
+import { DataDirControl, pinnedBy } from './data-dir-control.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { isApiRoute, handleApiRoute } from './api.js';
 import {
@@ -209,13 +202,6 @@ function serverPage(
   };
 }
 
-/** Human-readable name of what pins the data dir. */
-function pinnedBy(source: DataDirSource): string {
-  return source === 'flag'
-    ? 'the --data-dir flag'
-    : 'the IBAI_DATA_DIR environment variable';
-}
-
 /**
  * Create the web handler (ADR 0006 M6 — the SPA is the whole app).
  *
@@ -249,23 +235,26 @@ export function createCoachHandler(
   const homeDir = deps.homeDir ?? os.homedir();
 
   // The server's data dir: resolved ONCE here (or passed in by the
-  // composition root, which already resolved it at boot). Mutated only by a
-  // successful POST /setup.
-  const state: { dataDir: string; source: DataDirSource } = (() => {
-    if (deps.dataDir !== undefined) {
-      return {
-        dataDir: deps.dataDir,
-        source: deps.dataDirSource ?? 'default',
-      };
-    }
-    const resolved = resolveServerDataDir(deps.env, deps.argv, homeDir);
-    if (resolved.warning !== undefined) {
-      (deps.warn ?? ((line: string) => console.warn(line)))(
-        `Warning: ${resolved.warning}`,
-      );
-    }
-    return { dataDir: resolved.dataDir, source: resolved.source };
-  })();
+  // composition root, which already resolved it at boot). Mutated only via
+  // `state.choose` (POST /setup, POST /api/data-dir, legacy accept).
+  const state = new DataDirControl({
+    homeDir,
+    ...((): { dataDir: string; source: DataDirSource } => {
+      if (deps.dataDir !== undefined) {
+        return {
+          dataDir: deps.dataDir,
+          source: deps.dataDirSource ?? 'default',
+        };
+      }
+      const resolved = resolveServerDataDir(deps.env, deps.argv, homeDir);
+      if (resolved.warning !== undefined) {
+        (deps.warn ?? ((line: string) => console.warn(line)))(
+          `Warning: ${resolved.warning}`,
+        );
+      }
+      return { dataDir: resolved.dataDir, source: resolved.source };
+    })(),
+  });
 
   const route = async (req: HandlerRequest): Promise<HandlerResponse> => {
     const url = new URL(req.url, 'http://localhost');
@@ -277,6 +266,11 @@ export function createCoachHandler(
     if (rejected !== null) {
       return rejected;
     }
+
+    // Legacy-cookie recovery: capture (never follow) a previous cookie-chosen
+    // folder before this response expires the cookie. Only after the Host /
+    // Origin checks, so a rebinding or cross-site request cannot plant one.
+    state.observeLegacyCookie(headerValue(req.headers, 'cookie'));
 
     // 4. Body-size cap (before any parsing).
     if (
@@ -305,6 +299,7 @@ export function createCoachHandler(
           createStorage: deps.createStorage,
           storage: deps.storage,
           dataDir: state.dataDir,
+          dataDirControl: state,
           provider: deps.provider,
           providerLabel: deps.providerLabel,
         },
@@ -315,7 +310,7 @@ export function createCoachHandler(
     // /setup — the one remaining server-rendered page (create-database flow).
     // Routed before the SPA catch-all so it is never shadowed.
     if (pathname === '/setup') {
-      const pinned = isPinnedSource(state.source);
+      const pinned = state.pinned;
       const pinnedNotice = pinned
         ? `The data directory is pinned to ${state.dataDir} by ${pinnedBy(state.source)}; /setup can create it but cannot change it. Restart the server without it to choose a different location here.`
         : undefined;
@@ -338,58 +333,15 @@ export function createCoachHandler(
           );
         }
 
-        const checked = validateSetupPath(
-          formParams.get('dataDir') ?? state.dataDir,
-        );
-        if (!checked.ok) {
-          return serverPage(400, renderSetupErrorHtml(checked.error));
-        }
-
-        // A pinned data dir may be created here, never changed.
-        if (pinned && checked.path !== state.dataDir) {
-          return serverPage(
-            400,
-            renderSetupErrorHtml(
-              `The data directory is pinned to ${state.dataDir} by ${pinnedBy(state.source)}, so /setup cannot change it. Restart the server without it to choose ${checked.path}.`,
-            ),
-          );
-        }
-
-        try {
-          // Create the directory (mkdir -p) with owner-only permissions.
-          createDataDir(checked.path);
-        } catch (err) {
-          const message =
-            err instanceof Error
-              ? err.message
-              : 'Unknown error creating directory';
-          return serverPage(400, renderSetupErrorHtml(message));
-        }
-
-        if (!pinned) {
-          // Persist the choice (atomic, 0600) BEFORE switching, so the server
-          // never uses a dir it would forget on restart.
-          try {
-            writeLocalConfig(homeDir, checked.path);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return serverPage(
-              400,
-              renderSetupErrorHtml(
-                `Could not save your choice to ${localConfigPathFor(homeDir)}: ${message}`,
-              ),
-            );
-          }
-          state.dataDir = checked.path;
-          state.source = 'config';
+        // The shared validate → create → persist → switch path.
+        const chosen = state.choose(formParams.get('dataDir') ?? state.dataDir);
+        if (!chosen.ok) {
+          return serverPage(400, renderSetupErrorHtml(chosen.error));
         }
 
         return serverPage(
           200,
-          renderSetupSuccessHtml(
-            checked.path,
-            pinned ? pinnedBy(state.source) : undefined,
-          ),
+          renderSetupSuccessHtml(chosen.path, chosen.pinnedBy),
         );
       }
       // Any other method on /setup.
