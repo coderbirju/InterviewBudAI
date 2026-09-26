@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HandlerResponse } from './handler.js';
+import { SERVER_PAGE_CSP } from './security.js';
 
 /**
  * Serves the built React SPA (ADR 0006) at the site ROOT.
@@ -78,6 +79,8 @@ function notBuiltResponse(): HandlerResponse {
       '<p>Then reload the page.</p>',
       '</body></html>',
     ].join(''),
+    // Inline styles only, no scripts: the server-page CSP, not the SPA one.
+    headers: { 'Content-Security-Policy': SERVER_PAGE_CSP },
   };
 }
 

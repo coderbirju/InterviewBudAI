@@ -172,9 +172,14 @@ export function renderNav(): string {
 }
 
 /**
- * Render the setup form page for creating the progress database.
+ * Render the setup form page for creating the progress database. When a
+ * `csrfToken` is given it is embedded as a hidden field; `POST /setup` rejects
+ * submissions that do not echo the server's per-process token.
  */
-export function renderSetupHtml(defaultPath: string): string {
+export function renderSetupHtml(
+  defaultPath: string,
+  csrfToken?: string,
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -272,6 +277,7 @@ export function renderSetupHtml(defaultPath: string): string {
       </div>
 
       <form method="POST" action="/setup">
+        ${csrfToken !== undefined ? `<input type="hidden" name="csrfToken" value="${escapeHtml(csrfToken)}">` : ''}
         <div class="form-group">
           <label for="dataDir">Data Directory Path</label>
           <input type="text" id="dataDir" name="dataDir" value="${escapeHtml(defaultPath)}" required>
