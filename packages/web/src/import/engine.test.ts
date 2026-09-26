@@ -607,10 +607,10 @@ describe('ReDoS regressions (linear-time on untrusted text)', () => {
   });
 });
 
-describe('complexity normalization (frontmatter round-trip)', () => {
-  it(`replaces " with ' and drops backslashes`, () => {
+describe('complexity text is preserved verbatim', () => {
+  it('keeps quotes and backslashes as written', () => {
     expect(extractComplexities('TC: O("n" \\log n)').timeComplexity).toBe(
-      "O('n' log n)",
+      'O("n" \\log n)',
     );
   });
 

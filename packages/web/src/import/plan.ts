@@ -555,6 +555,24 @@ export function hasImportedBlock(content: string, block: string): boolean {
 }
 
 /**
+ * True when writing `next` over `existing` changes nothing the user sees —
+ * same body, status and complexities — so a re-merge is an idempotent skip
+ * (reported as `skipped`, reason `unchanged`; the file, including
+ * `lastUpdated`, is not rewritten).
+ */
+export function mergeChangesNothing(
+  existing: IntuitionNote,
+  next: IntuitionNote,
+): boolean {
+  return (
+    existing.content === next.content &&
+    resolveNoteStatus(existing) === resolveNoteStatus(next) &&
+    (existing.timeComplexity ?? '') === (next.timeComplexity ?? '') &&
+    (existing.spaceComplexity ?? '') === (next.spaceComplexity ?? '')
+  );
+}
+
+/**
  * Build the note to write for an operation (`create` / `overwrite` /
  * `merge`). `existing` is the current note (required for merge/overwrite).
  */
