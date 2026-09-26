@@ -236,65 +236,65 @@ export function GuidanceCard({
         </button>
       </h2>
 
-      {!collapsed && (
-        <div id={bodyId} className="mt-4 space-y-5">
-          {empty && (
-            <p className="text-sm text-slate-400">
-              Nothing tracked yet. Pick one of these to begin — set a status on
-              it when you&apos;re done.
-            </p>
-          )}
+      {/* Stays mounted (hidden when collapsed) so aria-controls always
+          references an element in the DOM. */}
+      <div id={bodyId} hidden={collapsed} className="mt-4 space-y-5">
+        {empty && (
+          <p className="text-sm text-slate-400">
+            Nothing tracked yet. Pick one of these to begin — set a status on it
+            when you&apos;re done.
+          </p>
+        )}
 
-          {standing.length > 0 && (
-            <div>
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Where you stand
-                </h3>
-                <SpaLink
-                  href={analyticsHref()}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 transition-all duration-200 hover:text-emerald-300"
-                >
-                  See all in Analytics
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                </SpaLink>
-              </div>
-              <ul className="mt-2 flex flex-wrap gap-2">
-                {standing.map((s) => (
-                  <StandingChip key={s.topicId} s={s} />
-                ))}
-              </ul>
+        {standing.length > 0 && (
+          <div>
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Where you stand
+              </h3>
+              <SpaLink
+                href={analyticsHref()}
+                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 transition-all duration-200 hover:text-emerald-300"
+              >
+                See all in Analytics
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+              </SpaLink>
             </div>
-          )}
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {standing.map((s) => (
+                <StandingChip key={s.topicId} s={s} />
+              ))}
+            </ul>
+          </div>
+        )}
 
-          {nextUp.length > 0 && (
-            <div>
-              {!empty && (
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Next up
-                </h3>
-              )}
-              <ul className={`space-y-2 ${empty ? '' : 'mt-2'}`}>
-                {nextUp.map((item) => (
-                  <NextUpRow key={item.problemId} item={item} />
-                ))}
-              </ul>
-            </div>
-          )}
+        {nextUp.length > 0 && (
+          <div>
+            {!empty && (
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Next up
+              </h3>
+            )}
+            <ul className={`space-y-2 ${empty ? '' : 'mt-2'}`}>
+              {nextUp.map((item) => (
+                <NextUpRow key={item.problemId} item={item} />
+              ))}
+            </ul>
+          </div>
+        )}
 
-          {nudge && (
-            <SpaLink
-              href={interviewHref()}
-              className="inline-flex items-center gap-1.5 text-sm text-slate-400 transition-all duration-200 hover:text-emerald-400"
-            >
-              <Sparkles className="h-4 w-4 text-emerald-500" aria-hidden />
-              {guidance.quiz.lastQuizAt === null
-                ? 'Test what you’ve done — quiz yourself'
-                : 'It’s been a while — quiz yourself'}
-            </SpaLink>
-          )}
-        </div>
-      )}
+        {nudge && (
+          <SpaLink
+            href={interviewHref()}
+            className="inline-flex items-center gap-1.5 text-sm text-slate-400 transition-all duration-200 hover:text-emerald-400"
+          >
+            <Sparkles className="h-4 w-4 text-emerald-500" aria-hidden />
+            {guidance.quiz.lastQuizAt === null
+              ? 'Test what you’ve done — quiz yourself'
+              : 'It’s been a while — quiz yourself'}
+          </SpaLink>
+        )}
+      </div>
     </section>
   );
 }

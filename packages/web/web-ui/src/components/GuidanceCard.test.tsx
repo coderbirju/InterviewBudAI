@@ -210,7 +210,7 @@ describe('GuidanceCard — collapse', () => {
     toggle.focus();
     await user.keyboard('{Enter}');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('Where you stand')).not.toBeInTheDocument();
+    expect(screen.getByText('Where you stand')).not.toBeVisible();
     expect(window.localStorage.getItem(GUIDANCE_COLLAPSED_KEY)).toBe('1');
 
     unmount();
@@ -221,8 +221,26 @@ describe('GuidanceCard — collapse', () => {
     again.focus();
     await user.keyboard(' ');
     expect(again).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Where you stand')).toBeInTheDocument();
+    expect(screen.getByText('Where you stand')).toBeVisible();
     expect(window.localStorage.getItem(GUIDANCE_COLLAPSED_KEY)).toBeNull();
+  });
+});
+
+describe('GuidanceCard — aria-controls', () => {
+  it('references a body element that stays in the DOM when collapsed', async () => {
+    const user = userEvent.setup();
+    render(<GuidanceCard guidance={ready()} />);
+    const toggle = screen.getByRole('button', { name: /your guidance/i });
+    const bodyOf = (): HTMLElement | null =>
+      document.getElementById(toggle.getAttribute('aria-controls') ?? '');
+
+    expect(bodyOf()).not.toBeNull();
+    expect(bodyOf()).not.toHaveAttribute('hidden');
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(bodyOf()).not.toBeNull();
+    expect(bodyOf()).toHaveAttribute('hidden');
   });
 });
 
