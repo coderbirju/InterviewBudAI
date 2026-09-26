@@ -310,9 +310,14 @@ ${
 
 /**
  * Render a success page after creating the database. Links back to the SPA at
- * the site root (M6).
+ * the site root (M6). When `pinnedBy` is given (e.g. "the --data-dir flag"),
+ * the dir is operator-pinned: the page says so instead of claiming the choice
+ * was saved to config.json.
  */
-export function renderSetupSuccessHtml(dataDir: string): string {
+export function renderSetupSuccessHtml(
+  dataDir: string,
+  pinnedBy?: string,
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -378,7 +383,7 @@ export function renderSetupSuccessHtml(dataDir: string): string {
       <p class="success-text">Your database has been created successfully!</p>
       <p>Your progress data will be stored at:</p>
       <div class="path-display">${escapeHtml(dataDir)}</div>
-      <p>This choice has been saved in ~/.interviewbudai/config.json. The server uses it now, for every browser, and after restarts.</p>
+      <p>${pinnedBy === undefined ? 'This choice has been saved in ~/.interviewbudai/config.json. The server uses it now, for every browser, and after restarts.' : `This directory is pinned by ${escapeHtml(pinnedBy)}; it was created or verified here, and nothing was saved to ~/.interviewbudai/config.json.`}</p>
       <a href="/" class="continue-link">Go to InterviewBudAI</a>
     </div>
 
