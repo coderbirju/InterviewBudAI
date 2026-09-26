@@ -28,7 +28,8 @@
  *      form posts) even if checks 1–2 were bypassed.
  *
  * Plus a fixed set of security response headers (nosniff, no-referrer — the
- * server-rendered pages override it to same-origin — no framing, CSP). Node built-ins only; no dependencies.
+ * server-rendered pages override it to same-origin — no framing, CSP). Node
+ * built-ins only; no dependencies.
  */
 
 import * as crypto from 'node:crypto';

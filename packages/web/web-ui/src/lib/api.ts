@@ -123,17 +123,6 @@ export interface ConfigResponse {
   readonly provider: string;
 }
 
-/** A single interview chat turn (mirrors the server `ApiChatMessage`). */
-export interface ChatMessage {
-  readonly role: 'user' | 'assistant';
-  readonly content: string;
-}
-
-/** POST /api/chat response shape: the model's reply text (mirrors `ApiChatResponse`). */
-export interface ChatResponse {
-  readonly reply: string;
-}
-
 /** POST /api/notes/:id response shape (subset the SPA needs). */
 export interface NoteResponse {
   readonly problemId: string;
@@ -303,44 +292,6 @@ export async function saveNote(
     throw new ApiError(`POST ${path} failed (${res.status})`, res.status);
   }
   return (await res.json()) as FullNote;
-}
-
-/**
- * POST /api/chat — send the running transcript (prior turns + the new user
- * turn) and resolve with the model's reply. The MODEL is the only source of
- * assistant text (charter §6.2); this client never fabricates a reply.
- *
- * On a non-2xx response it throws an `ApiError` carrying the server's JSON
- * `error` message (so the UI can show a friendly inline banner) and the HTTP
- * status (so the page can special-case the provider-required `400`). The
- * transcript is preserved by the caller — this function never mutates it.
- */
-export async function postChat(
-  messages: readonly ChatMessage[],
-): Promise<ChatResponse> {
-  const path = '/api/chat';
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ messages }),
-  });
-  if (!res.ok) {
-    // Prefer the server's JSON { error } message; fall back to a generic one.
-    let message = `Chat request failed (${res.status})`;
-    try {
-      const data = (await res.json()) as { error?: unknown };
-      if (typeof data.error === 'string' && data.error.trim()) {
-        message = data.error;
-      }
-    } catch {
-      // Non-JSON error body — keep the generic message.
-    }
-    throw new ApiError(message, res.status);
-  }
-  return (await res.json()) as ChatResponse;
 }
 
 // ---------------------------------------------------------------------------
