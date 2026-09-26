@@ -28,7 +28,7 @@ skill's output.
 - Quality: tests cover new/changed paths; errors handled; inputs treated as
   untrusted; naming/style consistent; deps pinned; no secrets.
 - Scope: change is focused; stays within the owning skill's scope.
-- Data lifecycle (ADR 0009 D4): a change to where data lives, how the data dir is resolved, or the on-disk format that is missing either a migration/recovery path or a `CHANGELOG.md` `### Breaking changes` entry is blocking.
+- Data lifecycle (ADR 0009 D4): a change to where data lives, how the data dir is resolved, or a BREAKING on-disk format change (additive, back-compatible format changes are exempt) that is missing either a migration/recovery path or a `CHANGELOG.md` `### Breaking changes` entry is blocking.
 
 ### 6. Done / Blocked
 - **Pass**: no blocking findings → PR ready for the founder's morning review.

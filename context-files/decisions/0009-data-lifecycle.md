@@ -179,7 +179,8 @@ Notion's per-row page bodies (the `.md` files beside the CSV in an export) are
    create a custom problem once Wave 2(b)'s storage ADR lands.)
 
 Blank rows (every cell empty after trim) are skipped and counted in the
-preview. A row with a blank title but other content → unmatched.
+preview. A row with a blank title still goes through URL matching (step 1,
+`URL` cell); only if that fails is it unmatched.
 
 **Field rules**
 
@@ -188,9 +189,10 @@ preview. A row with a blank title but other content → unmatched.
 - Complexity: best-effort **tokeniser over the whole text** (body + notes; not
   line-anchored), case-insensitive: a label `TC` \| `Time` (optionally
   `Time complexity`) or `SC` \| `Space` (optionally `Space complexity`), then
-  optional whitespace, `:`, optional whitespace, then an `O(` expression read
-  to its **balanced** closing `)`. `TC: O(n), Space: O(1)` → time `O(n)`,
-  space `O(1)`; `Time: O(n log(n))` → `O(n log(n))`. First match per kind
+  optional whitespace, an **optional** separator (`:` `=` `-`), optional
+  whitespace, then an `O(` expression read to its **balanced** closing `)` —
+  i.e. `(TC|Time|SC|Space)\s*[:=\-]?\s*O(...)`. `TC: O(n), Space: O(1)` → time
+  `O(n)`, space `O(1)`; `TC O(n)` → `O(n)`; `Time: O(n log(n))` → `O(n log(n))`. First match per kind
   wins; capped at 100 chars; unbalanced → ignored. The raw text stays in the
   body too.
 - `Last Visited`: ISO 8601, Notion's `Month D, YYYY` (optionally with
@@ -276,7 +278,9 @@ existing field, anything older code would misread) **bumps `formatVersion`**
 and ships a migration plus a `### Breaking changes` entry.
 
 **Rule for every future PR.** Any PR that changes **where data lives, how the
-data dir is resolved, or the on-disk format** MUST include a migration (or, for
+data dir is resolved, or makes a BREAKING on-disk format change** (as defined
+above; additive, back-compatible format changes are exempt) MUST include a
+migration (or, for
 location/resolution changes, a recovery path such as D1's legacy prompt) **and**
 a `CHANGELOG.md` `### Breaking changes` entry. `code-review` MUST mark a PR
 missing either a migration/recovery path or a CHANGELOG breaking-change entry
