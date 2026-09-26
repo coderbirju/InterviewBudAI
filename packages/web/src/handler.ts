@@ -11,7 +11,12 @@ import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
 import { resolvePort, resolveServerDataDir } from './config.js';
 import type { DataDirSource } from './config.js';
-import { DataDirControl, pinnedBy } from './data-dir-control.js';
+import {
+  DataDirControl,
+  isSettlingResponse,
+  pinnedBy,
+  settlesLegacy,
+} from './data-dir-control.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { isApiRoute, handleApiRoute } from './api.js';
 import {
@@ -215,8 +220,9 @@ function serverPage(
  *                  index.html fallback for client-side routes
  *
  * The SERVER owns the data directory (ADR 0005 amendment w2d): it is resolved
- * once (flag > env > config.json > default) into handler state and only /setup
- * can change it. The legacy `ibai_data_dir` cookie is ignored and expired.
+ * once (flag > env > config.json > default) into handler state and only /setup or
+ * POST /api/data-dir can change it. The legacy `ibai_data_dir` cookie never selects the dir (it is
+ * only a recovery hint, expired once the user switches or dismisses — ADR 0009).
  *
  * Every request first passes the localhost hardening in `security.ts` (Host
  * allowlist, body-size cap, same-origin check on mutating methods, JSON-only
@@ -236,7 +242,7 @@ export function createCoachHandler(
 
   // The server's data dir: resolved ONCE here (or passed in by the
   // composition root, which already resolved it at boot). Mutated only via
-  // `state.choose` (POST /setup, POST /api/data-dir, legacy accept).
+  // `state.choose` (POST /setup, POST /api/data-dir).
   const state = new DataDirControl({
     homeDir,
     ...((): { dataDir: string; source: DataDirSource } => {
@@ -268,7 +274,7 @@ export function createCoachHandler(
     }
 
     // Legacy-cookie recovery: capture (never follow) a previous cookie-chosen
-    // folder before this response expires the cookie. Only after the Host /
+    // folder (the browser may drop the cookie later). Only after the Host /
     // Origin checks, so a rebinding or cross-site request cannot plant one.
     state.observeLegacyCookie(headerValue(req.headers, 'cookie'));
 
@@ -339,9 +345,8 @@ export function createCoachHandler(
           return serverPage(400, renderSetupErrorHtml(chosen.error));
         }
 
-        return serverPage(
-          200,
-          renderSetupSuccessHtml(chosen.path, chosen.pinnedBy),
+        return settlesLegacy(
+          serverPage(200, renderSetupSuccessHtml(chosen.path, chosen.pinnedBy)),
         );
       }
       // Any other method on /setup.
@@ -374,13 +379,15 @@ export function createCoachHandler(
   return async (req: HandlerRequest): Promise<HandlerResponse> => {
     const res = await route(req);
     // Security headers on every response; a route's own CSP (server pages)
-    // overrides the SPA default. A legacy `ibai_data_dir` cookie is never
-    // read — only expired.
-    const expireLegacy: Record<string, string> = hasLegacyDataDirCookie(
-      headerValue(req.headers, 'cookie'),
-    )
-      ? { 'Set-Cookie': EXPIRE_LEGACY_DATA_DIR_COOKIE }
-      : {};
+    // overrides the SPA default. The legacy `ibai_data_dir` cookie never
+    // selects the data dir; it is kept (as a recovery hint, ADR 0009 D1)
+    // until the user switches folders or dismisses the prompt, and expired
+    // on exactly those responses.
+    const expireLegacy: Record<string, string> =
+      isSettlingResponse(res) &&
+      hasLegacyDataDirCookie(headerValue(req.headers, 'cookie'))
+        ? { 'Set-Cookie': EXPIRE_LEGACY_DATA_DIR_COOKIE }
+        : {};
     return {
       ...res,
       headers: { ...securityHeaders(), ...res.headers, ...expireLegacy },

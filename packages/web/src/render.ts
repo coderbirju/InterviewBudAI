@@ -298,6 +298,7 @@ ${
 
         <button type="submit" class="submit-btn">Create Database</button>
       </form>
+      <p class="form-help" id="data-page-link">This page is the no-JavaScript fallback. In the app, manage your folder (and restore previous notes) on <a href="/data">Your data</a>.</p>
     </div>
 
     <footer>
@@ -385,6 +386,7 @@ export function renderSetupSuccessHtml(
       <div class="path-display">${escapeHtml(dataDir)}</div>
       <p>${pinnedBy === undefined ? 'This choice has been saved in ~/.interviewbudai/config.json. The server uses it now, for every browser, and after restarts.' : `This directory is pinned by ${escapeHtml(pinnedBy)}; it was created or verified here, and nothing was saved to ~/.interviewbudai/config.json.`}</p>
       <a href="/" class="continue-link">Go to InterviewBudAI</a>
+      <p><a href="/data">View your data folder</a></p>
     </div>
 
     <footer>
