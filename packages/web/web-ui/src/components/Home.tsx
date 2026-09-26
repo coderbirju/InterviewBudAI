@@ -3,18 +3,21 @@ import { AlertTriangle, Database, Loader2, SearchX } from 'lucide-react';
 import {
   fetchCatalog,
   fetchConfig,
+  fetchGuidance,
   fetchProgress,
   postNoteStatus,
 } from '../lib/api';
 import type {
   CatalogResponse,
   ConfigResponse,
+  GuidanceResponse,
   NoteStatus,
   ProgressResponse,
 } from '../lib/api';
 import { ProgressBanner } from './ProgressBanner';
 import { CategoryAccordion } from './CategoryAccordion';
 import { CatalogFilterBar } from './CatalogFilterBar';
+import { GuidanceCard } from './GuidanceCard';
 import {
   EMPTY_FILTER,
   filterCatalog,
@@ -45,6 +48,12 @@ import {
  * (`?q=&difficulty=&status=`) via `replaceState`, so reload and back-from-notes
  * restore it. While a filter is active, matching topics auto-expand, empty
  * topics are hidden, and each header shows its match count.
+ *
+ * w2a: a guidance card ("Where you stand / Next up", `GET /api/guidance`) sits
+ * between the banner and the filter bar. It is fetched in parallel with the
+ * catalog and refetched after each saved status change; Home remounts when
+ * returning from Notes, so that refetches too. A guidance error hides the card
+ * only — the catalog is unaffected.
  */
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -107,6 +116,9 @@ export function Home(): JSX.Element {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
+  const [guidance, setGuidance] = useState<GuidanceResponse | null>(null);
+  // Latest guidance request; older responses (and any after unmount) are dropped.
+  const guidanceSeq = useRef(0);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [filter, setFilter] = useState<CatalogFilter>(() =>
@@ -166,6 +178,26 @@ export function Home(): JSX.Element {
     rememberHomeSearch(search);
   }, [filter]);
 
+  /** (Re)fetch guidance; on failure hide the card, never the catalog. */
+  const loadGuidance = useCallback((): void => {
+    const seq = ++guidanceSeq.current;
+    fetchGuidance().then(
+      (g) => {
+        if (seq === guidanceSeq.current) setGuidance(g);
+      },
+      () => {
+        if (seq === guidanceSeq.current) setGuidance(null);
+      },
+    );
+  }, []);
+
+  useEffect(
+    () => () => {
+      guidanceSeq.current += 1;
+    },
+    [],
+  );
+
   const filterActive = isFilterActive(filter);
   const filtered = useMemo(
     () => (catalog ? filterCatalog(catalog.topics, filter, pinned) : null),
@@ -187,6 +219,9 @@ export function Home(): JSX.Element {
           setState('ready');
           return;
         }
+        // In parallel with the catalog, but not awaited: it never blocks
+        // or fails the catalog.
+        loadGuidance();
         const [cat, prog] = await Promise.all([
           fetchCatalog(),
           fetchProgress(),
@@ -206,7 +241,7 @@ export function Home(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadGuidance]);
 
   const onStatusChange = useCallback(
     async (id: string, next: NoteStatus): Promise<void> => {
@@ -225,6 +260,7 @@ export function Home(): JSX.Element {
       setBusyIds((prev) => new Set(prev).add(id));
       try {
         await postNoteStatus(id, next);
+        loadGuidance();
       } catch {
         // Revert on failure and surface a subtle error.
         setCatalog(previous);
@@ -238,7 +274,7 @@ export function Home(): JSX.Element {
         });
       }
     },
-    [catalog, filterActive],
+    [catalog, filterActive, loadGuidance],
   );
 
   const toggleTopic = useCallback(
@@ -321,6 +357,8 @@ export function Home(): JSX.Element {
   return (
     <div className="space-y-6">
       {progress && <ProgressBanner progress={progress} />}
+
+      {guidance && <GuidanceCard guidance={guidance} />}
 
       {toggleError && (
         <div
