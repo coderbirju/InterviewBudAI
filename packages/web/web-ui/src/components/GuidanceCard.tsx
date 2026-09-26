@@ -106,25 +106,44 @@ function SpaLink({
 }
 
 function StandingChip({ s }: { s: GuidanceStanding }): JSX.Element {
-  const { done, total } = s.notes;
+  const { done, total, toRevisit, didNotUnderstand } = s.notes;
+  const review = toRevisit + didNotUnderstand;
+  const color = STRENGTH_COLORS[s.band];
+  // Counts lead: with little quiz data most bands are `unknown`, so the
+  // done/total and review tallies are what make the chip informative.
   return (
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-sm transition-all duration-200">
-      <span className="font-medium text-slate-200">{s.topicId}</span>
-      <span
-        className="text-xs font-semibold"
-        style={{ color: STRENGTH_COLORS[s.band] }}
-        data-band={s.band}
-      >
-        {STRENGTH_LABELS[s.band]}
-      </span>
-      <span className="tabular-nums text-xs text-slate-400">
-        {total > 0 ? `${done}/${total} done` : `${done} done`}
-      </span>
-      {s.needsReview && (
-        <span className="rounded bg-status-revisit/15 px-1.5 py-0.5 text-xs font-medium text-status-revisit">
-          needs review
+    <li
+      className="min-w-[9rem] rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-sm transition-all duration-200"
+      data-testid="standing-chip"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium text-slate-200">{s.topicId}</span>
+        <span className="tabular-nums font-semibold text-slate-100">
+          {total > 0 ? `${done}/${total}` : done}
+          <span className="sr-only"> done</span>
         </span>
-      )}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span
+          className="inline-flex items-center gap-1 font-medium"
+          style={{ color }}
+          data-band={s.band}
+        >
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden
+          />
+          {STRENGTH_LABELS[s.band]}
+        </span>
+        {s.needsReview && (
+          <span className="rounded bg-status-revisit/15 px-1.5 py-0.5 font-medium text-status-revisit">
+            {review > 0
+              ? `${review} need${review === 1 ? 's' : ''} review`
+              : 'needs review'}
+          </span>
+        )}
+      </div>
     </li>
   );
 }

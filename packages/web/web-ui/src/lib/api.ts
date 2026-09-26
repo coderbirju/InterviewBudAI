@@ -264,7 +264,8 @@ export interface GuidanceNextUp {
   readonly url: string;
   /** Display-cased at the client boundary (see {@link normalizeDifficulty}). */
   readonly difficulty: Difficulty;
-  readonly topicId: string;
+  /** Topic the item came from; `null` when unknown (e.g. a revisit off-catalog). */
+  readonly topicId: string | null;
   /** Count-based reason (never a hint); rendered as JSX text. */
   readonly reason: string;
 }
