@@ -53,6 +53,10 @@ and is listed there with what you need to do (ADR 0009 D4).
 - JSON API for the data folder: `GET /api/data-dir`, `POST /api/data-dir`
   (with `dryRun`), `POST /api/data-dir/legacy/dismiss`, behind the same
   localhost protections as the rest of `/api` (#62).
+- CSV import on **Your data** (`/data`): preview a Notion export matched to
+  the catalog, choose skip / overwrite / merge per conflict, then import; the
+  data folder is backed up to `<dataFolder>/.backups/` (last 5 kept) before
+  anything is written (ADR 0009 D2/D3).
 
 ### Changed
 
