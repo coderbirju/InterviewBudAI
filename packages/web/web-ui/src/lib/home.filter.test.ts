@@ -5,6 +5,7 @@ import {
   EMPTY_FILTER,
   filterCatalog,
   filterFromSearch,
+  filtersEqual,
   isFilterActive,
   matchesFilter,
   searchWithFilter,
@@ -178,6 +179,26 @@ describe('toggleValue', () => {
     expect(toggleValue(['Easy', 'Hard'], 'Easy', DIFFICULTY_ORDER)).toEqual([
       'Hard',
     ]);
+  });
+});
+
+describe('filtersEqual', () => {
+  it('is true for identical filters, including a URL round-trip', () => {
+    const a = f({ query: 'sum', difficulties: ['Easy'], statuses: ['done'] });
+    expect(filtersEqual(a, { ...a })).toBe(true);
+    expect(filtersEqual(a, filterFromSearch(searchWithFilter('', a)))).toBe(
+      true,
+    );
+    expect(filtersEqual(EMPTY_FILTER, filterFromSearch(''))).toBe(true);
+  });
+
+  it('is false when the query or any facet differs', () => {
+    const a = f({ query: 'sum', difficulties: ['Easy'], statuses: ['done'] });
+    expect(filtersEqual(a, { ...a, query: 'su' })).toBe(false);
+    expect(filtersEqual(a, { ...a, difficulties: ['Easy', 'Hard'] })).toBe(
+      false,
+    );
+    expect(filtersEqual(a, { ...a, statuses: [] })).toBe(false);
   });
 });
 

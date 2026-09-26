@@ -139,6 +139,21 @@ export function isFilterActive(filter: CatalogFilter): boolean {
   );
 }
 
+/**
+ * Structural equality of two filters (same query text, same facet values in
+ * the same order). Facets are kept in canonical order by `toggleValue` and
+ * `filterFromSearch`, so element-wise comparison is sufficient.
+ */
+export function filtersEqual(a: CatalogFilter, b: CatalogFilter): boolean {
+  const same = <T>(x: readonly T[], y: readonly T[]): boolean =>
+    x.length === y.length && x.every((v, i) => v === y[i]);
+  return (
+    a.query === b.query &&
+    same(a.difficulties, b.difficulties) &&
+    same(a.statuses, b.statuses)
+  );
+}
+
 /** Does a single problem satisfy the filter? */
 export function matchesFilter(
   problem: CatalogProblem,
