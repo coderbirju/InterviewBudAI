@@ -153,9 +153,10 @@ problems? …" whenever the active folder has **0 notes** (not dismissible), or
 All three sit behind the same checks as every `/api` write (Host allowlist,
 same-origin `Origin`/`Sec-Fetch-Site` → `403`, `Content-Type:
 application/json` → else `415`, 1 MiB cap → `413`). `noteCount` counts
-recognised notes: regular files `notes/<id>.md` whose leading frontmatter
-`id:` equals `<id>` and whose id is in the catalog (so an Obsidian/Jekyll
-`notes/recipe.md` does not count). The same rule decides candidate
+recognised notes, matching how storage reads them (by filename id): regular
+files `notes/<id>.md` whose id is in the catalog, that open with frontmatter,
+and whose `id:` is absent or equal to `<id>` (only a conflicting `id:` is
+rejected; an Obsidian/Jekyll `notes/recipe.md` does not count). The same rule decides candidate
 eligibility and the dry-run `not-ibai-format` hint. `formatVersion` is `1` for every folder today (no
 `manifest.json` yet — ADR 0009 D4).
 

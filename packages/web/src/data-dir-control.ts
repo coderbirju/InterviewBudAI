@@ -119,11 +119,12 @@ export function legacyDefaultDataDirFor(homeDir: string): string {
 const NOTE_HEAD_BYTES = 4096;
 
 /**
- * The `id:` value from a note's leading frontmatter block (`---` \u2026 `---`,
- * optional BOM), read from the first {@link NOTE_HEAD_BYTES}. `undefined` when
- * there is no frontmatter or no `id:` line. Never throws.
+ * Read a note's leading frontmatter block (`---` ... `---`, optional BOM) from
+ * the first {@link NOTE_HEAD_BYTES}. `undefined` when the file has no
+ * frontmatter; otherwise `{ id }` with the `id:` value, or `id: undefined`
+ * when the block has no `id:` line. Never throws.
  */
-function frontmatterId(file: string): string | undefined {
+function readFrontmatterId(file: string): { id?: string } | undefined {
   let fd: number | undefined;
   try {
     fd = fs.openSync(file, 'r');
@@ -136,11 +137,12 @@ function frontmatterId(file: string): string | undefined {
       .split(/\r?\n/);
     if (lines[0]?.trim() !== '---') return undefined;
     for (const line of lines.slice(1)) {
-      if (line.trim() === '---') return undefined;
+      if (line.trim() === '---') return {};
       const match = /^id:\s*(.*?)\s*$/.exec(line);
-      if (match) return match[1]?.replace(/^(['"])(.*)\1$/, '$2');
+      if (match) return { id: match[1]?.replace(/^(['"])(.*)\1$/, '$2') };
     }
-    return undefined;
+    // No closing fence within the head: treat as frontmatter without an id.
+    return {};
   } catch {
     return undefined;
   } finally {
@@ -148,7 +150,12 @@ function frontmatterId(file: string): string | undefined {
   }
 }
 
-/** Decides whether a problem id belongs to the shipped catalog. */
+/**
+ * Decides whether a problem id is one the app knows. Today that is the shipped
+ * catalog. NOTE: when Wave 2(b) adds user-created custom problems, their ids
+ * MUST be included here too, or their notes stop counting (noteCount,
+ * legacy-candidate eligibility, dry-run hints).
+ */
 export type ProblemIdCheck = (id: string) => boolean;
 
 /** Regular-file entries of a directory (empty on any error). */
@@ -164,11 +171,13 @@ function filesIn(dir: string): string[] {
 }
 
 /**
- * Count the recognised InterviewBudAI notes (format v1, ADR 0009 D1): regular
- * files `<dir>/notes/<id>.md` whose frontmatter `id:` equals `<id>` and — when
- * `isKnownId` is given — whose id is in the catalog. An Obsidian/Jekyll page
- * like `notes/recipe.md` with its own frontmatter does NOT count. This one
- * rule drives `noteCount`, candidate eligibility and the dry-run hints. Never
+ * Count the recognised InterviewBudAI notes (format v1, ADR 0009 D1), matching
+ * how storage reads them (by filename id): regular files `<dir>/notes/<id>.md`
+ * where `<id>` is known (`isKnownId`, when given), the file opens with
+ * frontmatter, and its `id:` is either absent or equal to `<id>` — only a
+ * CONFLICTING `id:` is rejected. An Obsidian/Jekyll page like
+ * `notes/recipe.md` does not count (`recipe` is not a known id). This one rule
+ * drives `noteCount`, candidate eligibility and the dry-run hints. Never
  * throws: a missing or unreadable directory counts as 0.
  */
 export function countNotes(dir: string, isKnownId?: ProblemIdCheck): number {
@@ -177,7 +186,9 @@ export function countNotes(dir: string, isKnownId?: ProblemIdCheck): number {
     if (!name.endsWith('.md')) return false;
     const id = name.slice(0, -'.md'.length);
     if (id === '' || (isKnownId !== undefined && !isKnownId(id))) return false;
-    return frontmatterId(path.join(notesDir, name)) === id;
+    const frontmatter = readFrontmatterId(path.join(notesDir, name));
+    if (frontmatter === undefined) return false;
+    return frontmatter.id === undefined || frontmatter.id === id;
   }).length;
 }
 
