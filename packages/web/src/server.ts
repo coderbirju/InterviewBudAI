@@ -72,9 +72,10 @@ export function formatStartupBanner(input: {
 }
 
 /**
- * Read the request body, buffering at most `limit` bytes. Resolves `null` as
- * soon as the declared `Content-Length` or the bytes received exceed the cap;
- * the rest of the body is discarded, never buffered.
+ * Read the request body, buffering at most `limit` bytes. Resolves `null` when
+ * the declared `Content-Length` or the bytes received exceed the cap. Excess
+ * bytes are discarded as they arrive (never buffered); we still wait for the
+ * end of the request so the client receives the 413 instead of a reset.
  */
 export function readRequestBody(
   req: http.IncomingMessage,
@@ -82,33 +83,23 @@ export function readRequestBody(
 ): Promise<string | null> {
   return new Promise((resolve, reject) => {
     const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > limit) {
-      req.resume();
-      resolve(null);
-      return;
-    }
+    let tooLarge = Number.isFinite(declared) && declared > limit;
     const chunks: Buffer[] = [];
     let received = 0;
-    let done = false;
-    const onData = (chunk: Buffer) => {
+    req.on('data', (chunk: Buffer) => {
+      if (tooLarge) return;
       received += chunk.length;
       if (received > limit) {
-        done = true;
+        tooLarge = true;
         chunks.length = 0;
-        req.off('data', onData);
-        req.resume();
-        resolve(null);
         return;
       }
       chunks.push(chunk);
-    };
-    req.on('data', onData);
-    req.on('end', () => {
-      if (!done) resolve(Buffer.concat(chunks).toString('utf8'));
     });
-    req.on('error', (err) => {
-      if (!done) reject(err);
-    });
+    req.on('end', () =>
+      resolve(tooLarge ? null : Buffer.concat(chunks).toString('utf8')),
+    );
+    req.on('error', reject);
   });
 }
 
@@ -213,8 +204,6 @@ export async function startServer(
       const responseHeaders: Record<string, string> = {
         'Content-Type': result.contentType,
         ...result.headers,
-        // Unread body bytes were discarded; don't reuse this connection.
-        ...(bodyTooLarge ? { Connection: 'close' } : {}),
       };
       res.writeHead(result.status, responseHeaders);
       res.end(result.body);

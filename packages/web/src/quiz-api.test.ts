@@ -630,12 +630,7 @@ describe('POST /api/quiz/new', () => {
     const adapter = new LocalFileStorageAdapter(tmpDir);
     const first = await adapter.readActiveQuizSession();
 
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/new',
-      deps,
-      '{}',
-    );
+    const res = await handleApiRoute('POST', '/api/quiz/new', deps, '{}');
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as { empty: boolean };
     expect(body.empty).toBe(false);
@@ -670,12 +665,7 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
     await seedDone(DONE_IDS);
     const deps = await startSession();
 
-    const endRes = await handleApiRoute(
-      'POST',
-      '/api/quiz/end',
-      deps,
-      '{}',
-    );
+    const endRes = await handleApiRoute('POST', '/api/quiz/end', deps, '{}');
     expect(endRes.status).toBe(200);
     const endBody = JSON.parse(endRes.body) as {
       ok: boolean;
@@ -707,12 +697,7 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
   it('end with no active session → 404', async () => {
     await seedDone(DONE_IDS);
     const deps = makeQuizDeps(new FakeQuizProvider());
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/end',
-      deps,
-      '{}',
-    );
+    const res = await handleApiRoute('POST', '/api/quiz/end', deps, '{}');
     expect(res.status).toBe(404);
   });
 
@@ -968,12 +953,7 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       rejectWith: new Error('ECONNREFUSED'),
     });
     const deps = makeQuizDeps(provider);
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/start',
-      deps,
-      '{}',
-    );
+    const res = await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
     expect(res.status).toBe(200);
     expect(provider.calls).toBe(0);
 
@@ -1075,14 +1055,7 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
     const deps = makeQuizDeps(new SequencedQuizProvider([ON_TRACK_PROBE]));
 
     const get = JSON.parse(
-      (
-        await handleApiRoute(
-          'GET',
-          '/api/quiz/session',
-          deps,
-          undefined,
-        )
-      ).body,
+      (await handleApiRoute('GET', '/api/quiz/session', deps, undefined)).body,
     ) as { question: { problemId: string; probe?: string } };
     expect(get.question.problemId).toBe(DONE_IDS[1]);
     // Q1's verdict feedback must NOT be shown as a Q2 probe.

@@ -232,7 +232,9 @@ describe('createCoachHandler (M6 server surface)', () => {
       // Nothing persisted on failure.
       expect(res.headers?.['Set-Cookie']).toBeUndefined();
       expect(
-        fs.existsSync(path.join(testDataDir!, '.interviewbudai', 'config.json')),
+        fs.existsSync(
+          path.join(testDataDir!, '.interviewbudai', 'config.json'),
+        ),
       ).toBe(false);
     });
 

@@ -278,12 +278,16 @@ export function renderSetupHtml(
         <h4>Local-First Storage</h4>
         <p>Your progress data stays on your machine. The server will create the directory if it doesn't exist and remember your choice in ~/.interviewbudai/config.json (used by every browser and after restarts).</p>
       </div>
-${notice !== undefined ? `
+${
+  notice !== undefined
+    ? `
       <div class="info-box" id="setup-notice">
         <h4>Data directory is pinned</h4>
         <p>${escapeHtml(notice)}</p>
       </div>
-` : ''}
+`
+    : ''
+}
       <form method="POST" action="/setup">
         ${csrfToken !== undefined ? `<input type="hidden" name="csrfToken" value="${escapeHtml(csrfToken)}">` : ''}
         <div class="form-group">
