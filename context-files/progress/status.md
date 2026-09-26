@@ -15,7 +15,7 @@ _Last updated: 2026-09-25 — PRs #1–#65 merged or closed; distribution decide
 See `team-charter.md` §0, §9A.
 
 ## In progress
-- 🟡 Frontmatter escaping fix (complexity `"`/`\` round-trip, legacy normalize) + import nits (verbatim complexity, no-op merge → skipped `unchanged`) — `fix/frontmatter-escaping`.
+- 🟡 Frontmatter escaping fix (complexity `"`/`\` round-trip, legacy normalize) + import nits (verbatim complexity, no-op merge → skipped `unchanged`) — #66 `fix/frontmatter-escaping`.
 
 ## Founder decision (2026-09-25) — recorded in ADR 0008
 - **The web app is the product.** CLI frozen (compiles + tests, no features).
@@ -53,7 +53,7 @@ See `team-charter.md` §0, §9A.
 |---|---|---|
 | ADR | ADR 0009 + root `CHANGELOG.md` (#60 breaking change recorded) | ✅ #61; D5 zip amendment ✅ #63 |
 | A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ✅ #62; hardening ✅ #64 |
-| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ✅ #65; escaping fix 🟡 `fix/frontmatter-escaping` |
+| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ✅ #65; escaping fix 🟡 #66 |
 | C | `manifest.json` format versioning + migration framework | ⬜ after B |
 | D | Release zip (prebuilt server + SPA, `node …` start) + tag-triggered Action: verify → zip → GitHub Release from CHANGELOG (no npm) | ⏸ deferred (founder) — D5 accepted; founder pushes tags |
 
