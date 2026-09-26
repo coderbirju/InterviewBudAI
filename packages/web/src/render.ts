@@ -174,11 +174,14 @@ export function renderNav(): string {
 /**
  * Render the setup form page for creating the progress database. When a
  * `csrfToken` is given it is embedded as a hidden field; `POST /setup` rejects
- * submissions that do not echo the server's per-process token.
+ * submissions that do not echo the server's per-process token. An optional
+ * `notice` (escaped) is shown above the form — e.g. when the data directory is
+ * pinned by `--data-dir` / `IBAI_DATA_DIR` and /setup cannot change it.
  */
 export function renderSetupHtml(
   defaultPath: string,
   csrfToken?: string,
+  notice?: string,
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -273,9 +276,14 @@ export function renderSetupHtml(
     <div class="setup-form">
       <div class="info-box">
         <h4>Local-First Storage</h4>
-        <p>Your progress data stays on your machine. The server will create the directory if it doesn't exist and remember your choice via a browser cookie.</p>
+        <p>Your progress data stays on your machine. The server will create the directory if it doesn't exist and remember your choice in ~/.interviewbudai/config.json (used by every browser and after restarts).</p>
       </div>
-
+${notice !== undefined ? `
+      <div class="info-box" id="setup-notice">
+        <h4>Data directory is pinned</h4>
+        <p>${escapeHtml(notice)}</p>
+      </div>
+` : ''}
       <form method="POST" action="/setup">
         ${csrfToken !== undefined ? `<input type="hidden" name="csrfToken" value="${escapeHtml(csrfToken)}">` : ''}
         <div class="form-group">
@@ -366,7 +374,7 @@ export function renderSetupSuccessHtml(dataDir: string): string {
       <p class="success-text">Your database has been created successfully!</p>
       <p>Your progress data will be stored at:</p>
       <div class="path-display">${escapeHtml(dataDir)}</div>
-      <p>This path has been saved in a browser cookie and will be remembered for future visits.</p>
+      <p>This choice has been saved in ~/.interviewbudai/config.json. The server uses it now, for every browser, and after restarts.</p>
       <a href="/" class="continue-link">Go to InterviewBudAI</a>
     </div>
 
