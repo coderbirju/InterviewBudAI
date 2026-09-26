@@ -22,6 +22,9 @@
  *   POST /api/data-dir    — { path, dryRun? } → dry run: report what is there;
  *                           else validate, create, persist, switch
  *   POST /api/data-dir/legacy/dismiss — stop offering previous-data folders
+ *   POST /api/import/csv/preview — parse + match CSV files, no writes
+ *   POST /api/import/csv/commit  — re-check the preview hash, back up the data
+ *                                  dir, then write the chosen notes (ADR 0009 D2/D3)
  *   POST /api/quiz/start|new    — start / reshuffle a quiz session
  *   GET  /api/quiz/session      — resume the active session
  *   POST /api/quiz/answer       — submit an answer (verdict + advance)
@@ -80,6 +83,7 @@ import type {
   DataDirStatus,
 } from './data-dir-control.js';
 import type { HandlerResponse } from './handler.js';
+import { handleImportRoute } from './import/routes.js';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 
@@ -730,6 +734,22 @@ export async function handleApiRoute(
     // ----- /api/data-dir (GET, POST) + legacy accept/dismiss (POST) -----
     if (pathname === '/api/data-dir' || pathname.startsWith('/api/data-dir/')) {
       return handleDataDirRoute(method, pathname, deps.dataDirControl, body);
+    }
+
+    // ----- /api/import/csv/preview|commit (POST, ADR 0009 D2) -----
+    if (pathname.startsWith('/api/import/')) {
+      const imported = await handleImportRoute(
+        method,
+        pathname,
+        {
+          catalog: deps.catalog,
+          dataDir: deps.dataDir,
+          storage: resolveActiveStorage(deps).storage,
+          ...(deps.now !== undefined && { now: deps.now }),
+        },
+        body,
+      );
+      if (imported !== null) return imported;
     }
 
     // ----- /api/notes/:id (GET, POST) -----

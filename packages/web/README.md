@@ -15,7 +15,7 @@ The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, serv
 The server is intentionally small — three surfaces:
 
 - **`/` (and all other non-API, non-`/setup` GET paths)** — the React SPA bundle + assets. Client-side routing (History API, no routing library) handles `/notes/:id`, `/analytics`, `/interview`, and `/data`; deep links and refreshes fall back to `index.html`. Vite `base` is `/`, so assets are served at `/assets/*` (local, same-origin — no CDN).
-- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, and the Quiz Master routes `/api/quiz/start|new|session|answer` plus session-management `/api/quiz/sessions` GET, `/api/quiz/end` POST, `/api/quiz/resume` POST, `/api/quiz/delete` POST + `DELETE /api/quiz/session/:id`). The server owns the data directory; the browser is UI only (see [The data directory](#first-run-and-the-data-directory)).
+- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, `/api/data-dir*`, the CSV import routes `/api/import/csv/preview|commit`, and the Quiz Master routes `/api/quiz/start|new|session|answer` plus session-management `/api/quiz/sessions` GET, `/api/quiz/end` POST, `/api/quiz/resume` POST, `/api/quiz/delete` POST + `DELETE /api/quiz/session/:id`). The server owns the data directory; the browser is UI only (see [The data directory](#first-run-and-the-data-directory)).
 - **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory, saves the choice to `~/.interviewbudai/config.json` and switches the server to it immediately (for every browser, and after restarts), then links back to the SPA at `/`. It is the **no-JavaScript fallback** for the SPA's [Your data](#your-data-data--adr-0009-d1) page (`/data`), shares its code path (`DataDirControl.choose` in `src/data-dir-control.ts`) and links to it; the SPA itself links to `/data`, not here.
 
 Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed**. Home/notes/analytics/interview now live in the SPA; the assess/plan views (Where You Stand / Next Session) were not ported and are CLI-only for now.
@@ -137,7 +137,7 @@ with "restart without `--data-dir` / unset `IBAI_DATA_DIR`" when pinned),
 **Found previous data** (legacy-recovery cards, below), **Use an existing
 notes folder** (path field → **Check** = dry run, **Use this folder** =
 switch; server validation errors inline, success toast + refreshed counts),
-and an **Import notes from CSV** placeholder (ADR 0009 D2, next PR).
+and **Import notes from CSV** ([below](#csv-import-adr-0009-d2d3)).
 
 A **banner** on Home and Analytics links here: "Don't see your solved
 problems? …" whenever the active folder has **0 notes** (not dismissible), or
@@ -180,6 +180,55 @@ read). A candidate is only a **suggestion**: "Use it" sends an ordinary
 `POST /api/data-dir { path }` (re-validated from scratch). The cookie never
 selects the directory; it is expired (`Set-Cookie … Max-Age=0`) on a
 successful switch (`POST /api/data-dir` or `POST /setup`) or a dismiss.
+
+### CSV import (ADR 0009 D2/D3)
+
+The **Import notes from CSV** section of `/data` imports a Notion export:
+pick the `.csv` files (read in the browser; sizes shown; > 64 files or > 1 MiB
+total is refused up front) → **Preview** (the server parses and matches, **no
+writes**) → review a table of rows (matched problem + how, or *Unmatched*;
+*New* vs *Conflict*; per-problem action and status; "apply to all
+conflicts"; a default status, `Done` by default) → **Import** → summary
+(created / overwritten / merged / skipped / unmatched, the backup path, a link
+to Home). Unmatched rows can be copied or downloaded as a text list.
+
+| Method & path | Body | Result |
+|---|---|---|
+| `POST /api/import/csv/preview` | `{ files: [{ name, text }], defaultStatus? }` | `{ previewHash, defaultStatus, rows: [{ key, file, line, title, match: { problemId, title, by: 'url'\|'number'\|'title' } \| null, existing: 'none'\|'note', chosen, fields: { status, lastUpdated, timeComplexity?, spaceComplexity?, bodyPreview }, warnings }], unmatched, duplicatesCollapsed, blankRows, errors }` — no writes. |
+| `POST /api/import/csv/commit` | `{ files, previewHash, defaultStatus, decisions: { [problemId]: { action: 'create'\|'skip'\|'overwrite'\|'merge', status?, rowKey? } } }` | Re-parses and re-matches the same files (stateless); a different hash (files, default status, data folder, or a note that appeared/disappeared since the preview) → `409` "re-run preview", nothing written. Then backs up the data folder and writes via the storage adapter → `{ created, overwritten, merged, skipped, unmatched, failed, backup }`. |
+
+- **Parsing** (`src/import/csv.ts`): in-repo RFC 4180 subset — comma, `"`
+  quoting, `""` escapes, quoted multiline cells, CRLF/LF, optional BOM; C0
+  controls except tab/newline stripped. An unterminated quote or a row wider
+  than the header rejects that file only (listed in `errors`).
+- **Mapping** (`src/import/notion.ts`): headers/cells trimmed of Unicode
+  whitespace (incl. NBSP), case-insensitive. Title = `Problem`, else the first
+  column; body = `Intuition`, else `Property`; `Notes` → `## Notes`; other
+  non-empty text columns → `## <Header>`; `Last Visited on` / `Last Visited` →
+  `lastUpdated` (ISO, `Month D, YYYY [h:mm AM/PM]`, `YYYY-MM-DD`,
+  `YYYY/MM/DD`; `NN/NN/YYYY` is not guessed → import time + warning).
+  Complexities: `(TC|Time|SC|Space)[:=-]? O(…)` with balanced parentheses on one
+  line (`"` → `'`, `\` dropped so they round-trip through the frontmatter).
+- **Matching** (`src/import/match.ts`, server-side only): LeetCode slug from
+  `URL` (or a URL in the title; `/description/`, `/editorial/`, … ignored) →
+  leading `NNN.` → `lc-NNN` → normalized title. Rows are de-duplicated by
+  mapped fields (so `X.csv` + `X_all.csv` collapse); blank rows are skipped
+  and counted; several distinct rows for one problem → the most recent
+  `Last Visited` is used unless you pick another row.
+- **Conflicts:** `skip` (default), `overwrite` (body, complexities, status,
+  date), `merge` (append under `## Imported <YYYY-MM-DD>`, keep the existing
+  status unless you pick one, fill empty complexities, later date; re-merging
+  the same row does not append it again).
+- **Backups** (`src/import/backup.ts`): before every commit the data folder is
+  copied to `<dataDir>/.backups/<YYYYMMDDTHHMMSSZ>/` (everything except
+  `.backups/`; symlinks skipped; dirs `0700`; `.backups/.gitignore` = `*`),
+  keeping the last 5. If the backup fails — or `.backups` (or its
+  `.gitignore`) is a symlink or the wrong type — nothing is imported. Restore is
+  manual: copy the snapshot back.
+- **Limits:** ≤ 64 files, ≤ 5,000 rows, ≤ 64 columns, ≤ 64 KiB per cell, all
+  within the 1 MiB request cap → `413` with a message, no partial import.
+  Same `/api` checks as every write (Host, same-origin, JSON-only). CSV text
+  is stored as Markdown source and only ever rendered as escaped text.
 
 ### Quiz Master API (ADR 0007 — Q2)
 
