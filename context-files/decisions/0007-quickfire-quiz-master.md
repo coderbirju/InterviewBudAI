@@ -480,6 +480,10 @@ bring back "Where you stand / Next up". D4/D9 Q4 planned to do that by
     then an unattempted problem (easy → medium → hard → catalog order; hard
     only after 2 done in the topic) from each weak, then improving, topic; then
     the in-progress topic with the lowest done ratio; then an unstarted topic.
+    Revisits claim their slots first (so a second same-topic revisit is
+    never dropped for a lower kind); the final list is ordered revisit →
+    weak_topic → continue → start, stable within a kind. A revisit whose
+    problem lists no topics has `topicId: null`.
     No activity at all → the 3 easiest problems from 3 topics. Signal topics
     outside the catalog show in `standing` but never produce `nextUp`.
   - `quiz` — `{ doneCount, lastQuizAt, suggested }`; `lastQuizAt` is the
