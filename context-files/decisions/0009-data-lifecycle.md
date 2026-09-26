@@ -1,6 +1,6 @@
 # ADR 0009 — Data lifecycle: onboarding, import, format versioning, and releases
 
-- **Status:** Accepted (D1–D4); **D5 Proposed (pending founder confirmation)**
+- **Status:** Accepted (D1–D5; D5 amended "d5-zip" 2026-09-25)
 - **Date:** 2026-09-25
 - **Deciders:** Founder, Architect
 - **Supersedes:** —
@@ -8,9 +8,9 @@
   after the user accepts/dismisses the recovery prompt (not on every request),
   and its value may be shown as a confirm-to-use *suggestion* (still never
   trusted to choose the dir) (D1); ADR 0005 D2 "bulk-import … FUTURE" is now
-  scheduled (D2); `skills/code-review.md` rubric (one line, D4). Proposes an
-  answer to ADR 0008 D5 #5 "Distribution" (D5) — that decision stays open until
-  the founder confirms.
+  scheduled (D2); `skills/code-review.md` rubric (one line, D4). Answers ADR 0008 D5 #5
+  "Distribution" (D5, amendment d5-zip: GitHub Release zip; no npm/`npx` for
+  now).
 
 ## Context
 
@@ -287,43 +287,60 @@ missing either a migration/recovery path or a CHANGELOG breaking-change entry
 as blocking (`NEEDS_CHANGES`); the rubric in
 `skills/code-review.md` carries a one-line pointer to this rule.
 
-### D5 — Release strategy (middle ground) — **Proposed, pending founder confirmation**
+### D5 — Release strategy — **Accepted (amendment d5-zip, 2026-09-25)**
 
-The founder has not explicitly approved distribution; ADR 0008 D5 #5 stays
-open. This is the proposal, and PR D does not start until it is confirmed.
-The `CHANGELOG.md` requirement is adopted now (it does not depend on how the
-app is distributed).
-
+> **Amendment (d5-zip, 2026-09-25).** Founder decision: *"no need for npx
+> based installation for now, GitHub-only zip is fine."* The earlier proposal
+> (stable channel = tagged GitHub Releases **+ npm**, `npx interviewbudai@latest`)
+> is replaced by the GitHub-only zip below. npm publishing / `npx` is **not**
+> done now; it stays a possible future ring (needs a new ADR amendment). This
+> answers ADR 0008 D5 #5 "Distribution".
 
 - **Versioning:** SemVer `0.x.y` while pre-1.0. A breaking change bumps the
-  minor (`0.x → 0.x+1`), anything else the patch.
+  minor (`0.x → 0.x+1`), anything else the patch. A release is a tag
+  `v0.x.y`.
 - **Development channel = `main`.** Contributors: `git pull && npm ci &&
-  npm start` (`npm start` already rebuilds what is stale).
-- **Stable channel = tagged GitHub Releases + npm.** Users run
-  `npx interviewbudai@latest` (Node ≥ 20.12). The published package ships the
-  compiled server and the built SPA — no build on the user's machine — and
-  has no runtime dependency on unpublished `@ibai/*` workspaces (PR D picks
-  bundling vs `bundleDependencies`; any new build dep is pinned and justified
-  there per §7.1).
+  npm start` (`npm start` already rebuilds what is stale). Unchanged.
+- **Stable channel = tagged GitHub Releases with a prebuilt zip asset**
+  (e.g. `interviewbudai-v0.x.y.zip`). The zip contains the compiled server,
+  the built SPA, and either production `node_modules` or a single bundled
+  server file (PR D picks; any new build dep is pinned and justified there per
+  §7.1). Nothing is built on the user's machine and no `npm install` is
+  needed. Users unzip it and run it with **Node ≥ 20.12** via one documented
+  command (e.g. `node interviewbudai/server.js`, or a bundled `start` script
+  that does the same). PR D fixes the exact command and prints it in the
+  release notes and README.
 - **`CHANGELOG.md`** at the repo root, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   format, with an `## [Unreleased]` section and a mandatory
   `### Breaking changes` section in every release (write "None." if empty).
-  GitHub Release notes are copied from it.
+  At release, `[Unreleased]` is renamed to the version; that section is the
+  GitHub Release notes (Release body, and included in the zip).
 - **Packaging notes for PR D:** the `@ibai/*` workspaces are private and
-  unpublished, so a bundler (e.g. esbuild, pinned) is the likely route rather
-  than publishing each package; `spa.ts` resolves the SPA as `../dist-ui`
-  relative to the compiled server module, so the published layout must keep
-  that shape (or make it configurable); `react`, `react-dom` and
-  `lucide-react` are listed as `@ibai/web` dependencies but are needed only to
-  *build* the SPA and must not become runtime dependencies of the published
-  package; decide which `package.json` is published (the root is `private`
-  with workspaces — likely a dedicated/generated publish manifest).
-- **Deferred ring:** standalone binaries (Node SEA / `bun compile`) — needs
-  per-OS builds and code signing.
-- **Founder-owned setup (not done now):** confirm the npm name (`interviewbudai`
-  returned 404 on the public registry on 2026-09-25, i.e. unclaimed); own the
-  npm account/org and 2FA; create an automation token and store it as a repo
-  secret (e.g. `NPM_TOKEN`); decide who may push release tags.
+  unpublished; bundling (e.g. esbuild, pinned) or copying the compiled
+  workspaces plus production `node_modules` are both acceptable, since nothing
+  is published to a registry. `spa.ts` resolves the SPA as `../dist-ui`
+  relative to the compiled server module, so the zip layout must keep that
+  shape (or make it configurable). `react`, `react-dom` and `lucide-react` are
+  needed only to *build* the SPA and must not ship as runtime dependencies.
+  `REPO_DOTENV_PATH` resolves relative to the compiled server; PR D documents
+  where the zip build reads `.env` from (the unzipped folder and/or a
+  user-level file such as `~/.interviewbudai/.env`).
+- **Release automation (PR D):** a GitHub Action triggered by pushing a `v*`
+  tag checks out the tag, runs `npm ci` and `npm run verify`, builds and zips
+  the artefact, and creates the GitHub Release with the zip attached and the
+  matching CHANGELOG section as notes. It uses only the workflow's built-in
+  `GITHUB_TOKEN` (`contents: write`) — **no `NPM_TOKEN` or npm account is
+  needed.**
+- **Deferred rings:** npm publishing / `npx interviewbudai@latest`;
+  standalone binaries (Node SEA / `bun compile`) — needs per-OS builds and code
+  signing.
+- **Release tags (founder decision, 2026-09-25):** the founder pushes `v*`
+  tags by hand after merging the release PR; agents never push tags
+  (consistent with charter §2.5 — shipping is the founder's action).
+- **Scheduling (founder decision, 2026-09-25):** release work (PR D) is
+  **deferred** — the decision above stands, but it is not scheduled. Current
+  focus is CSV import (PR B) and getting the data setup (`/data`, #62
+  hardening) right.
 
 ## Consequences
 
@@ -331,26 +348,28 @@ app is distributed).
   back, and the founder can import their Notion history instead of re-typing
   it. Users learn about breaking changes from the CHANGELOG and release notes,
   and future format changes cannot silently strand data.
-- **Proposed:** Distribution (ADR 0008 D5 #5) — clone for contributors, `npx`
-  for users — pending founder confirmation (D5).
+- **Decided:** Distribution (ADR 0008 D5 #5) — clone for contributors, a
+  prebuilt zip from tagged GitHub Releases for users; no npm/`npx` for now
+  (D5, amendment d5-zip). The founder pushes release tags by hand; PR D is
+  deferred.
 - **Tradeoff:** More server surface (`/api/data-dir*`, `/api/import/csv/*`) —
   mitigated by reusing #58/#60 protections and validation, and server-side
   matching so the client never supplies ids or paths to write.
 - **Tradeoff:** Backups use disk inside the data dir (bounded to 5).
 - **Tradeoff:** The legacy cookie lives a little longer (until accepted or
   dismissed); it is still never trusted.
-- **Follow-up for PR D:** under `npx`, the repo-root `.env`
-  (`REPO_DOTENV_PATH`) is inside the npm cache; the published build must read
-  config from the environment or a user-level file (e.g.
-  `~/.interviewbudai/.env`) instead — decided in PR D.
+- **Follow-up for PR D:** where the zip build reads `.env` from
+  (`REPO_DOTENV_PATH` is relative to the compiled server) — the unzipped
+  folder and/or a user-level file (e.g. `~/.interviewbudai/.env`) — decided in
+  PR D.
 
 ## Roadmap (small serial PRs, each with a `code-review` pass)
 
 | PR | Scope | Depends on |
 |---|---|---|
-| A | `/data` page + nav link + zero-notes banner; `GET/POST /api/data-dir` (+ dry run); legacy-cookie / `~/.ibai/data` recovery prompt + dismiss; cookie-expiry change; CHANGELOG entry | — |
+| A | `/data` page + nav link + zero-notes banner; `GET/POST /api/data-dir` (+ dry run); legacy-cookie / `~/.ibai/data` recovery prompt + dismiss; cookie-expiry change; CHANGELOG entry (landed in #63) | — |
 | B | CSV parser + Notion mapping/matching; `/api/import/csv/preview` + `/commit`; import UI on `/data`; D3 backups | A |
 | C | `manifest.json` + migration framework (v1 baseline, no-op registry, read-only on newer/invalid) | B (reuses backups) |
-| D | Release packaging: `package.json` `bin`/`files` for npm, prebuilt server + SPA, `.env` handling under `npx`, tag-triggered release workflow publishing to npm + GitHub Release from CHANGELOG | founder confirms D5; npm account + token secret |
+| D | Release packaging (D5 d5-zip): prebuilt zip (compiled server + built SPA + production `node_modules` or a bundled server), documented `node …` start command, `.env` location; tag-triggered GitHub Action: `npm ci` → `verify` → build → zip → create GitHub Release with the zip + CHANGELOG section as notes (built-in `GITHUB_TOKEN`, no `NPM_TOKEN`) | **Deferred** (founder, 2026-09-25) — D5 accepted, not scheduled |
 
 Any change to these decisions requires a new ADR.
