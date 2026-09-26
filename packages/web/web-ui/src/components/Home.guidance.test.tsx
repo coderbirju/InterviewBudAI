@@ -60,7 +60,8 @@ const GUIDANCE = {
   quiz: { doneCount: 2, lastQuizAt: null, suggested: false },
 };
 
-type Handler = (init?: RequestInit) => { status: number; body: unknown };
+type Reply = { status: number; body: unknown };
+type Handler = (init?: RequestInit) => Reply | Promise<Reply>;
 
 let routes: Record<string, Handler>;
 let fetchMock: ReturnType<
@@ -104,7 +105,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const handler = routes[String(input)];
     const { status, body } = handler
-      ? handler(init)
+      ? await handler(init)
       : { status: 404, body: { error: 'not found' } };
     return new Response(JSON.stringify(body), {
       status,
@@ -116,7 +117,21 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+
+/** Guidance with the `arrays` chip showing `done`/9. */
+function guidanceWithDone(done: number) {
+  return {
+    ...GUIDANCE,
+    standing: [
+      {
+        ...GUIDANCE.standing[0],
+        notes: { done, toRevisit: 1, didNotUnderstand: 0, total: 9 },
+      },
+    ],
+  };
+}
 
 async function setDone(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
@@ -194,6 +209,65 @@ describe('Home guidance card', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('2/9')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('discards an older guidance response that resolves after a newer one', async () => {
+    const user = userEvent.setup();
+    // The first (mount) request is held; the refetch answers immediately.
+    let releaseFirst!: () => void;
+    const first = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    routes['/api/guidance'] = async () => {
+      calls += 1;
+      if (calls === 1) {
+        await first;
+        return { status: 200, body: guidanceWithDone(2) };
+      }
+      return { status: 200, body: guidanceWithDone(3) };
+    };
+    render(<Home />);
+    await screen.findByText('Arrays & Hashing');
+
+    await setDone(user);
+    expect(await screen.findByText('3/9')).toBeInTheDocument();
+    expect(guidanceCalls()).toBe(2);
+
+    // The stale mount response lands last and must not overwrite the newer one.
+    await act(async () => {
+      releaseFirst();
+      await first;
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText('3/9')).toBeInTheDocument();
+    expect(screen.queryByText('2/9')).toBeNull();
+  });
+
+  it('works when localStorage throws on read and write', async () => {
+    const user = userEvent.setup();
+    const boom = (): never => {
+      throw new Error('storage disabled');
+    };
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(boom);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(boom);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(boom);
+
+    render(<Home />);
+    await screen.findByRole('region', { name: 'Your guidance' });
+    const toggle = screen.getByRole('button', { name: /your guidance/i });
+    // readCollapsed threw → defaults to expanded.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Where you stand')).toBeVisible();
+
+    // writeCollapsed throws; the in-memory toggle still works both ways.
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Where you stand')).not.toBeVisible();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Where you stand')).toBeVisible();
+    expect(screen.getByText('Arrays & Hashing')).toBeInTheDocument();
   });
 
   it('does not refetch guidance when the status save fails', async () => {
