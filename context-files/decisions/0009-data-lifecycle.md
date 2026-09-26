@@ -162,6 +162,8 @@ matched case-insensitively after trimming, in any column order.
 | `Last Visited on` \| `Last Visited` | `lastUpdated` if parseable, else import time. |
 | any other non-empty text column | Appended as a `## <Header>` section, in column order. |
 
+*Amendment (#65, additive):* the preview also returns per-row `chosen` and a top-level `blankRows` count, a commit decision may carry an optional `rowKey` (which of several rows matching one problem to import), and the complexity tokenizer stops (ignores the match) at a newline inside `O(...)`.
+
 Notion's per-row page bodies (the `.md` files beside the CSV in an export) are
 **not imported** — future scope.
 

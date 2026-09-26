@@ -207,7 +207,8 @@ to Home). Unmatched rows can be copied or downloaded as a text list.
   non-empty text columns → `## <Header>`; `Last Visited on` / `Last Visited` →
   `lastUpdated` (ISO, `Month D, YYYY [h:mm AM/PM]`, `YYYY-MM-DD`,
   `YYYY/MM/DD`; `NN/NN/YYYY` is not guessed → import time + warning).
-  Complexities: `(TC|Time|SC|Space)[:=-]? O(…)` with balanced parentheses.
+  Complexities: `(TC|Time|SC|Space)[:=-]? O(…)` with balanced parentheses on one
+  line (`"` → `'`, `\` dropped so they round-trip through the frontmatter).
 - **Matching** (`src/import/match.ts`, server-side only): LeetCode slug from
   `URL` (or a URL in the title; `/description/`, `/editorial/`, … ignored) →
   leading `NNN.` → `lc-NNN` → normalized title. Rows are de-duplicated by
@@ -216,11 +217,13 @@ to Home). Unmatched rows can be copied or downloaded as a text list.
   `Last Visited` is used unless you pick another row.
 - **Conflicts:** `skip` (default), `overwrite` (body, complexities, status,
   date), `merge` (append under `## Imported <YYYY-MM-DD>`, keep the existing
-  status unless you pick one, fill empty complexities, later date).
+  status unless you pick one, fill empty complexities, later date; re-merging
+  the same row does not append it again).
 - **Backups** (`src/import/backup.ts`): before every commit the data folder is
   copied to `<dataDir>/.backups/<YYYYMMDDTHHMMSSZ>/` (everything except
   `.backups/`; symlinks skipped; dirs `0700`; `.backups/.gitignore` = `*`),
-  keeping the last 5. If the backup fails, nothing is imported. Restore is
+  keeping the last 5. If the backup fails — or `.backups` (or its
+  `.gitignore`) is a symlink or the wrong type — nothing is imported. Restore is
   manual: copy the snapshot back.
 - **Limits:** ≤ 64 files, ≤ 5,000 rows, ≤ 64 columns, ≤ 64 KiB per cell, all
   within the 1 MiB request cap → `413` with a message, no partial import.
