@@ -10,6 +10,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 
 export const BACKUPS_DIR = '.backups';
@@ -40,6 +41,16 @@ async function copyTree(src: string, dest: string): Promise<void> {
   }
 }
 
+/** `lstat`, or null when the path does not exist. */
+async function lstatOrNull(p: string): Promise<Stats | null> {
+  try {
+    return await fs.lstat(p);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
 /** Sort key: timestamp, then numeric suffix (none = 0). */
 function compareBackups(a: string, b: string): number {
   const ma = BACKUP_NAME.exec(a);
@@ -59,8 +70,20 @@ export async function createBackup(
   now: Date,
 ): Promise<string> {
   const root = path.join(dataDir, BACKUPS_DIR);
-  await fs.mkdir(root, { recursive: true, mode: 0o700 });
-  await fs.writeFile(path.join(root, '.gitignore'), '*\n', 'utf8');
+  // Never follow a planted link: `.backups` must be a real directory (or
+  // absent), and `.backups/.gitignore` a regular file (or absent).
+  const rootStat = await lstatOrNull(root);
+  if (rootStat === null) {
+    await fs.mkdir(root, { mode: 0o700 });
+  } else if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`${root} is not a directory (or is a symlink)`);
+  }
+  const ignore = path.join(root, '.gitignore');
+  const ignoreStat = await lstatOrNull(ignore);
+  if (ignoreStat !== null && !ignoreStat.isFile()) {
+    throw new Error(`${ignore} is not a regular file (or is a symlink)`);
+  }
+  await fs.writeFile(ignore, '*\n', 'utf8');
 
   const stamp = backupTimestamp(now);
   let name = stamp;

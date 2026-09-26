@@ -212,6 +212,24 @@ describe('POST /api/import/csv/preview', () => {
   });
 });
 
+describe('preview on a ~1 MiB pathological body', () => {
+  it('completes quickly (no regex backtracking blow-up)', async () => {
+    const pad = ' '.repeat(60 * 1024);
+    const row = `Two Sum,"Time${pad}x","${pad}y",TC:${pad}\n`;
+    let text = 'Problem,Intuition,Notes,Extra\n';
+    while (Buffer.byteLength(text + row) < MAX_BODY_BYTES - 2048) text += row;
+    expect(Buffer.byteLength(text)).toBeGreaterThan(900 * 1024);
+    const handler = makeHandler();
+    const t0 = performance.now();
+    const res = await post(handler, '/api/import/csv/preview', {
+      files: [{ name: 'evil.csv', text }],
+    });
+    const elapsed = performance.now() - t0;
+    expect(res.status).toBe(200);
+    expect(elapsed).toBeLessThan(2000);
+  });
+});
+
 describe('POST /api/import/csv/commit', () => {
   it('happy path: backup, then notes in the exact on-disk format the adapter reads back', async () => {
     const handler = makeHandler();
@@ -395,6 +413,32 @@ describe('POST /api/import/csv/commit', () => {
     expect(res.status).toBe(500);
     expect(JSON.parse(res.body).error).toMatch(/nothing was imported/);
     expect(notesOnDisk()).toEqual([]);
+  });
+
+  it('a symlinked .backups is refused (500, no writes, target untouched)', async () => {
+    const elsewhere = path.join(root, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(dataDir, '.backups'));
+    const handler = makeHandler();
+    const files = [{ name: 'a.csv', text: CSV }];
+    const p = await preview(handler, files);
+    const res = await post(handler, '/api/import/csv/commit', {
+      files,
+      previewHash: p.previewHash,
+    });
+    expect(res.status).toBe(500);
+    expect(JSON.parse(res.body).error).toMatch(/symlink/);
+    expect(notesOnDisk()).toEqual([]);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  it('a symlinked .backups/.gitignore is refused (its target is not written)', async () => {
+    fs.mkdirSync(path.join(dataDir, '.backups'));
+    const victim = path.join(root, 'victim.txt');
+    fs.writeFileSync(victim, 'keep');
+    fs.symlinkSync(victim, path.join(dataDir, '.backups', '.gitignore'));
+    await expect(createBackup(dataDir, new Date())).rejects.toThrow(/symlink/);
+    expect(fs.readFileSync(victim, 'utf8')).toBe('keep');
   });
 
   it('a missing data folder → 400 on commit', async () => {

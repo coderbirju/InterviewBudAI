@@ -42,12 +42,20 @@ export interface MappedFile {
   readonly blankRows: number;
 }
 
-/** Leading/trailing Unicode whitespace, including NBSP, BOM and zero-width space. */
-const EDGE_SPACE = /^[\s\uFEFF\u200B]+|[\s\uFEFF\u200B]+$/g;
+/** One Unicode whitespace character, including NBSP, BOM and zero-width space. */
+const SPACE_CHAR = /^[\s\uFEFF\u200B]$/;
 
-/** Trim Unicode whitespace (incl. NBSP `U+00A0` and BOM) from both ends. */
+/**
+ * Trim Unicode whitespace (incl. NBSP `U+00A0` and BOM) from both ends.
+ * A linear index scan — NOT `/[\s…]+$/`, which backtracks quadratically on
+ * long inner whitespace runs (untrusted cells are up to 64 KiB).
+ */
 export function trimUnicode(value: string): string {
-  return value.replace(EDGE_SPACE, '');
+  let start = 0;
+  let end = value.length;
+  while (start < end && SPACE_CHAR.test(value[start] as string)) start++;
+  while (end > start && SPACE_CHAR.test(value[end - 1] as string)) end--;
+  return value.slice(start, end);
 }
 
 /** Normalize a header for matching: trimmed, lowercased, inner space collapsed. */
@@ -198,14 +206,25 @@ export function parseVisitedDate(raw: string): VisitedDate {
 /** Max length of an extracted complexity expression. */
 export const MAX_COMPLEXITY_LENGTH = 100;
 
+// Linear form: `\s*(?:[:=-]\s*)?` has one way to consume a whitespace run
+// (`\s*[:=-]?\s*` has n and backtracked quadratically — ReDoS on
+// `"Time" + 1 MiB of spaces`).
 const COMPLEXITY_LABEL =
-  /\b(TC|SC|Time(?:\s+complexity)?|Space(?:\s+complexity)?)\s*[:=-]?\s*O\(/gi;
+  /\b(TC|SC|Time(?:\s+complexity)?|Space(?:\s+complexity)?)\s*(?:[:=-]\s*)?O\(/gi;
+
+/**
+ * Make an extracted expression round-trip through the note frontmatter
+ * (which does not unescape): `"` → `'`, `\` dropped.
+ */
+function normalizeComplexity(expr: string): string {
+  return expr.replace(/"/g, "'").replace(/\\/g, '');
+}
 
 /**
  * Best-effort complexity tokenizer over the whole text (not line-anchored):
  * `(TC|Time|SC|Space)\s*[:=\-]?\s*O(...)` with the `O(` expression read to
- * its balanced `)`. First match per kind wins; > 100 chars or unbalanced →
- * ignored.
+ * its balanced `)`. First match per kind wins; > 100 chars, unbalanced, or a
+ * newline inside `O(...)` → ignored. `"` becomes `'` and `\` is dropped.
  */
 export function extractComplexities(text: string): {
   timeComplexity?: string;
@@ -234,7 +253,7 @@ export function extractComplexities(text: string): {
       if (i - openParen + 2 > MAX_COMPLEXITY_LENGTH) break;
     }
     if (end < 0) continue;
-    const expr = text.slice(openParen - 1, end + 1);
+    const expr = normalizeComplexity(text.slice(openParen - 1, end + 1));
     if (expr.length > MAX_COMPLEXITY_LENGTH) continue;
     const label = (m[1] as string).toLowerCase();
     const isTime = label === 'tc' || label.startsWith('time');

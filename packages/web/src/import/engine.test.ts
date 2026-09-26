@@ -13,6 +13,7 @@ import {
   buildImportedNote,
   buildPreview,
   computePreviewHash,
+  hasImportedBlock,
   IMPORT_LIMITS,
   parseDecisions,
   parseImportFiles,
@@ -572,5 +573,125 @@ describe('planCommit + buildImportedNote', () => {
       NOW,
     );
     expect(picked.status).toBe('to_revisit');
+  });
+});
+
+describe('ReDoS regressions (linear-time on untrusted text)', () => {
+  const MIB = 1024 * 1024;
+  const timed = (fn: () => unknown): number => {
+    const t0 = performance.now();
+    fn();
+    return performance.now() - t0;
+  };
+
+  it.each([
+    ['Time + 1 MiB spaces', `Time${' '.repeat(MIB)}`],
+    ['Time + 1 MiB tabs', `Time${'\t'.repeat(MIB)}x`],
+    ['Space complexity + 1 MiB spaces', `Space complexity${' '.repeat(MIB)}:`],
+    ['TC: + 1 MiB spaces', `TC:${' '.repeat(MIB)}`],
+    ['many labels', 'Time '.repeat(MIB / 5)],
+    ['O( never closed', `TC: O(${'('.repeat(MIB)}`],
+  ])('extractComplexities: %s < 200 ms', (_name, text) => {
+    expect(timed(() => extractComplexities(text))).toBeLessThan(200);
+  });
+
+  it('trimUnicode on long inner whitespace runs < 200 ms', () => {
+    const text = `a${' '.repeat(MIB)}b`;
+    expect(timed(() => trimUnicode(text))).toBeLessThan(200);
+    expect(trimUnicode(` \u00A0${text}\uFEFF `)).toBe(text);
+  });
+
+  it('matcher / title normalization on 1 MiB of whitespace < 200 ms', () => {
+    const text = `12${' '.repeat(MIB)}x`;
+    expect(timed(() => MATCHER.match(text, text))).toBeLessThan(200);
+  });
+});
+
+describe('complexity normalization (frontmatter round-trip)', () => {
+  it(`replaces " with ' and drops backslashes`, () => {
+    expect(extractComplexities('TC: O("n" \\log n)').timeComplexity).toBe(
+      "O('n' log n)",
+    );
+  });
+
+  it('a newline inside O(...) stops the scan', () => {
+    expect(extractComplexities('TC: O(n\n)').timeComplexity).toBeUndefined();
+  });
+});
+
+describe('idempotent merge', () => {
+  const analysis = analyze([{ name: 'a.csv', text: SYN_A }]);
+  const plan = planCommit(
+    analysis,
+    new Set(['lc-3']),
+    new Map([['lc-3', { action: 'merge' }]]),
+  );
+  if (!plan.ok) throw new Error(plan.error);
+  const op = plan.operations[0]!;
+  const base = {
+    problemId: 'lc-3',
+    content: 'Mine',
+    lastUpdated: '2025-01-01T00:00:00.000Z',
+    status: 'to_revisit' as const,
+  };
+
+  it('re-merging the same CSV does not append the block twice', () => {
+    const once = buildImportedNote(
+      op,
+      base,
+      'done',
+      new Date('2026-01-01T00:00:00Z'),
+    );
+    const twice = buildImportedNote(
+      op,
+      once,
+      'done',
+      new Date('2026-02-01T00:00:00Z'),
+    );
+    expect(twice.content).toBe(once.content);
+    expect(once.content.match(/## Imported/g)).toHaveLength(1);
+  });
+
+  it('a note equal to the imported body (earlier create) is not appended to', () => {
+    const created = { ...base, content: op.row.mapped.content };
+    expect(buildImportedNote(op, created, 'done', new Date()).content).toBe(
+      created.content,
+    );
+  });
+
+  it('hasImportedBlock only matches a whole ## Imported section', () => {
+    const block = 'B\n\n## Notes\n\nN';
+    expect(
+      hasImportedBlock(`x\n\n## Imported 2026-01-01\n\n${block}`, block),
+    ).toBe(true);
+    expect(
+      hasImportedBlock(
+        `## Imported 2026-01-01\n\n${block}\n\n## Imported 2026-02-01\n\nother`,
+        block,
+      ),
+    ).toBe(true);
+    expect(
+      hasImportedBlock(
+        `x\n\n## Imported 2026-01-01\n\n${block} and more`,
+        block,
+      ),
+    ).toBe(false);
+    expect(
+      hasImportedBlock(`x ## Imported 2026-01-01\n\n${block}`, block),
+    ).toBe(false);
+    expect(hasImportedBlock(block, block)).toBe(false);
+  });
+
+  it('a different imported body is still appended', () => {
+    const other = 'Mine\n\n## Imported 2026-01-01\n\nolder import';
+    const note = buildImportedNote(
+      op,
+      { ...base, content: other },
+      'done',
+      new Date('2026-03-01T00:00:00Z'),
+    );
+    expect(
+      note.content.startsWith(`${other}\n\n## Imported 2026-03-01\n\n`),
+    ).toBe(true);
   });
 });
