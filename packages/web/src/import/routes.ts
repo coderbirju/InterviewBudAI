@@ -24,6 +24,7 @@ import {
   buildPreview,
   computePreviewHash,
   matchedProblemIds,
+  mergeChangesNothing,
   parseDecisions,
   parseImportFiles,
   planCommit,
@@ -45,12 +46,23 @@ export interface ImportRouteDeps {
   readonly backup?: (dataDir: string, now: Date) => Promise<string>;
 }
 
+/**
+ * Why a problem was skipped: the user's `skip` decision, or a `merge` that
+ * would change nothing (the note is left untouched).
+ */
+export type SkipReason = 'decision' | 'unchanged';
+
 /** `POST /api/import/csv/commit` response. */
 export interface ImportCommitResult {
   readonly created: number;
   readonly overwritten: number;
   readonly merged: number;
   readonly skipped: number;
+  /** One entry per skipped problem (additive; `skipped` is its length). */
+  readonly skippedDetails: readonly {
+    readonly problemId: string;
+    readonly reason: SkipReason;
+  }[];
   readonly unmatched: number;
   readonly failed: readonly {
     readonly problemId: string;
@@ -209,11 +221,11 @@ export async function handleImportRoute(
   let created = 0;
   let overwritten = 0;
   let merged = 0;
-  let skipped = 0;
+  const skippedDetails: { problemId: string; reason: SkipReason }[] = [];
   const failed: { problemId: string; error: string }[] = [];
   for (const op of plan.operations) {
     if (op.action === 'skip') {
-      skipped++;
+      skippedDetails.push({ problemId: op.problemId, reason: 'decision' });
       continue;
     }
     try {
@@ -221,9 +233,17 @@ export async function handleImportRoute(
         op.action === 'create'
           ? null
           : await storage.readIntuitionNote(op.problemId);
-      await storage.writeIntuitionNote(
-        buildImportedNote(op, current, defaultStatus, now),
-      );
+      const next = buildImportedNote(op, current, defaultStatus, now);
+      if (
+        op.action === 'merge' &&
+        current !== null &&
+        mergeChangesNothing(current, next)
+      ) {
+        // Idempotent re-merge: leave the file (status, lastUpdated) alone.
+        skippedDetails.push({ problemId: op.problemId, reason: 'unchanged' });
+        continue;
+      }
+      await storage.writeIntuitionNote(next);
       if (op.action === 'create') created++;
       else if (op.action === 'overwrite') overwritten++;
       else merged++;
@@ -238,7 +258,8 @@ export async function handleImportRoute(
     created,
     overwritten,
     merged,
-    skipped,
+    skipped: skippedDetails.length,
+    skippedDetails,
     unmatched: analysis.candidates.filter((c) => c.match === null).length,
     failed,
     backup,
