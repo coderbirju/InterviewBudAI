@@ -87,6 +87,8 @@ exact shape; the sketch below is the intent.
 
 - **Assess** — load progress via storage; produce a "where you stand" view.
 - **Plan** — from competency gaps, choose the next session's focus.
+  Also provides problem-level guidance (`deriveGuidance`: topic standing +
+  next-up problems), pure and in `core` (ADR 0007 amendment w2a).
 - **Coach** — run a persona-driven session using the LLM provider; on close,
   write a structured summary + competency update back through storage.
 

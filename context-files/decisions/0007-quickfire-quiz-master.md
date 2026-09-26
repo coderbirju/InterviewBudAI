@@ -451,3 +451,56 @@ model is used only for **verdicts**. Consequences:
   `question` and the probe is shown separately.
 
 **Storage impact:** none (no `StorageAdapter` or `QuizSession` change).
+
+## Amendment (w2a growth loop, 2026-09-26) — read-time guidance
+
+ADR 0008 Wave 2(a) asks for the growth loop in the web: use quiz results to
+bring back "Where you stand / Next up". D4/D9 Q4 planned to do that by
+**wiring quiz signals into `CompetencyMap`/`WeaknessRegister`**. This amendment
+**replaces** that plan.
+
+### A9 — Guidance is derived at read time, not written back
+
+- A new pure, synchronous core function **`deriveGuidance(input)`** computes
+  guidance from the catalog, the resolved note statuses (`status` +
+  `lastUpdated`) and `CompetencySignals`, with the clock passed in. No I/O, no
+  LLM, deterministic.
+- **`CompetencyMap`/`WeaknessRegister` stay Coach/CLI-owned.** The web never
+  writes them; quiz signals are not copied into them. There is nothing to keep
+  in sync and no new persisted data.
+- Output:
+  - `standing` — per topic with activity: note counts (`done`, `toRevisit`,
+    `didNotUnderstand`, `total` = catalog problems in the topic), quiz
+    `correct`/`incorrect`, `lastActivity`, `band` = `deriveTopicStrength` on
+    the quiz tallies (same label as Analytics), `needsReview`. Ordered weak →
+    improving → unknown → strong, then most misses, then topic id.
+    Multi-topic problems count for each topic.
+  - `nextUp` — 3 problems (`NEXT_UP_COUNT`, max 5), no problem twice, distinct
+    topics preferred: up to 2 oldest to-revisit / didn't-understand notes;
+    then an unattempted problem (easy → medium → hard → catalog order; hard
+    only after 2 done in the topic) from each weak, then improving, topic; then
+    the in-progress topic with the lowest done ratio; then an unstarted topic.
+    No activity at all → the 3 easiest problems from 3 topics. Signal topics
+    outside the catalog show in `standing` but never produce `nextUp`.
+  - `quiz` — `{ doneCount, lastQuizAt, suggested }`; `lastQuizAt` is the
+    latest topic `lastSeen` in the signals (written on every terminal answer;
+    no session scan); `suggested` when `doneCount ≥ 1` and no quiz in the last
+    7 days (`QUIZ_NUDGE_DAYS`).
+  - Every `reason` is built from counts and dates only — never a hint or a
+    solution (§6.2).
+- `core` does not import `@ibai/curriculum`; it takes a structural
+  `GuidanceProblem` (`{ id, title, url, difficulty, topics }`).
+- New core exports: `deriveGuidance`, `Guidance`, `GuidanceInput`,
+  `GuidanceProblem`, `GuidanceNote`, `GuidanceDifficulty`, `TopicStanding`,
+  `NextUpItem`, `NextUpKind`, `QuizHint`, and the constants `NEXT_UP_COUNT`,
+  `MAX_NEXT_UP`, `MAX_REVISIT_SLOTS`, `QUIZ_NUDGE_DAYS`, `HARD_GATE_DONE`.
+- New endpoint **`GET /api/guidance`** →
+  `{ state: 'no_db' | 'empty' | 'ready', generatedAt, standing, nextUp, quiz }`.
+  Strictly read-only; `405` for other methods; malformed signals degrade to
+  notes-only.
+
+This does **not** settle ADR 0008 D5 #4 (quiz-only vs free-form coach/plan in
+the web): guidance is deterministic and uses no model.
+
+**Storage impact:** none. No `StorageAdapter` change, no on-disk change
+(ADR 0009 D4: CHANGELOG `### Added` only).

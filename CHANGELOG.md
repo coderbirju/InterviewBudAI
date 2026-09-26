@@ -57,6 +57,11 @@ and is listed there with what you need to do (ADR 0009 D4).
   the catalog, choose skip / overwrite / merge per conflict, then import; the
   data folder is backed up to `<dataFolder>/.backups/` (last 5 kept) before
   anything is written (ADR 0009 D2/D3).
+- `GET /api/guidance`: read-only "where you stand" per topic plus three
+  concrete next-up problems (revisits, weak topics, continue / start) and a
+  quiz nudge, derived from your notes and quiz results by the new core
+  `deriveGuidance` (ADR 0007 amendment w2a). No on-disk change; nothing is
+  written. The Home card that shows it lands separately.
 
 ### Changed
 
