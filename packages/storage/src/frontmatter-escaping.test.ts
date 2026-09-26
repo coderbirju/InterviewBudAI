@@ -3,15 +3,60 @@
  * spaceComplexity): round-trip, stability across repeated saves, and
  * back-compat with files written by older versions (ADR 0009 D4).
  *
- * Temp dirs only; values are synthetic.
+ * Values are synthetic. The file system is an in-memory stand-in for
+ * `node:fs/promises` (shared by the adapter and these tests): the property
+ * tests do thousands of sequential save/load cycles, and on real disk a
+ * CI runner I/O stall pushed one past the 5s test timeout. What is under
+ * test here is the encoding, not the disk; real-disk note I/O is covered by
+ * local-file-adapter.test.ts and intuition-note.test.ts.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalFileStorageAdapter } from './local-file-adapter.js';
 import type { IntuitionNote } from './index.js';
+
+/** Minimal in-memory `node:fs/promises` (utf-8 strings, flat path map). */
+const memfs = vi.hoisted(() => {
+  const files = new Map<string, string>();
+  let seq = 0;
+  const enoent = (p: unknown) =>
+    Object.assign(
+      new Error(`ENOENT: no such file or directory, '${String(p)}'`),
+      {
+        code: 'ENOENT',
+      },
+    );
+  const under = (dir: string, p: string) =>
+    p === dir || p.startsWith(`${dir}/`) || p.startsWith(`${dir}\\`);
+  return {
+    mkdtemp: async (prefix: string) => `${prefix}${++seq}`,
+    mkdir: async () => undefined,
+    writeFile: async (p: unknown, data: unknown) => {
+      files.set(String(p), String(data));
+    },
+    readFile: async (p: unknown) => {
+      const v = files.get(String(p));
+      if (v === undefined) throw enoent(p);
+      return v;
+    },
+    readdir: async (dir: unknown) =>
+      [...files.keys()]
+        .filter((k) => under(String(dir), k) && k !== String(dir))
+        .map((k) => k.slice(String(dir).length + 1)),
+    unlink: async (p: unknown) => {
+      if (!files.delete(String(p))) throw enoent(p);
+    },
+    rm: async (dir: unknown) => {
+      for (const k of [...files.keys()]) {
+        if (under(String(dir), k)) files.delete(k);
+      }
+    },
+  };
+});
+vi.mock('node:fs/promises', () => memfs);
 
 let tempDir: string;
 let adapter: LocalFileStorageAdapter;
