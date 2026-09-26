@@ -31,7 +31,8 @@ export type Route =
   | { readonly kind: 'home' }
   | { readonly kind: 'notes'; readonly problemId: string }
   | { readonly kind: 'analytics' }
-  | { readonly kind: 'interview' };
+  | { readonly kind: 'interview' }
+  | { readonly kind: 'data' };
 
 /**
  * Parse a full pathname (e.g. `/notes/two-sum`) into a `Route`. Anything that
@@ -52,6 +53,9 @@ export function parseRoute(pathname: string): Route {
   if (segments[0] === 'interview' && segments.length === 1) {
     return { kind: 'interview' };
   }
+  if (segments[0] === 'data' && segments.length === 1) {
+    return { kind: 'data' };
+  }
   return { kind: 'home' };
 }
 
@@ -70,9 +74,37 @@ export function interviewHref(): string {
   return '/interview';
 }
 
+/** The SPA "Your data" (data folder) URL. */
+export function dataHref(): string {
+  return '/data';
+}
+
 /** The SPA home (catalog) URL. */
 export function homeHref(): string {
   return '/';
+}
+
+/**
+ * True for a plain left-click with no modifier keys — safe to intercept for
+ * client-side navigation (modified clicks keep the browser's default, e.g.
+ * open in a new tab).
+ */
+export function isPlainClick(e: {
+  readonly defaultPrevented: boolean;
+  readonly button: number;
+  readonly metaKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+}): boolean {
+  return (
+    !e.defaultPrevented &&
+    e.button === 0 &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.shiftKey &&
+    !e.altKey
+  );
 }
 
 /**

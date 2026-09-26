@@ -200,7 +200,7 @@ describe('Analytics page', () => {
 
     expect(await screen.findByText(/no data yet/i)).toBeInTheDocument();
     const cta = screen.getByRole('link', { name: /create your database/i });
-    expect(cta).toHaveAttribute('href', '/setup');
+    expect(cta).toHaveAttribute('href', '/data');
     // Progress/catalog are not even fetched when there is no DB.
     expect(mockedApi.fetchProgress).not.toHaveBeenCalled();
     expect(mockedApi.fetchCatalog).not.toHaveBeenCalled();

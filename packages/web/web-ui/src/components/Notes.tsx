@@ -24,7 +24,7 @@ import { StatusControl } from './StatusControl';
  *  - fetches GET /api/notes/:id (the saved note) + /api/catalog (title/url);
  *  - pre-fills status / intuition / time & space complexity from the saved note;
  *  - saves via POST /api/notes/:id and shows a "Saved" confirmation;
- *  - degrades gracefully: no-DB → create-database CTA (links /setup); unknown
+ *  - degrades gracefully: no-DB → create-database CTA (links /data); unknown
  *    problem (404) → friendly not-found; network/API error → inline error.
  *
  * All values render via JSX (auto-escaped) — no dangerouslySetInnerHTML. The
@@ -204,7 +204,7 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
             one to start saving your intuition and complexity analysis.
           </p>
           <a
-            href="/setup"
+            href="/data"
             className="mt-5 inline-block rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
           >
             Create your database

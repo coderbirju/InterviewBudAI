@@ -407,7 +407,7 @@ describe('Home', () => {
     const cta = await screen.findByRole('link', {
       name: /create your database/i,
     });
-    expect(cta).toHaveAttribute('href', '/setup');
+    expect(cta).toHaveAttribute('href', '/data');
     // Catalog/progress not fetched in the no-db state.
     expect(mockedApi.fetchCatalog).not.toHaveBeenCalled();
   });
