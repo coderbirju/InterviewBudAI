@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Home } from './Home';
 import * as api from '../lib/api';
-import { lastHomeHref, navigate } from '../lib/router';
+import { lastHomeHref, navigate, rememberHomeSearch } from '../lib/router';
 import type {
   CatalogResponse,
   ConfigResponse,
@@ -61,6 +61,8 @@ const PROGRESS: ProgressResponse = {
 beforeEach(() => {
   vi.clearAllMocks();
   window.history.replaceState({}, '', '/');
+  // Module-level memory in the router; reset so tests don't leak into each other.
+  rememberHomeSearch('');
 });
 
 /** A multi-topic catalog for the search/filter tests. */
@@ -337,6 +339,42 @@ describe('Home search & filters', () => {
     await user.type(screen.getByLabelText(/search problems/i), 'sum');
     act(() => navigate('/notes/two-sum'));
     expect(lastHomeHref()).toBe('/?q=sum');
+  });
+
+  it('a popstate with an unchanged filter keeps pinned rows visible', async () => {
+    const user = userEvent.setup();
+    mockedApi.postNoteStatus.mockResolvedValue({
+      problemId: 'group-anagrams',
+      status: 'done',
+      completed: true,
+    });
+    await renderBig();
+    await user.click(screen.getByRole('button', { name: /To revisit/ }));
+    const row = screen.getByText('Group Anagrams').closest('tr');
+    expect(row).not.toBeNull();
+    await user.click(
+      within(row as HTMLElement).getByRole('button', {
+        name: /Status: To revisit/i,
+      }),
+    );
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: /Done/i }),
+    );
+    await waitFor(() =>
+      expect(mockedApi.postNoteStatus).toHaveBeenCalledWith(
+        'group-anagrams',
+        'done',
+      ),
+    );
+    expect(window.location.search).toBe('?status=to_revisit');
+
+    // Same-URL navigation (e.g. clicking the current nav link) fires popstate
+    // without changing the query: the pinned row must not drop out.
+    act(() => navigate(`/${window.location.search}`));
+
+    expect(screen.getByText('Group Anagrams')).toBeInTheDocument();
+    expect(screen.getByText('2 of 4 problems')).toBeInTheDocument();
+    expect(window.location.search).toBe('?status=to_revisit');
   });
 
   it('popstate (Back/Forward) to /?q=… re-applies that filter', async () => {
