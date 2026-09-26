@@ -164,6 +164,8 @@ matched case-insensitively after trimming, in any column order.
 
 *Amendment (#65, additive):* the preview also returns per-row `chosen` and a top-level `blankRows` count, a commit decision may carry an optional `rowKey` (which of several rows matching one problem to import), and the complexity tokenizer stops (ignores the match) at a newline inside `O(...)`.
 
+*Amendment (fix/frontmatter-escaping, additive):* complexity text is stored verbatim (the storage adapter now escapes/unescapes frontmatter strings; the `"`→`'` / drop-`\` workaround is gone), and a `merge` that would change nothing is an idempotent skip — counted in `skipped` with `skippedDetails` reason `unchanged`, the note (status, `lastUpdated`) not rewritten.
+
 Notion's per-row page bodies (the `.md` files beside the CSV in an export) are
 **not imported** — future scope.
 

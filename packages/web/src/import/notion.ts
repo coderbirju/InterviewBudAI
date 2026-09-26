@@ -213,18 +213,11 @@ const COMPLEXITY_LABEL =
   /\b(TC|SC|Time(?:\s+complexity)?|Space(?:\s+complexity)?)\s*(?:[:=-]\s*)?O\(/gi;
 
 /**
- * Make an extracted expression round-trip through the note frontmatter
- * (which does not unescape): `"` → `'`, `\` dropped.
- */
-function normalizeComplexity(expr: string): string {
-  return expr.replace(/"/g, "'").replace(/\\/g, '');
-}
-
-/**
  * Best-effort complexity tokenizer over the whole text (not line-anchored):
  * `(TC|Time|SC|Space)\s*[:=\-]?\s*O(...)` with the `O(` expression read to
  * its balanced `)`. First match per kind wins; > 100 chars, unbalanced, or a
- * newline inside `O(...)` → ignored. `"` becomes `'` and `\` is dropped.
+ * newline inside `O(...)` → ignored. The expression is kept verbatim
+ * (quotes and backslashes included; storage escapes them).
  */
 export function extractComplexities(text: string): {
   timeComplexity?: string;
@@ -247,13 +240,13 @@ export function extractComplexities(text: string): {
           end = i;
           break;
         }
-      } else if (ch === '\n') {
+      } else if (ch === '\n' || ch === '\r') {
         break;
       }
       if (i - openParen + 2 > MAX_COMPLEXITY_LENGTH) break;
     }
     if (end < 0) continue;
-    const expr = normalizeComplexity(text.slice(openParen - 1, end + 1));
+    const expr = text.slice(openParen - 1, end + 1);
     if (expr.length > MAX_COMPLEXITY_LENGTH) continue;
     const label = (m[1] as string).toLowerCase();
     const isTime = label === 'tc' || label.startsWith('time');

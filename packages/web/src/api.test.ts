@@ -387,6 +387,55 @@ describe('api notes POST', () => {
     expect(onDisk?.status).toBe('to_revisit');
   });
 
+  it('complexity values with quotes/backslashes round-trip through POST → GET, stable across saves', async () => {
+    const handler = makeHandler(makeDeps());
+    const time = 'O(n) "amortized" \\log n: #1 \'x\' Θ ';
+    const space = '  O(1)\\';
+    const res = await handler({
+      method: 'POST',
+      url: `/api/notes/${SECOND_ID}`,
+      body: JSON.stringify({
+        content: 'c',
+        timeComplexity: time,
+        spaceComplexity: space,
+      }),
+    });
+    expect(res.status).toBe(200);
+    for (let i = 0; i < 3; i++) {
+      const got = JSON.parse(
+        (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
+      ) as ApiNoteResponse;
+      expect(got.timeComplexity).toBe(time);
+      expect(got.spaceComplexity).toBe(space);
+      // The editor re-saves the fields it loaded (no accumulation).
+      await handler({
+        method: 'POST',
+        url: `/api/notes/${SECOND_ID}`,
+        body: JSON.stringify({
+          content: `c${i}`,
+          timeComplexity: got.timeComplexity,
+          spaceComplexity: got.spaceComplexity,
+        }),
+      });
+    }
+  });
+
+  it('a multi-line complexity → 400 JSON, nothing written', async () => {
+    const handler = makeHandler(makeDeps());
+    const res = await handler({
+      method: 'POST',
+      url: `/api/notes/${SECOND_ID}`,
+      body: JSON.stringify({ timeComplexity: 'O(n)\nO(1)' }),
+    });
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'timeComplexity must be a single line',
+    });
+    expect(
+      await new LocalFileStorageAdapter(tmpDir).readIntuitionNote(SECOND_ID),
+    ).toBeNull();
+  });
+
   it("keeps completed consistent with status 'done'", async () => {
     const handler = makeHandler(makeDeps());
     const res = await handler({

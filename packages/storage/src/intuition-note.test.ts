@@ -281,10 +281,8 @@ describe('LocalFileStorageAdapter - IntuitionNote methods', () => {
       const result = await adapter.readIntuitionNote('lc-301');
 
       expect(result).not.toBeNull();
-      // Quotes are escaped on write, stored escaped, then stripped on read
-      // The stored value will have escaped quotes which are part of the string
-      expect(result!.timeComplexity).toBeDefined();
-      expect(result!.spaceComplexity).toBeDefined();
+      expect(result!.timeComplexity).toBe('O(n) "amortized"');
+      expect(result!.spaceComplexity).toBe('O(1) "in-place"');
     });
 
     it('omits complexity lines when undefined', async () => {

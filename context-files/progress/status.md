@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-25 — PRs #1–#62 merged or closed; distribution decided (GitHub Release zip, ADR 0009 D5)._
+_Last updated: 2026-09-25 — PRs #1–#65 merged or closed; distribution decided (GitHub Release zip, ADR 0009 D5)._
 
 ## Legend
 ✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ⏸ deferred · ✖ closed unmerged
@@ -15,8 +15,7 @@ _Last updated: 2026-09-25 — PRs #1–#62 merged or closed; distribution decide
 See `team-charter.md` §0, §9A.
 
 ## In progress
-- 🟡 ADR 0009 D5 accepted (GitHub zip releases) + CHANGELOG for #62 — `architect/adr-0009-d5-zip-release`.
-- 🔨 ADR 0009 PR B — CSV import (Notion) — `feature/csv-import`.
+- 🟡 Frontmatter escaping fix (complexity `"`/`\` round-trip, legacy normalize) + import nits (verbatim complexity, no-op merge → skipped `unchanged`) — #66 `fix/frontmatter-escaping`.
 
 ## Founder decision (2026-09-25) — recorded in ADR 0008
 - **The web app is the product.** CLI frozen (compiles + tests, no features).
@@ -52,9 +51,9 @@ See `team-charter.md` §0, §9A.
 ## Milestone: Data lifecycle (ADR 0009)
 | Item | What | Status |
 |---|---|---|
-| ADR | ADR 0009 + root `CHANGELOG.md` (#60 breaking change recorded) | ✅ #61; D5 zip amendment 🟡 `architect/adr-0009-d5-zip-release` |
-| A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ✅ #62 |
-| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | 🔨 `feature/csv-import` |
+| ADR | ADR 0009 + root `CHANGELOG.md` (#60 breaking change recorded) | ✅ #61; D5 zip amendment ✅ #63 |
+| A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ✅ #62; hardening ✅ #64 |
+| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ✅ #65; escaping fix 🟡 #66 |
 | C | `manifest.json` format versioning + migration framework | ⬜ after B |
 | D | Release zip (prebuilt server + SPA, `node …` start) + tag-triggered Action: verify → zip → GitHub Release from CHANGELOG (no npm) | ⏸ deferred (founder) — D5 accepted; founder pushes tags |
 
@@ -110,7 +109,7 @@ See `team-charter.md` §0, §9A.
 
 ## Open questions / deferred
 - **ESLint 9** (flat config) upgrade — deferred; eslint@8 has dev-only audit warnings.
-- **Bulk import** of founder's Notion intuitions — scheduled: ADR 0009 PR B.
+- **Bulk import** of Notion CSV — ✅ #65 (per-row page bodies: future).
 - **Quiz difficulty knob** (ADR 0007 D2 "future") — not implemented.
 - **Quiz engine in `packages/web`** — allowed by ADR 0008 D2 (parity relaxed).
 - **CLI-frozen known issues (ADR 0008 D1, not fixing):** CLI data-dir default `~/.ibai/data`
@@ -119,7 +118,7 @@ See `team-charter.md` §0, §9A.
   answers" but exits 0 without running `coach()`.
 
 ## Next up (proposed)
-1. ADR 0009 PR B (CSV import, in progress) + `/data` (#62) hardening → C. PR D (release zip) deferred.
+1. ADR 0009 PR C (manifest + migrations). PR D (release zip) deferred.
 2. Wave 2a growth loop.
 3. `architect-task` — storage-interface ADR for custom problems (Wave 2b).
 4. Wave 2c; hygiene PRs in between.

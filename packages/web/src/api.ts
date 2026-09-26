@@ -819,6 +819,13 @@ export async function handleApiRoute(
       ) {
         return json(400, { error: 'spaceComplexity must be a string' });
       }
+      // Frontmatter values are single-line (storage rejects CR/LF).
+      for (const key of ['timeComplexity', 'spaceComplexity'] as const) {
+        const v = input[key];
+        if (typeof v === 'string' && /[\r\n]/.test(v)) {
+          return json(400, { error: `${key} must be a single line` });
+        }
+      }
       if (input.status !== undefined && !isNoteStatus(input.status)) {
         return json(400, { error: 'invalid status' });
       }

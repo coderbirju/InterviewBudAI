@@ -350,6 +350,98 @@ describe('POST /api/import/csv/commit', () => {
     ).toContain('my own words');
   });
 
+  it('a merge that changes nothing is skipped (reason unchanged) and the file is not rewritten', async () => {
+    // Same body as the CSV row, older lastUpdated than its Last Visited.
+    await new LocalFileStorageAdapter(dataDir).writeIntuitionNote({
+      problemId: 'lc-11',
+      content: 'Two pointers <script>alert(1)</script>',
+      lastUpdated: '2023-01-01T00:00:00.000Z',
+      status: 'to_revisit',
+      completed: false,
+    });
+    const file = path.join(dataDir, 'notes', 'lc-11.md');
+    const before = fs.readFileSync(file, 'utf8');
+    const handler = makeHandler();
+    const files = [{ name: 'a.csv', text: CSV }];
+    const p = await preview(handler, files);
+    const res = await post(handler, '/api/import/csv/commit', {
+      files,
+      previewHash: p.previewHash,
+      decisions: { 'lc-11': { action: 'merge' }, 'lc-3': { action: 'skip' } },
+    });
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result).toMatchObject({ merged: 0, skipped: 2, created: 0 });
+    expect(result.skippedDetails).toEqual([
+      { problemId: 'lc-3', reason: 'decision' },
+      { problemId: 'lc-11', reason: 'unchanged' },
+    ]);
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+  });
+
+  it('re-importing with merge after a merge is an idempotent skip', async () => {
+    await seedNote('lc-11', 'container thoughts');
+    const handler = makeHandler();
+    const files = [{ name: 'a.csv', text: CSV }];
+    const commit = async () => {
+      const p = await preview(handler, files);
+      return JSON.parse(
+        (
+          await post(handler, '/api/import/csv/commit', {
+            files,
+            previewHash: p.previewHash,
+            decisions: { 'lc-11': { action: 'merge' } },
+          })
+        ).body,
+      ) as ImportCommitResult;
+    };
+    expect(await commit()).toMatchObject({ merged: 1 });
+    const file = path.join(dataDir, 'notes', 'lc-11.md');
+    const after = fs.readFileSync(file, 'utf8');
+    const again = await commit();
+    expect(again).toMatchObject({ merged: 0 });
+    expect(again.skippedDetails).toContainEqual({
+      problemId: 'lc-11',
+      reason: 'unchanged',
+    });
+    expect(fs.readFileSync(file, 'utf8')).toBe(after);
+  });
+
+  it('imported complexity text with quotes/backslashes is stored verbatim', async () => {
+    const csv =
+      'Problem,Intuition\n' +
+      '"3. Longest Substring Without Repeating Characters","Window. TC: O(""n"" \\log n), SC: O(k\\)"\n';
+    const handler = makeHandler();
+    const files = [{ name: 'q.csv', text: csv }];
+    const p = await preview(handler, files);
+    expect(p.rows[0]?.fields).toMatchObject({
+      timeComplexity: 'O("n" \\log n)',
+      spaceComplexity: 'O(k\\)',
+    });
+    await post(handler, '/api/import/csv/commit', {
+      files,
+      previewHash: p.previewHash,
+    });
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: '/api/notes/lc-3' })).body,
+    ) as { timeComplexity: string; spaceComplexity: string };
+    expect(got.timeComplexity).toBe('O("n" \\log n)');
+    expect(got.spaceComplexity).toBe('O(k\\)');
+    // Re-merging the same CSV changes nothing.
+    const p2 = await preview(handler, files);
+    const res = JSON.parse(
+      (
+        await post(handler, '/api/import/csv/commit', {
+          files,
+          previewHash: p2.previewHash,
+          decisions: { 'lc-3': { action: 'merge' } },
+        })
+      ).body,
+    ) as ImportCommitResult;
+    expect(res.skippedDetails).toEqual([
+      { problemId: 'lc-3', reason: 'unchanged' },
+    ]);
+  });
+
   it('a note that appeared after the preview → 409, nothing written, no backup', async () => {
     const handler = makeHandler();
     const files = [{ name: 'a.csv', text: CSV }];
