@@ -82,6 +82,9 @@ and is listed there with what you need to do (ADR 0009 D4).
   complexity text verbatim (no more `"` → `'`), and a `merge` that would
   change nothing is reported as skipped (`unchanged`) without touching the
   note. Not a breaking change (ADR 0009 D4): the file format is unchanged.
+- Rare read difference from that fix: a complexity saved by an older version
+  that ends in two (or any even number of) backslashes, e.g. `C:\\`, now reads
+  with half of them (`C:\`). Re-type the value once if that matters.
 
 ### Removed
 
