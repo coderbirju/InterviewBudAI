@@ -9,7 +9,7 @@ import { dataHref, isPlainClick, navigate } from '../lib/router';
  * D1). It is the recovery path for the w2d data-dir change, so:
  *
  *  - active folder has 0 notes → shown, NOT dismissible (links to /data);
- *  - a previous-data folder was found → "restore them" variant; dismissible
+ *  - another notes folder was found → neutral "review it" variant; dismissible
  *    (this browser tab only, `sessionStorage`) once the active folder has notes.
  *
  * Fails closed: if `/api/data-dir` cannot be read, nothing is shown.
@@ -54,7 +54,7 @@ export function DataFolderBanner(): JSX.Element | null {
 
   const Icon = hasCandidate ? History : FolderSearch;
   const message = hasCandidate
-    ? 'We found your previous notes — restore them'
+    ? 'A folder with InterviewBudAI notes was found — review it'
     : "Don't see your solved problems? Point InterviewBudAI at your existing folder or import a CSV";
 
   return (
@@ -90,7 +90,7 @@ export function DataFolderBanner(): JSX.Element | null {
             }
             setDismissed(true);
           }}
-          className="shrink-0 rounded-md p-1 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-slate-200"
+          className="shrink-0 rounded-md p-1 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>
