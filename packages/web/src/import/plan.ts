@@ -527,6 +527,33 @@ function later(a: string, b: string): string {
   return tb > ta ? b : a;
 }
 
+const IMPORTED_HEADING = '## Imported ';
+const IMPORTED_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * True when `content` already holds `block` as an earlier merge left it — a
+ * `## Imported <YYYY-MM-DD>` section whose text is exactly `block` (ending at
+ * the next `## Imported` section or the end) — so re-importing the same CSV
+ * with `merge` is idempotent. Plain index scans; no regex over the body.
+ */
+export function hasImportedBlock(content: string, block: string): boolean {
+  for (
+    let at = content.indexOf(IMPORTED_HEADING);
+    at >= 0;
+    at = content.indexOf(IMPORTED_HEADING, at + 1)
+  ) {
+    if (at > 0 && content[at - 1] !== '\n') continue;
+    const dayStart = at + IMPORTED_HEADING.length;
+    if (!IMPORTED_DAY.test(content.slice(dayStart, dayStart + 10))) continue;
+    const bodyStart = dayStart + 10;
+    if (content.slice(bodyStart, bodyStart + 2) !== '\n\n') continue;
+    if (!content.startsWith(block, bodyStart + 2)) continue;
+    const rest = content.slice(bodyStart + 2 + block.length);
+    if (rest === '' || rest.startsWith(`\n\n${IMPORTED_HEADING}`)) return true;
+  }
+  return false;
+}
+
 /**
  * Build the note to write for an operation (`create` / `overwrite` /
  * `merge`). `existing` is the current note (required for merge/overwrite).
@@ -544,7 +571,9 @@ export function buildImportedNote(
     const status = op.status ?? resolveNoteStatus(existing);
     const day = nowIso.slice(0, 10);
     const content =
-      row.content === ''
+      row.content === '' ||
+      existing.content === row.content ||
+      hasImportedBlock(existing.content, row.content)
         ? existing.content
         : existing.content === ''
           ? `## Imported ${day}\n\n${row.content}`
