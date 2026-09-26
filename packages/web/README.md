@@ -15,8 +15,8 @@ The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, serv
 The server is intentionally small — three surfaces:
 
 - **`/` (and all other non-API, non-`/setup` GET paths)** — the React SPA bundle + assets. Client-side routing (History API, no routing library) handles `/notes/:id`, `/analytics`, and `/interview`; deep links and refreshes fall back to `index.html`. Vite `base` is `/`, so assets are served at `/assets/*` (local, same-origin — no CDN).
-- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, `/api/chat`, and the Quiz Master routes `/api/quiz/start|new|session|answer` plus session-management `/api/quiz/sessions` GET, `/api/quiz/end` POST, `/api/quiz/resume` POST, `/api/quiz/delete` POST + `DELETE /api/quiz/session/:id`). The server remains the storage owner; the browser is UI + cookie.
-- **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory and sets the persistent `ibai_data_dir` cookie (`Max-Age=31536000`), then links back to the SPA at `/`. The SPA's no-DB states link here.
+- **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, and the Quiz Master routes `/api/quiz/start|new|session|answer` plus session-management `/api/quiz/sessions` GET, `/api/quiz/end` POST, `/api/quiz/resume` POST, `/api/quiz/delete` POST + `DELETE /api/quiz/session/:id`). The server owns the data directory; the browser is UI only (see [The data directory](#first-run-and-the-data-directory)).
+- **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory, saves the choice to `~/.interviewbudai/config.json` and switches the server to it immediately (for every browser, and after restarts), then links back to the SPA at `/`. The SPA's no-DB states link here.
 
 Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed**. Home/notes/analytics/interview now live in the SPA; the assess/plan views (Where You Stand / Next Session) were not ported and are CLI-only for now.
 
@@ -29,7 +29,7 @@ Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.
 
   **Session management (quiz-fix-b).** An **End session** control is shown during an active quiz — `POST /api/quiz/end` persists the session `complete` and clears the active pointer, so it stops being resumable-active but **remains listed** (ending never deletes). The idle and complete views show a **Your sessions** list (`GET /api/quiz/sessions`, empty-safe): one card per past + active session (created time, `answered / deckSize`, correct tally, status/Active badge) with a **Resume** button (`POST /api/quiz/resume { sessionId }` — re-activates it as the resumable session and continues from its position; a session whose deck is exhausted is shown as complete and is not re-activated) and a **Delete** button (`POST /api/quiz/delete { sessionId }` after a small confirm; a REST-form `DELETE /api/quiz/session/:id` is also accepted). Delete is idempotent (missing → `ok:true`); deleting the active session also clears the pointer. Loading/empty/error states are handled and the page never crashes with no DB / no sessions.
 
-All no-DB states link to `/setup`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. The only outbound calls are the user-configured LLM provider, made **server-side** inside `POST /api/chat` and the `POST /api/quiz/*` routes.
+All no-DB states link to `/setup`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. The only outbound calls are the user-configured LLM provider, made **server-side** inside the `POST /api/quiz/*` routes.
 
 ### Where the UI lives
 
@@ -98,16 +98,18 @@ Tailwind is compiled to a **static CSS file at build time** and lucide-react ico
 ## JSON API (M1 — ADR 0006 D4)
 
 The server exposes a same-origin, **localhost-only JSON API** under `/api` for
-the React SPA to consume. The server remains the **storage owner** (the browser
-is UI + cookie; the server is the filesystem authority). There is **no auth** (local-first),
+the React SPA to consume. The server is the **storage owner** and the filesystem
+authority; the browser is UI only. There is **no auth** (local-first),
 but requests must pass the [localhost hardening](#localhost-hardening-csrf--dns-rebinding)
 checks: a loopback `Host`, same-origin writes, and `Content-Type: application/json`
 on every mutating call.
 
-Every `/api` route returns `application/json`, resolves the data directory
-per-request via the same **cookie `ibai_data_dir` > `IBAI_DATA_DIR` env >
-default** precedence used everywhere else, uses proper status codes, and never
-emits HTML (`404` for unknown `/api` paths, `405` for wrong methods).
+Every `/api` route returns `application/json`, uses the **server's** data
+directory (resolved once at boot — see
+[The data directory](#first-run-and-the-data-directory) — and changed only by
+`/setup`; nothing in the request can redirect it), uses proper status codes,
+and never emits HTML (`404` for unknown `/api` paths, `405` for wrong methods,
+`413` for a body over 1 MiB).
 
 | Method & path | Purpose | Success | No-DB behaviour |
 |---|---|---|---|
@@ -117,11 +119,11 @@ emits HTML (`404` for unknown `/api` paths, `405` for wrong methods).
 | `GET /api/progress` | Overall counts for the banner: `{ completed, total, byStatus: { done, to_revisit, did_not_understand, none } }`. | `200` | Safe empty (all `none`). |
 | `GET /api/competency` | Quiz-derived competency signals for Analytics (ADR 0007 Q4): `{ topics: [{ topicId, correct, incorrect, strength, lastSeen }], patterns: [{ id, description, topics, occurrences, lastObserved }] }`. `topics` are sorted weak→strong then by most misses; `patterns` by most occurrences. Read-only — reads via `readCompetencySignals`, the user's OWN outcomes/patterns only (no shipped answers, §6.2). | `200` | Safe empty `{ topics: [], patterns: [] }`. |
 | `GET /api/config` | `{ dbConfigured, dataDir?, provider }` so the SPA can choose create-db vs show-catalog and show the provider banner. `dataDir` is display-only and omitted when no DB. | `200` | `{ dbConfigured: false, provider }`. |
-| `POST /api/chat` | One interview-coach chat turn. Body `{ messages: [{ role: 'user'\|'assistant', content }, …] }` — the prior transcript **plus** the new user turn (untrusted → validated; must be a non-empty array ending with a `user` turn). Prepends the coach persona as a `system` message, calls the provider, returns `{ reply }` (the model's text — the only source of assistant text, §6.2). | `200 { reply }` | `400 { error: 'no model configured', … }` (provider REQUIRED). |
 
 Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
 `ApiNoteResponse`, `ApiProgressResponse`, `ApiCompetencyResponse`,
-`ApiConfigResponse`, `ApiChatResponse`).
+`ApiConfigResponse`). The old generic interview chat (`POST /api/chat`) was
+removed (ADR 0008 D4) — it now 404s like any unknown `/api` path.
 
 ### Quiz Master API (ADR 0007 — Q2)
 
@@ -161,12 +163,10 @@ fields. The pure engine pieces (prompt building, verdict parsing, seedable
 shuffle, session advance/no-repeat, competency-signal derivation) live in
 `quiz.ts` and are unit-tested independently of the HTTP layer.
 
-`POST /api/chat` never crashes on a provider failure: it returns a JSON error
-with an appropriate status distinguishing the failure mode — **auth** and
-**connection** errors (and any malformed/empty model output) map to `502` with a
-clear message; a malformed request body or invalid `messages` array maps to
-`400`; a wrong method maps to `405`. The only outbound network call is to the
-user-configured provider, made server-side inside `complete()`.
+The quiz routes never crash on a provider failure: **auth** and
+**connection** errors map to `502` with a clear message. The only outbound
+network call is to the user-configured provider, made server-side inside
+`complete()`.
 
 Example:
 
@@ -177,16 +177,11 @@ curl -s http://127.0.0.1:4173/api/config
 curl -s -X POST http://127.0.0.1:4173/api/notes/lc-3 \
   -H 'Content-Type: application/json' -d '{"status":"done","content":"…"}'
 # {"problemId":"lc-3","content":"…","status":"done","completed":true,…}
-
-curl -s -X POST http://127.0.0.1:4173/api/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"How should I start Two Sum?"}]}'
-# {"reply":"What data structure lets you look up a complement in O(1)?"}
 ```
 
 ## Provider Required
 
-The Quiz Master (and `POST /api/chat`) **require a configured LLM provider**. Everything else is local-first; the only outbound call is to your configured provider.
+The Quiz Master **requires a configured LLM provider**. Everything else is local-first; the only outbound call is to your configured provider.
 
 ### Option 1: Anthropic (Claude)
 
@@ -237,13 +232,35 @@ Only the provider kind and model name are shown — never an API key.
 
 ### First run and the data directory
 
-- **Default (`~/.interviewbudai/data`, the canonical location):** if you did not
-  set `--data-dir` / `IBAI_DATA_DIR` and the directory does not exist, boot
-  creates it (`mkdir -p`, mode `0700`) so the app is usable immediately.
-- **Explicit (`--data-dir` / `IBAI_DATA_DIR`):** never auto-created (a typo
-  must not silently create a stray directory). The banner says it does not
-  exist yet; create it yourself or use `/setup`.
-- **`/setup`** still lets you choose a different location (stored in a cookie).
+The **server owns the data directory** (ADR 0005 amendment w2d). It is resolved
+**once at boot**, with this precedence:
+
+1. `--data-dir=<path>` flag
+2. `IBAI_DATA_DIR` environment variable
+3. `~/.interviewbudai/config.json` — `{ "dataDir": "<absolute path>" }`,
+   written by `/setup` (file `0600`, directory `0700`; holds no secrets)
+4. the default `~/.interviewbudai/data`
+
+Every request uses that server state — the browser cannot choose or redirect
+it, and every browser sees the same data.
+
+- **Default:** if the directory does not exist, boot creates it (`mkdir -p`,
+  mode `0700`) so the app is usable immediately.
+- **Flag / env / config.json:** never auto-created (a typo, or a directory you
+  removed, must not silently reappear). The banner says it does not exist yet;
+  create it yourself or use `/setup`.
+- **`/setup`** creates the chosen directory, writes `config.json` atomically
+  (temp file + rename) and switches the running server to it immediately; it
+  survives restarts. If the directory is **pinned** by `--data-dir` /
+  `IBAI_DATA_DIR`, `/setup` says so and refuses to change it (`400`) — it can
+  only create the pinned directory. Restart without the flag/env to choose here.
+- **Invalid `config.json`** (not JSON, `dataDir` not an absolute path, NUL
+  bytes, a filesystem root, …) is ignored with a one-time warning at boot; the
+  default is used.
+- **Legacy cookie:** older versions remembered the path in an `ibai_data_dir`
+  browser cookie. It is no longer read; any request that still carries it gets
+  a `Set-Cookie` that expires it. If you had chosen a custom path that way,
+  pick it again once at `/setup`.
 
 ### `.env` loading
 
@@ -280,14 +297,14 @@ node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 
 | Setting | CLI Flag | Environment Variable | Default |
 |---------|----------|---------------------|----------|
-| Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/data` (auto-created) |
+| Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/config.json` (set via `/setup`), else `~/.interviewbudai/data` (auto-created) |
 | Port | `--port=<port>` | `IBAI_WEB_PORT` | `4173` |
 | Ollama URL | — | `IBAI_OLLAMA_URL` | `http://127.0.0.1:11434` |
 | Ollama Model | — | `IBAI_OLLAMA_MODEL` | *(required for Ollama)* |
 | Anthropic API Key | — | `IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
 | Anthropic Model | — | `IBAI_ANTHROPIC_MODEL` | *(required for Anthropic)* |
 
-Precedence: CLI flag > environment variable (shell > `.env`) > default. The host is always `127.0.0.1` (not configurable).
+Precedence: CLI flag > environment variable (shell > `.env`) > default (for the data directory: > `config.json` > default). The host is always `127.0.0.1` (not configurable).
 
 ## Privacy & Security
 
@@ -321,7 +338,15 @@ to the server through your browser, so every request is checked
   constant time; restarting the server invalidates an open form — reload it).
   The path must be absolute (or `~/…`), contain no NUL bytes, not be a
   filesystem root, and not be an existing file; new directories are created
-  `0700`. The `ibai_data_dir` cookie is `HttpOnly; SameSite=Strict; Path=/`.
+  `0700`. The choice is persisted server-side (`config.json`, `0600`), never
+  in a cookie.
+- **Server-owned data dir** — no request input selects where data is read or
+  written. (The retired `ibai_data_dir` cookie was a hole: cookies are not
+  port-isolated, so a page on another localhost port could set it and point
+  writes at any existing directory. It is now ignored and expired.)
+- **Body cap** — request bodies over 1 MiB are refused with `413` (JSON for
+  `/api`, plain text for `/setup`) before any parsing; excess bytes are
+  discarded, never buffered.
 - **Headers on every response** — `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer` (`same-origin` on the server-rendered pages,
   so the `/setup` form post sends a real `Origin` even in browsers without
