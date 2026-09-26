@@ -53,6 +53,34 @@ describe('@ibai/curriculum CATALOG', () => {
     }
   });
 
+  it('no problem lists the same topic twice', () => {
+    for (const problem of CATALOG) {
+      expect(new Set(problem.topics).size).toBe(problem.topics.length);
+    }
+  });
+
+  it('ids are unique within every per-topic list', () => {
+    const source = createCatalogSource();
+    const topics = new Set(CATALOG.flatMap((p) => p.topics));
+    for (const topic of topics) {
+      const ids = source.filterByTopic(topic).map((p) => p.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  it('multi-topic problems are only the deliberate ones in IMPORT-MANIFEST.md', () => {
+    // ADR 0003 allows several topics per problem. Each such entry counts once
+    // in de-duplicated totals but toward every topic it is tagged with, so a
+    // new one must be a conscious choice recorded in the import manifest.
+    const multi = CATALOG.filter((p) => p.topics.length > 1).map((p) => ({
+      id: p.id,
+      topics: [...p.topics],
+    }));
+    expect(multi).toEqual([
+      { id: 'lc-209', topics: ['arrays-2d', 'sliding-window'] },
+    ]);
+  });
+
   it('catalog is not empty', () => {
     expect(CATALOG.length).toBeGreaterThan(0);
   });
