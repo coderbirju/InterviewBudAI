@@ -16,7 +16,7 @@
  * satisfies it).
  */
 
-import { deriveTopicStrength } from '@ibai/storage';
+import { deriveTopicStrength } from '@ibai/storage/competency';
 import type {
   CompetencySignals,
   IsoTimestamp,
