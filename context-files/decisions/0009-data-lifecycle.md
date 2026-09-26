@@ -367,7 +367,7 @@ as blocking (`NEEDS_CHANGES`); the rubric in
 
 | PR | Scope | Depends on |
 |---|---|---|
-| A | `/data` page + nav link + zero-notes banner; `GET/POST /api/data-dir` (+ dry run); legacy-cookie / `~/.ibai/data` recovery prompt + dismiss; cookie-expiry change; CHANGELOG entry | — |
+| A | `/data` page + nav link + zero-notes banner; `GET/POST /api/data-dir` (+ dry run); legacy-cookie / `~/.ibai/data` recovery prompt + dismiss; cookie-expiry change; CHANGELOG entry (landed in #63) | — |
 | B | CSV parser + Notion mapping/matching; `/api/import/csv/preview` + `/commit`; import UI on `/data`; D3 backups | A |
 | C | `manifest.json` + migration framework (v1 baseline, no-op registry, read-only on newer/invalid) | B (reuses backups) |
 | D | Release packaging (D5 d5-zip): prebuilt zip (compiled server + built SPA + production `node_modules` or a bundled server), documented `node …` start command, `.env` location; tag-triggered GitHub Action: `npm ci` → `verify` → build → zip → create GitHub Release with the zip + CHANGELOG section as notes (built-in `GITHUB_TOKEN`, no `NPM_TOKEN`) | **Deferred** (founder, 2026-09-25) — D5 accepted, not scheduled |
