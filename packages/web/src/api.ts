@@ -18,10 +18,10 @@
  *                           + recurring miss patterns); safe empty when no DB
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
  *   GET  /api/data-dir    — active folder, source, pinned, exists, noteCount,
- *                           legacyCandidate? (ADR 0009 D1)
- *   POST /api/data-dir    — { path } → validate, create, persist, switch
- *   POST /api/data-dir/legacy/accept|dismiss — restore / forget the captured
- *                           previous (cookie-chosen) folder
+ *                           formatVersion, legacyCandidates (ADR 0009 D1)
+ *   POST /api/data-dir    — { path, dryRun? } → dry run: report what is there;
+ *                           else validate, create, persist, switch
+ *   POST /api/data-dir/legacy/dismiss — stop offering previous-data folders
  *   POST /api/quiz/start|new    — start / reshuffle a quiz session
  *   GET  /api/quiz/session      — resume the active session
  *   POST /api/quiz/answer       — submit an answer (verdict + advance)
@@ -73,7 +73,12 @@ import type { RandomSource } from './quiz.js';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists } from './config.js';
-import type { DataDirControl, DataDirStatus } from './data-dir-control.js';
+import { settlesLegacy } from './data-dir-control.js';
+import type {
+  DataDirControl,
+  DataDirInspection,
+  DataDirStatus,
+} from './data-dir-control.js';
 import type { HandlerResponse } from './handler.js';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
@@ -172,10 +177,14 @@ export interface ApiNoteResponse {
 }
 
 /**
- * GET /api/data-dir (and every successful data-dir POST) response shape:
- * `{ dataDir, source, pinned, exists, noteCount, legacyCandidate? }`.
+ * GET /api/data-dir (and every successful switching/dismissing POST) response
+ * shape: `{ dataDir, source, pinned, exists, noteCount, formatVersion,
+ * legacyCandidates: [{ path, noteCount, origin }] }` (ADR 0009 D1).
  */
 export type ApiDataDirResponse = DataDirStatus;
+
+/** `POST /api/data-dir { path, dryRun: true }` response shape (no writes). */
+export type ApiDataDirInspection = DataDirInspection;
 
 /** GET /api/config response shape. */
 export interface ApiConfigResponse {
@@ -1318,8 +1327,13 @@ function toNoteResponse(
   };
 }
 
-/** Parse `{ path: string }` from an untrusted JSON body (`null` if invalid). */
-function parsePathBody(body: string | undefined): string | null {
+/**
+ * Parse `{ path: string, dryRun?: boolean }` from an untrusted JSON body
+ * (`null` if invalid).
+ */
+function parseDataDirBody(
+  body: string | undefined,
+): { readonly path: string; readonly dryRun: boolean } | null {
   if (body === undefined || body.trim() === '') return null;
   let parsed: unknown;
   try {
@@ -1330,8 +1344,10 @@ function parsePathBody(body: string | undefined): string | null {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return null;
   }
-  const value = (parsed as Record<string, unknown>).path;
-  return typeof value === 'string' ? value : null;
+  const { path: value, dryRun } = parsed as Record<string, unknown>;
+  if (typeof value !== 'string') return null;
+  if (dryRun !== undefined && typeof dryRun !== 'boolean') return null;
+  return { path: value, dryRun: dryRun === true };
 }
 
 /**
@@ -1361,29 +1377,27 @@ function handleDataDirRoute(
     if (method !== 'POST') {
       return json(405, { error: 'method not allowed' });
     }
-    const requested = parsePathBody(body);
+    const requested = parseDataDirBody(body);
     if (requested === null) {
-      return json(400, { error: 'expected a JSON body { "path": string }' });
+      return json(400, {
+        error: 'expected a JSON body { "path": string, "dryRun"?: boolean }',
+      });
     }
-    const chosen = control.choose(requested);
+    if (requested.dryRun) {
+      // Validate + report what is there; no writes, no switch.
+      const inspected = control.inspect(requested.path);
+      if (!inspected.ok) {
+        return json(400, { error: inspected.error });
+      }
+      const response: ApiDataDirInspection = inspected.inspection;
+      return json(200, response);
+    }
+    const chosen = control.choose(requested.path);
     if (!chosen.ok) {
       return json(400, { error: chosen.error });
     }
-    return statusResponse();
-  }
-
-  if (pathname === '/api/data-dir/legacy/accept') {
-    if (method !== 'POST') {
-      return json(405, { error: 'method not allowed' });
-    }
-    const chosen = control.acceptLegacy();
-    if (chosen === undefined) {
-      return json(404, { error: 'no previous data folder to restore' });
-    }
-    if (!chosen.ok) {
-      return json(400, { error: chosen.error });
-    }
-    return statusResponse();
+    // A switch settles legacy recovery: the handler expires the cookie.
+    return settlesLegacy(statusResponse());
   }
 
   if (pathname === '/api/data-dir/legacy/dismiss') {
@@ -1391,7 +1405,7 @@ function handleDataDirRoute(
       return json(405, { error: 'method not allowed' });
     }
     control.dismissLegacy();
-    return statusResponse();
+    return settlesLegacy(statusResponse());
   }
 
   return json(404, { error: 'not found' });

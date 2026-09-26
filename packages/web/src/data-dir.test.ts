@@ -157,22 +157,77 @@ describe('legacy ibai_data_dir cookie', () => {
     expect(JSON.parse(cfg.body).dataDir).toBe(serverDir);
   });
 
-  it('is expired (Max-Age=0, same attributes) on any response that sees it', async () => {
+  // ADR 0009 D1: the cookie is kept as a recovery hint (still never used to
+  // select the dir) until the user switches folders or dismisses the prompt.
+  it('is NOT expired on ordinary responses (kept as a recovery hint)', async () => {
     const handler = makeHandler({ dataDir: serverDir });
     for (const req of [
       { method: 'GET', url: '/api/config' },
       { method: 'GET', url: '/setup' },
       { method: 'GET', url: '/' },
+      { method: 'GET', url: '/api/data-dir' },
     ]) {
       const res = await handler({
         ...req,
         headers: { cookie: `other=1; ${evilCookie()}` },
       });
-      expect(res.headers?.['Set-Cookie']).toBe(EXPIRE_LEGACY_DATA_DIR_COOKIE);
+      expect(res.headers?.['Set-Cookie']).toBeUndefined();
     }
+  });
+
+  it('is expired (Max-Age=0, same attributes) by a /setup switch, a /api/data-dir switch, or a dismiss', async () => {
     expect(EXPIRE_LEGACY_DATA_DIR_COOKIE).toBe(
       'ibai_data_dir=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict',
     );
+    const cookie = { cookie: `other=1; ${evilCookie()}` };
+    const handler = makeHandler({ dataDir: serverDir });
+
+    const form = await handler({ method: 'GET', url: '/setup' });
+    const token = /name="csrfToken" value="([^"]+)"/.exec(form.body)?.[1] ?? '';
+    const setup = await handler({
+      method: 'POST',
+      url: '/setup',
+      body: new URLSearchParams({
+        dataDir: path.join(root, 'via-setup'),
+        csrfToken: token,
+      }).toString(),
+      contentType: 'application/x-www-form-urlencoded',
+      headers: cookie,
+    });
+    expect(setup.status).toBe(200);
+    expect(setup.headers?.['Set-Cookie']).toBe(EXPIRE_LEGACY_DATA_DIR_COOKIE);
+
+    for (const [url, body] of [
+      ['/api/data-dir', { path: path.join(root, 'via-api') }],
+      ['/api/data-dir/legacy/dismiss', {}],
+    ] as const) {
+      const res = await handler({
+        method: 'POST',
+        url,
+        body: JSON.stringify(body),
+        contentType: 'application/json',
+        headers: cookie,
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers?.['Set-Cookie']).toBe(EXPIRE_LEGACY_DATA_DIR_COOKIE);
+    }
+  });
+
+  it('a failed or dry-run switch does not expire it', async () => {
+    const handler = makeHandler({ dataDir: serverDir });
+    for (const body of [
+      { path: 'relative' },
+      { path: otherDir, dryRun: true },
+    ]) {
+      const res = await handler({
+        method: 'POST',
+        url: '/api/data-dir',
+        body: JSON.stringify(body),
+        contentType: 'application/json',
+        headers: { cookie: evilCookie() },
+      });
+      expect(res.headers?.['Set-Cookie']).toBeUndefined();
+    }
   });
 
   it('a malformed cookie value neither crashes nor redirects writes', async () => {
@@ -181,8 +236,13 @@ describe('legacy ibai_data_dir cookie', () => {
       cookie: 'ibai_data_dir=%E0%A4%A',
     });
     expect(res.status).toBe(200);
-    expect(res.headers?.['Set-Cookie']).toBe(EXPIRE_LEGACY_DATA_DIR_COOKIE);
     expect(await noteIn(serverDir)).toBe('still mine');
+    const status = await handler({
+      method: 'GET',
+      url: '/api/data-dir',
+      headers: { cookie: 'ibai_data_dir=%E0%A4%A' },
+    });
+    expect(status.status).toBe(200);
   });
 
   it('no Set-Cookie when the request carries no legacy cookie', async () => {
@@ -505,11 +565,24 @@ describe('over a real loopback socket', () => {
         body: JSON.stringify({ content: 'socket note' }),
       });
       expect(evil.status).toBe(200);
-      expect(evil.headers['set-cookie']).toEqual([
-        EXPIRE_LEGACY_DATA_DIR_COOKIE,
-      ]);
+      // Kept as a recovery hint until a switch / dismiss (ADR 0009 D1).
+      expect(evil.headers['set-cookie']).toBeUndefined();
       expect(await noteIn(defaultDataDirFor(home))).toBe('socket note');
       expect(fs.readdirSync(otherDir)).toEqual([]);
+
+      const dismissed = await request(port, {
+        method: 'POST',
+        path: '/api/data-dir/legacy/dismiss',
+        headers: {
+          ...writeHeaders,
+          cookie: `ibai_data_dir=${encodeURIComponent(otherDir)}`,
+        },
+        body: '{}',
+      });
+      expect(dismissed.status).toBe(200);
+      expect(dismissed.headers['set-cookie']).toEqual([
+        EXPIRE_LEGACY_DATA_DIR_COOKIE,
+      ]);
     } finally {
       await handle.close();
     }
