@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isSpaRequest, bundleExists, handleSpaRequest } from './spa.js';
 import { createCoachHandler } from './handler.js';
+import type { HandlerRequest } from './handler.js';
 import type { StorageAdapter } from '@ibai/storage';
 
 /**
@@ -46,7 +47,10 @@ describe('handleSpaRequest', () => {
 });
 
 describe('SPA via handler', () => {
-  const handler = createCoachHandler({ storage: stubStorage });
+  const inner = createCoachHandler({ storage: stubStorage, port: 4173 });
+  // A valid localhost Host (the allowlist is exercised in security.test.ts).
+  const handler = (req: HandlerRequest) =>
+    inner({ ...req, headers: { host: 'localhost:4173', ...req.headers } });
 
   it('GET / returns 200 HTML (bundle or graceful message), never throws', async () => {
     const res = await handler({ method: 'GET', url: '/' });

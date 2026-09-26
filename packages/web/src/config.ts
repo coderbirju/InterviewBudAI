@@ -358,3 +358,60 @@ export function resolveAnthropicModel(
   }
   return undefined;
 }
+
+export type SetupPathResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Validate a data-directory path submitted to `POST /setup` (untrusted input).
+ * `~` is expanded; the result must then be absolute, contain no NUL bytes and
+ * not be a filesystem root. It is returned normalized. An existing
+ * non-directory at the path is rejected. Touches the filesystem only to `stat`.
+ */
+export function validateSetupPath(raw: string): SetupPathResult {
+  if (raw.includes('\0')) {
+    return { ok: false, error: 'Path must not contain NUL bytes.' };
+  }
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    return { ok: false, error: 'Path must not be empty.' };
+  }
+  const expanded = expandTilde(trimmed);
+  if (!path.isAbsolute(expanded)) {
+    return {
+      ok: false,
+      error:
+        'Path must be absolute (or start with ~/ for your home directory).',
+    };
+  }
+  const normalized = path.resolve(expanded);
+  if (path.parse(normalized).root === normalized) {
+    return { ok: false, error: 'Path must not be a filesystem root.' };
+  }
+  let stat: fs.Stats | undefined;
+  try {
+    stat = fs.statSync(normalized);
+  } catch {
+    // Does not exist yet — fine, the caller creates it.
+  }
+  if (stat && !stat.isDirectory()) {
+    return {
+      ok: false,
+      error: 'A file already exists at that path; choose a directory.',
+    };
+  }
+  return { ok: true, path: normalized };
+}
+
+/**
+ * Create a validated data directory with owner-only permissions (0700). An
+ * already-existing directory is left as-is (its permissions are the user's).
+ */
+export function createDataDir(dir: string): void {
+  const firstCreated = fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (firstCreated !== undefined) {
+    // mkdir's mode is filtered by the umask; enforce owner-only explicitly.
+    fs.chmodSync(dir, 0o700);
+  }
+}

@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { StorageAdapter } from '@ibai/storage';
 import { createCoachHandler } from './handler.js';
+import type { HandlerRequest } from './handler.js';
 import { bundleExists } from './spa.js';
 
 /**
@@ -37,13 +38,29 @@ describe('createCoachHandler (M6 server surface)', () => {
     }
   });
 
-  const createHandler = () =>
-    createCoachHandler({
+  // Requests carry a valid localhost Host (the Host allowlist is exercised in
+  // security.test.ts).
+  const createHandler = () => {
+    const handler = createCoachHandler({
       storage: stubStorage,
       defaultDataDir: '/nonexistent/path/that/does/not/exist',
       env: {},
       argv: [],
+      port: 4173,
     });
+    return (req: HandlerRequest) =>
+      handler({ ...req, headers: { host: '127.0.0.1:4173', ...req.headers } });
+  };
+
+  /** Fetch the per-process CSRF token embedded in the GET /setup form. */
+  const setupToken = async (
+    handler: ReturnType<typeof createHandler>,
+  ): Promise<string> => {
+    const res = await handler({ method: 'GET', url: '/setup' });
+    const match = /name="csrfToken" value="([^"]+)"/.exec(res.body);
+    if (!match?.[1]) throw new Error('no CSRF token in /setup form');
+    return match[1];
+  };
 
   describe('SPA at the site root', () => {
     it('GET / serves the SPA (bundle HTML or graceful not-built message)', async () => {
@@ -156,7 +173,7 @@ describe('createCoachHandler (M6 server surface)', () => {
       const res = await handler({
         method: 'POST',
         url: '/setup',
-        body: `dataDir=${encodeURIComponent(target)}`,
+        body: `dataDir=${encodeURIComponent(target)}&csrfToken=${await setupToken(handler)}`,
         contentType: 'application/x-www-form-urlencoded',
       });
 
@@ -182,7 +199,7 @@ describe('createCoachHandler (M6 server surface)', () => {
       const setup = await handler({
         method: 'POST',
         url: '/setup',
-        body: `dataDir=${encodeURIComponent(target)}`,
+        body: `dataDir=${encodeURIComponent(target)}&csrfToken=${await setupToken(handler)}`,
         contentType: 'application/x-www-form-urlencoded',
       });
       const cookie = setup.headers!['Set-Cookie']!.split(';')[0];
@@ -205,10 +222,10 @@ describe('createCoachHandler (M6 server surface)', () => {
       const res = await handler({
         method: 'POST',
         url: '/setup',
-        body: `dataDir=${encodeURIComponent(path.join(filePath, 'sub'))}`,
+        body: `dataDir=${encodeURIComponent(path.join(filePath, 'sub'))}&csrfToken=${await setupToken(handler)}`,
         contentType: 'application/x-www-form-urlencoded',
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(400);
       expect(res.body).toContain('Could not create the database directory');
       // No cookie on failure.
       expect(res.headers?.['Set-Cookie']).toBeUndefined();

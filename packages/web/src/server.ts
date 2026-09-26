@@ -14,6 +14,7 @@ import {
 } from './config.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
 import { createCoachHandler } from './handler.js';
+import { securityHeaders } from './security.js';
 
 export interface ServerHandle {
   readonly url: string;
@@ -146,6 +147,8 @@ export async function startServer(
     defaultDataDir: dataDir,
     env,
     argv,
+    // The Host allowlist is pinned to the port we actually bind.
+    port,
   });
 
   const server = http.createServer(async (req, res) => {
@@ -173,7 +176,10 @@ export async function startServer(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Internal server error';
-      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(500, {
+        ...securityHeaders(),
+        'Content-Type': 'text/plain; charset=utf-8',
+      });
       res.end(message);
     }
   });
