@@ -63,7 +63,9 @@ const GUIDANCE = {
 type Handler = (init?: RequestInit) => { status: number; body: unknown };
 
 let routes: Record<string, Handler>;
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: ReturnType<
+  typeof vi.fn<[RequestInfo | URL, RequestInit?], Promise<Response>>
+>;
 
 const ok =
   (body: unknown): Handler =>
