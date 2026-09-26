@@ -78,6 +78,7 @@ marked "needs ADR" or "pending founder" do not start until that lands.
 - (a) **Growth loop** — feed quiz `CompetencySignals` into
   `CompetencyMap`/`WeaknessRegister` and bring back "Where you stand / Next up"
   in the web (Home card).
+  → Settled as read-time derivation (core `deriveGuidance` + `GET /api/guidance`) by ADR 0007 amendment w2a.
 - (b) **User-added custom problems** (v1 core per `00-project-context.md`) —
   needs its own storage-interface ADR first.
 - (c) **Settings / provider status UI** — show the active provider, test
