@@ -40,6 +40,21 @@ describe('CategoryAccordion', () => {
     expect(screen.getByText('1 / 2')).toBeInTheDocument();
   });
 
+  it('shows the curriculum label (not the raw id) when the server sends one', () => {
+    render(
+      <CategoryAccordion
+        topic={{ ...topic, topic: 'stack', label: 'Stack & Queue' }}
+        busyIds={new Set()}
+        onStatusChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Stack & Queue')).toBeInTheDocument();
+    expect(screen.queryByText('stack')).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText('1 of 2 done in Stack & Queue'),
+    ).toBeInTheDocument();
+  });
+
   it('is collapsed by default and expands on click to show the table', async () => {
     const user = userEvent.setup();
     render(

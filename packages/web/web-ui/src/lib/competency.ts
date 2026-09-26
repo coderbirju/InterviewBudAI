@@ -38,6 +38,8 @@ export const STRENGTH_LABELS: Record<TopicStrength, string> = {
  */
 export interface CompetencyBar {
   readonly topicId: string;
+  /** Topic display label (curriculum label, else the raw topic id). */
+  readonly topicLabel: string;
   readonly correct: number;
   readonly incorrect: number;
   readonly total: number;
@@ -68,6 +70,7 @@ export function competencyBars(
     const fraction = total > 0 ? t.correct / total : 0;
     return {
       topicId: t.topicId,
+      topicLabel: t.label ?? t.topicId,
       correct: t.correct,
       incorrect: t.incorrect,
       total,

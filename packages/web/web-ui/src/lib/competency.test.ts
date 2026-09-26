@@ -88,6 +88,30 @@ describe('competency: competencyBars', () => {
     expect(arrays.length).toBeCloseTo((5 / 6) * 300, 5);
   });
 
+  it('uses the server topic label, falling back to the raw id', () => {
+    const bars = competencyBars(
+      [
+        {
+          topicId: 'stack',
+          label: 'Stack & Queue',
+          correct: 1,
+          incorrect: 0,
+          strength: 'unknown',
+          lastSeen: null,
+        },
+        {
+          topicId: 'custom',
+          correct: 1,
+          incorrect: 0,
+          strength: 'unknown',
+          lastSeen: null,
+        },
+      ],
+      300,
+    );
+    expect(bars.map((b) => b.topicLabel)).toEqual(['Stack & Queue', 'custom']);
+  });
+
   it('preserves the response (worst-first) order', () => {
     const bars = competencyBars(TOPICS, 300);
     expect(bars.map((b) => b.topicId)).toEqual([
