@@ -96,3 +96,13 @@ export function createCatalogSource(
     filterByTopic: (topic: CurriculumTopicId) => byTopic.get(topic) ?? [],
   };
 }
+
+export {
+  TOPIC_ORDER,
+  TOPIC_LABELS,
+  TOPIC_ALIASES,
+  canonicalTopicId,
+  topicLabel,
+  compareTopics,
+  sortTopics,
+} from './topic-order.js';
