@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./competency": {
+      "types": "./dist/competency.d.ts",
+      "default": "./dist/competency.js"
     }
   },
   "scripts": {
