@@ -43,3 +43,27 @@ export type {
   TopicAnswer,
   TopicEvaluation,
 } from './coach.js';
+
+// ---------------------------------------------------------------------------
+// Problem-level guidance (Plan job — ADR 0007 amendment w2a)
+// ---------------------------------------------------------------------------
+
+export {
+  deriveGuidance,
+  NEXT_UP_COUNT,
+  MAX_NEXT_UP,
+  MAX_REVISIT_SLOTS,
+  QUIZ_NUDGE_DAYS,
+  HARD_GATE_DONE,
+} from './guidance.js';
+export type {
+  Guidance,
+  GuidanceInput,
+  GuidanceProblem,
+  GuidanceNote,
+  GuidanceDifficulty,
+  TopicStanding,
+  NextUpItem,
+  NextUpKind,
+  QuizHint,
+} from './guidance.js';
