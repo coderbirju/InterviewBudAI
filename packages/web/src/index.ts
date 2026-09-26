@@ -65,4 +65,13 @@ export type {
   ApiCompetencyResponse,
   ApiNoteResponse,
   ApiConfigResponse,
+  ApiDataDirResponse,
 } from './api.js';
+
+// Server-owned data dir + legacy-cookie recovery (ADR 0009 D1)
+export { DataDirControl, countNotes } from './data-dir-control.js';
+export type {
+  DataDirStatus,
+  LegacyCandidate,
+  ChooseResult,
+} from './data-dir-control.js';
