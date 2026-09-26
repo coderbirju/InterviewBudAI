@@ -39,7 +39,7 @@ import {
   writeLocalConfig,
 } from './config.js';
 import type { DataDirSource } from './config.js';
-import { LEGACY_DATA_DIR_COOKIE } from './security.js';
+import { LEGACY_DATA_DIR_COOKIE, hasLegacyDataDirCookie } from './security.js';
 import type { HandlerResponse } from './handler.js';
 
 /**
@@ -321,11 +321,10 @@ export class DataDirControl {
    * (first valid one wins while it stays valid). Never switches anything.
    */
   observeLegacyCookie(cookieHeader: string | undefined): void {
-    if (!cookieHeader) return;
-    if (this.capturedCookiePath !== undefined) {
-      if (this.check(this.capturedCookiePath, 'cookie') !== undefined) return;
-      this.capturedCookiePath = undefined;
-    }
+    // Cheap per-request path: once captured, validity is re-checked only when
+    // candidates are read (`legacyCandidates`, which drops a stale capture).
+    if (!cookieHeader || this.capturedCookiePath !== undefined) return;
+    if (!hasLegacyDataDirCookie(cookieHeader)) return;
     if (!this.recoveryAllowed()) return;
     const raw = parseCookies(cookieHeader)[LEGACY_DATA_DIR_COOKIE];
     if (raw === undefined || raw === '') return;
