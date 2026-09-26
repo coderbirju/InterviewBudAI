@@ -8,6 +8,8 @@ import {
   resolveProviderStatus,
   loadDotEnv,
   defaultDataDirFor,
+  localConfigPathFor,
+  writeLocalConfig,
   REPO_DOTENV_PATH,
 } from './config.js';
 import {
@@ -47,6 +49,7 @@ describe('prepareBootDataDir', () => {
 
     expect(result).toEqual({
       dataDir: expected,
+      source: 'default',
       explicit: false,
       created: true,
       exists: true,
@@ -73,6 +76,7 @@ describe('prepareBootDataDir', () => {
     );
     expect(result).toEqual({
       dataDir: explicitDir,
+      source: 'env',
       explicit: true,
       created: false,
       exists: false,
@@ -86,8 +90,34 @@ describe('prepareBootDataDir', () => {
     const flagDir = path.join(tmpHome, 'flag-dir');
     const result = prepareBootDataDir({}, [`--data-dir=${flagDir}`], tmpHome);
     expect(result.explicit).toBe(true);
+    expect(result.source).toBe('flag');
     expect(result.created).toBe(false);
     expect(fs.existsSync(flagDir)).toBe(false);
+  });
+
+  it('uses the dir persisted in config.json but does NOT re-create it', () => {
+    const saved = path.join(tmpHome, 'saved-db');
+    writeLocalConfig(tmpHome, saved);
+    const result = prepareBootDataDir({}, [], tmpHome);
+    expect(result).toEqual({
+      dataDir: saved,
+      source: 'config',
+      explicit: false,
+      created: false,
+      exists: false,
+    });
+    expect(fs.existsSync(saved)).toBe(false);
+    expect(fs.existsSync(defaultDataDirFor(tmpHome))).toBe(false);
+  });
+
+  it('falls back to (and creates) the default with a warning on an invalid config.json', () => {
+    fs.mkdirSync(path.join(tmpHome, '.interviewbudai'), { recursive: true });
+    fs.writeFileSync(localConfigPathFor(tmpHome), '{not json');
+    const result = prepareBootDataDir({}, [], tmpHome);
+    expect(result.source).toBe('default');
+    expect(result.dataDir).toBe(defaultDataDirFor(tmpHome));
+    expect(result.created).toBe(true);
+    expect(result.warning).toContain('ignoring invalid');
   });
 });
 
@@ -118,6 +148,7 @@ describe('resolveProviderStatus', () => {
 describe('formatStartupBanner', () => {
   const data = {
     dataDir: '/tmp/x',
+    source: 'default' as const,
     explicit: false,
     created: true,
     exists: true,

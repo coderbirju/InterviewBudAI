@@ -179,3 +179,29 @@ export function securityHeaders(csp: string = SPA_CSP): Record<string, string> {
     'Cross-Origin-Resource-Policy': 'same-origin',
   };
 }
+
+/**
+ * Maximum request body size (1 MiB) for every body-reading route. Larger
+ * bodies are refused with 413 before any parsing or write.
+ */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * The retired data-dir cookie (ADR 0005 amendment w2d). Cookies are not
+ * port-isolated, so a page on any other localhost port could set it; the
+ * server no longer reads it and expires it whenever a request carries it.
+ */
+export const LEGACY_DATA_DIR_COOKIE = 'ibai_data_dir';
+
+/** `Set-Cookie` value that expires the legacy cookie (same attributes). */
+export const EXPIRE_LEGACY_DATA_DIR_COOKIE = `${LEGACY_DATA_DIR_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`;
+
+/** True when the Cookie header carries the legacy data-dir cookie (any value). */
+export function hasLegacyDataDirCookie(
+  cookieHeader: string | undefined,
+): boolean {
+  if (!cookieHeader) return false;
+  return cookieHeader
+    .split(';')
+    .some((pair) => pair.split('=')[0]?.trim() === LEGACY_DATA_DIR_COOKIE);
+}

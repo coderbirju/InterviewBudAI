@@ -47,7 +47,13 @@ describe('handleSpaRequest', () => {
 });
 
 describe('SPA via handler', () => {
-  const inner = createCoachHandler({ storage: stubStorage, port: 4173 });
+  // An injected data dir + home: never resolve against the real home.
+  const inner = createCoachHandler({
+    storage: stubStorage,
+    dataDir: '/nonexistent/ibai-spa-test',
+    homeDir: '/nonexistent/ibai-spa-home',
+    port: 4173,
+  });
   // A valid localhost Host (the allowlist is exercised in security.test.ts).
   const handler = (req: HandlerRequest) =>
     inner({ ...req, headers: { host: 'localhost:4173', ...req.headers } });

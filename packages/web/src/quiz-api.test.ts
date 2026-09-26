@@ -83,13 +83,11 @@ function makeQuizDeps(
     catalog: createCatalogSource(),
     createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
     storage: new LocalFileStorageAdapter(tmpDir),
-    defaultDataDir: tmpDir,
+    dataDir: tmpDir,
     provider,
     providerLabel: provider
       ? 'Using Ollama: test-model'
       : 'No model configured',
-    env: {},
-    argv: [],
     // Deterministic shuffle + clock for the tests.
     random: seededRandom(7),
     now: () => new Date('2026-09-24T12:00:00.000Z'),
@@ -130,7 +128,6 @@ describe('POST /api/quiz/start', () => {
       'POST',
       '/api/quiz/start',
       makeQuizDeps(provider),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(200);
@@ -173,7 +170,6 @@ describe('POST /api/quiz/start', () => {
       'POST',
       '/api/quiz/start',
       makeQuizDeps(provider),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(200);
@@ -191,7 +187,6 @@ describe('POST /api/quiz/start', () => {
       'POST',
       '/api/quiz/start',
       makeQuizDeps(undefined),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(400);
@@ -203,7 +198,6 @@ describe('POST /api/quiz/start', () => {
       'GET',
       '/api/quiz/start',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       undefined,
     );
     expect(res.status).toBe(405);
@@ -219,14 +213,12 @@ describe('GET /api/quiz/session (resume)', () => {
       'POST',
       '/api/quiz/start',
       makeQuizDeps(provider),
-      undefined,
       '{}',
     );
     const res = await handleApiRoute(
       'GET',
       '/api/quiz/session',
       makeQuizDeps(provider),
-      undefined,
       undefined,
     );
     expect(res.status).toBe(200);
@@ -249,7 +241,6 @@ describe('GET /api/quiz/session (resume)', () => {
       '/api/quiz/session',
       makeQuizDeps(new FakeQuizProvider()),
       undefined,
-      undefined,
     );
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ active: false });
@@ -260,7 +251,6 @@ describe('GET /api/quiz/session (resume)', () => {
       'POST',
       '/api/quiz/session',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(405);
@@ -273,7 +263,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/start',
       makeQuizDeps(provider),
-      undefined,
       '{}',
     );
     const body = JSON.parse(res.body) as {
@@ -295,7 +284,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'use a hash map' }),
     );
     expect(res.status).toBe(200);
@@ -338,7 +326,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'no idea' }),
     );
     expect(res.status).toBe(200);
@@ -376,7 +363,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'something' }),
     );
     expect(res.status).toBe(502);
@@ -405,7 +391,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'x' }),
     );
     expect(res.status).toBe(502);
@@ -423,7 +408,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: '   ' }),
     );
     expect(res.status).toBe(400);
@@ -435,7 +419,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       JSON.stringify({ answer: 'x' }),
     );
     expect(res.status).toBe(404);
@@ -447,7 +430,6 @@ describe('POST /api/quiz/answer', () => {
       'POST',
       '/api/quiz/answer',
       makeQuizDeps(undefined),
-      undefined,
       JSON.stringify({ answer: 'x' }),
     );
     expect(res.status).toBe(400);
@@ -467,7 +449,6 @@ describe('POST /api/quiz/answer', () => {
         'POST',
         '/api/quiz/answer',
         deps,
-        undefined,
         JSON.stringify({ answer: `answer ${i}` }),
       );
       last = JSON.parse(res.body);
@@ -485,7 +466,6 @@ describe('POST /api/quiz/answer', () => {
       '/api/quiz/answer',
       makeQuizDeps(new FakeQuizProvider()),
       undefined,
-      undefined,
     );
     expect(res.status).toBe(405);
   });
@@ -500,7 +480,7 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
     '```json\n{"verdict":"incorrect","feedback":"wrong direction"}\n```';
 
   async function startWith(deps: ApiDeps): Promise<void> {
-    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
   }
 
   it('first on_track stays on the same question and records the nudge', async () => {
@@ -513,7 +493,6 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'a partial idea' }),
     );
     expect(res.status).toBe(200);
@@ -550,7 +529,6 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'partial 1' }),
     );
     expect(JSON.parse(first.body).verdict).toBe('on_track');
@@ -563,7 +541,6 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'partial 2' }),
     );
     expect(second.status).toBe(200);
@@ -596,14 +573,12 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'partial' }),
     );
     const res = await handleApiRoute(
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'now the full approach' }),
     );
     const body = JSON.parse(res.body) as {
@@ -630,7 +605,6 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: 'no idea at all' }),
     );
     const body = JSON.parse(res.body) as {
@@ -651,18 +625,12 @@ describe('POST /api/quiz/new', () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider();
     const deps = makeQuizDeps(provider);
-    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
 
     const adapter = new LocalFileStorageAdapter(tmpDir);
     const first = await adapter.readActiveQuizSession();
 
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/new',
-      deps,
-      undefined,
-      '{}',
-    );
+    const res = await handleApiRoute('POST', '/api/quiz/new', deps, '{}');
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as { empty: boolean };
     expect(body.empty).toBe(false);
@@ -680,7 +648,6 @@ describe('POST /api/quiz/new', () => {
       '/api/quiz/new',
       makeQuizDeps(new FakeQuizProvider()),
       undefined,
-      undefined,
     );
     expect(res.status).toBe(405);
   });
@@ -690,7 +657,7 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
   async function startSession(): Promise<ApiDeps> {
     const provider = new FakeQuizProvider();
     const deps = makeQuizDeps(provider);
-    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
     return deps;
   }
 
@@ -698,13 +665,7 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
     await seedDone(DONE_IDS);
     const deps = await startSession();
 
-    const endRes = await handleApiRoute(
-      'POST',
-      '/api/quiz/end',
-      deps,
-      undefined,
-      '{}',
-    );
+    const endRes = await handleApiRoute('POST', '/api/quiz/end', deps, '{}');
     expect(endRes.status).toBe(200);
     const endBody = JSON.parse(endRes.body) as {
       ok: boolean;
@@ -723,7 +684,6 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
       '/api/quiz/sessions',
       deps,
       undefined,
-      undefined,
     );
     expect(listRes.status).toBe(200);
     const listBody = JSON.parse(listRes.body) as {
@@ -737,13 +697,7 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
   it('end with no active session → 404', async () => {
     await seedDone(DONE_IDS);
     const deps = makeQuizDeps(new FakeQuizProvider());
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/end',
-      deps,
-      undefined,
-      '{}',
-    );
+    const res = await handleApiRoute('POST', '/api/quiz/end', deps, '{}');
     expect(res.status).toBe(404);
   });
 
@@ -752,7 +706,6 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
       'GET',
       '/api/quiz/end',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       undefined,
     );
     expect(res.status).toBe(405);
@@ -765,7 +718,6 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
       '/api/quiz/sessions',
       makeQuizDeps(new FakeQuizProvider()),
       undefined,
-      undefined,
     );
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ sessions: [] });
@@ -776,7 +728,6 @@ describe('POST /api/quiz/end + GET /api/quiz/sessions (session management)', () 
       'POST',
       '/api/quiz/sessions',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(405);
@@ -788,13 +739,13 @@ describe('POST /api/quiz/resume (session management)', () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider();
     const deps = makeQuizDeps(provider);
-    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
 
     const adapter = new LocalFileStorageAdapter(tmpDir);
     const sessionId = (await adapter.readActiveQuizSession())!.sessionId;
 
     // End it so it is no longer active.
-    await handleApiRoute('POST', '/api/quiz/end', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/end', deps, '{}');
     expect(await adapter.readActiveQuizSession()).toBeNull();
 
     // Resume it.
@@ -802,7 +753,6 @@ describe('POST /api/quiz/resume (session management)', () => {
       'POST',
       '/api/quiz/resume',
       deps,
-      undefined,
       JSON.stringify({ sessionId }),
     );
     expect(res.status).toBe(200);
@@ -844,7 +794,6 @@ describe('POST /api/quiz/resume (session management)', () => {
       'POST',
       '/api/quiz/resume',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       JSON.stringify({ sessionId: 'quiz-done' }),
     );
     expect(res.status).toBe(200);
@@ -863,7 +812,6 @@ describe('POST /api/quiz/resume (session management)', () => {
       'POST',
       '/api/quiz/resume',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       JSON.stringify({ sessionId: 'nope' }),
     );
     expect(res.status).toBe(404);
@@ -875,7 +823,6 @@ describe('POST /api/quiz/resume (session management)', () => {
       'POST',
       '/api/quiz/resume',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(400);
@@ -887,7 +834,6 @@ describe('POST /api/quiz/resume (session management)', () => {
       '/api/quiz/resume',
       makeQuizDeps(new FakeQuizProvider()),
       undefined,
-      undefined,
     );
     expect(res.status).toBe(405);
   });
@@ -895,7 +841,7 @@ describe('POST /api/quiz/resume (session management)', () => {
 
 describe('delete a quiz session (session management)', () => {
   async function startAndGetId(deps: ApiDeps): Promise<string> {
-    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
     const adapter = new LocalFileStorageAdapter(tmpDir);
     return (await adapter.readActiveQuizSession())!.sessionId;
   }
@@ -909,7 +855,6 @@ describe('delete a quiz session (session management)', () => {
       'POST',
       '/api/quiz/delete',
       deps,
-      undefined,
       JSON.stringify({ sessionId }),
     );
     expect(res.status).toBe(200);
@@ -919,7 +864,6 @@ describe('delete a quiz session (session management)', () => {
       'GET',
       '/api/quiz/sessions',
       deps,
-      undefined,
       undefined,
     );
     expect(JSON.parse(listRes.body)).toEqual({ sessions: [] });
@@ -938,7 +882,6 @@ describe('delete a quiz session (session management)', () => {
       `/api/quiz/session/${encodeURIComponent(sessionId)}`,
       deps,
       undefined,
-      undefined,
     );
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true });
@@ -953,7 +896,6 @@ describe('delete a quiz session (session management)', () => {
       'POST',
       '/api/quiz/delete',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(400);
@@ -965,7 +907,6 @@ describe('delete a quiz session (session management)', () => {
       'POST',
       '/api/quiz/delete',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       JSON.stringify({ sessionId: 'ghost' }),
     );
     expect(res.status).toBe(200);
@@ -978,7 +919,6 @@ describe('delete a quiz session (session management)', () => {
       '/api/quiz/delete',
       makeQuizDeps(new FakeQuizProvider()),
       undefined,
-      undefined,
     );
     expect(res.status).toBe(405);
   });
@@ -988,7 +928,6 @@ describe('delete a quiz session (session management)', () => {
       'POST',
       '/api/quiz/session/abc',
       makeQuizDeps(new FakeQuizProvider()),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(405);
@@ -1004,7 +943,6 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       'POST',
       '/api/quiz/answer',
       deps,
-      undefined,
       JSON.stringify({ answer: text }),
     );
   }
@@ -1015,13 +953,7 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       rejectWith: new Error('ECONNREFUSED'),
     });
     const deps = makeQuizDeps(provider);
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/start',
-      deps,
-      undefined,
-      '{}',
-    );
+    const res = await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
     expect(res.status).toBe(200);
     expect(provider.calls).toBe(0);
 
@@ -1030,7 +962,6 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       'GET',
       '/api/quiz/session',
       deps,
-      undefined,
       undefined,
     );
     const body = JSON.parse(reload.body) as {
@@ -1048,7 +979,6 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       'POST',
       '/api/quiz/new',
       makeQuizDeps(provider),
-      undefined,
       '{}',
     );
     expect(res.status).toBe(200);
@@ -1077,7 +1007,6 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       'GET',
       '/api/quiz/session',
       deps,
-      undefined,
       undefined,
     );
     const got = JSON.parse(get.body) as {
@@ -1126,15 +1055,7 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
     const deps = makeQuizDeps(new SequencedQuizProvider([ON_TRACK_PROBE]));
 
     const get = JSON.parse(
-      (
-        await handleApiRoute(
-          'GET',
-          '/api/quiz/session',
-          deps,
-          undefined,
-          undefined,
-        )
-      ).body,
+      (await handleApiRoute('GET', '/api/quiz/session', deps, undefined)).body,
     ) as { question: { problemId: string; probe?: string } };
     expect(get.question.problemId).toBe(DONE_IDS[1]);
     // Q1's verdict feedback must NOT be shown as a Q2 probe.
@@ -1184,7 +1105,6 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       'POST',
       '/api/quiz/start',
       deps,
-      undefined,
       '{}',
     );
     const start = JSON.parse(startRes.body) as {
@@ -1211,7 +1131,6 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
       '/api/quiz/session',
       deps,
       undefined,
-      undefined,
     );
     const reload = JSON.parse(reloadRes.body) as {
       question: { title: string; probe?: string };
@@ -1224,7 +1143,7 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider();
     const deps = makeQuizDeps(provider);
-    await handleApiRoute('POST', '/api/quiz/start', deps, undefined, '{}');
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
     const res = JSON.parse((await answer(deps, 'hash map')).body) as {
       question: { problemId: string; title: string; url: string } | null;
     };

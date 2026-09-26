@@ -13,7 +13,7 @@ import { bundleExists } from './spa.js';
  * The server surface is intentionally small:
  *   - `/api/*`  — JSON API (delegated to api.ts; smoke-tested here)
  *   - `/setup`  — the one remaining server-rendered page (create-database +
- *                 persistent cookie)
+ *                 persisted server-side config.json)
  *   - everything else (GET) — the SPA bundle/assets with an index.html fallback
  *
  * These tests are bundle-artifact-aware: the SPA-at-/ assertions adapt to
@@ -43,7 +43,9 @@ describe('createCoachHandler (M6 server surface)', () => {
   const createHandler = () => {
     const handler = createCoachHandler({
       storage: stubStorage,
-      defaultDataDir: '/nonexistent/path/that/does/not/exist',
+      dataDir: '/nonexistent/path/that/does/not/exist',
+      // config.json goes to the temp dir, never the real home.
+      homeDir: testDataDir!,
       env: {},
       argv: [],
       port: 4173,
@@ -124,7 +126,7 @@ describe('createCoachHandler (M6 server surface)', () => {
       expect(body.dbConfigured).toBe(false);
     });
 
-    it('GET /api/config with a cookie dir returns dbConfigured=true', async () => {
+    it('GET /api/config ignores a legacy cookie dir and expires the cookie', async () => {
       const handler = createHandler();
       const res = await handler({
         method: 'GET',
@@ -135,8 +137,12 @@ describe('createCoachHandler (M6 server surface)', () => {
       });
       expect(res.status).toBe(200);
       const body = JSON.parse(res.body);
-      expect(body.dbConfigured).toBe(true);
-      expect(body.dataDir).toBe(testDataDir);
+      // The server's (missing) dir wins; the cookie's existing dir is ignored.
+      expect(body.dbConfigured).toBe(false);
+      expect(body.dataDir).toBeUndefined();
+      expect(res.headers?.['Set-Cookie']).toBe(
+        'ibai_data_dir=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict',
+      );
     });
 
     it('GET /api/catalog and /api/progress return 200 JSON', async () => {
@@ -167,7 +173,7 @@ describe('createCoachHandler (M6 server surface)', () => {
       expect(res.body).toContain('Create Database');
     });
 
-    it('POST /setup creates the directory and sets a persistent cookie', async () => {
+    it('POST /setup creates the directory and persists config.json (no cookie)', async () => {
       const handler = createHandler();
       const target = path.join(testDataDir!, 'nested-db');
       const res = await handler({
@@ -180,35 +186,31 @@ describe('createCoachHandler (M6 server surface)', () => {
       expect(res.status).toBe(200);
       // Directory was created.
       expect(fs.existsSync(target)).toBe(true);
-      // Persistent cookie set.
-      const setCookie = res.headers?.['Set-Cookie'];
-      expect(setCookie).toBeDefined();
-      expect(setCookie).toContain('ibai_data_dir=');
-      expect(setCookie).toContain('Max-Age=31536000');
-      expect(setCookie).toContain('Path=/');
-      expect(setCookie).toContain('HttpOnly');
-      expect(setCookie).toContain('SameSite=Strict');
-      expect(setCookie).not.toContain('Secure');
+      // The choice is persisted server-side, not in a browser cookie.
+      const configFile = path.join(
+        testDataDir!,
+        '.interviewbudai',
+        'config.json',
+      );
+      expect(JSON.parse(fs.readFileSync(configFile, 'utf8'))).toEqual({
+        dataDir: target,
+      });
+      expect(res.headers?.['Set-Cookie']).toBeUndefined();
       // Success page links back to the SPA root.
       expect(res.body).toContain('href="/"');
     });
 
-    it('create-db then GET /api/config with the cookie reports dbConfigured', async () => {
+    it('create-db then GET /api/config (no cookie) reports dbConfigured', async () => {
       const handler = createHandler();
       const target = path.join(testDataDir!, 'created');
-      const setup = await handler({
+      await handler({
         method: 'POST',
         url: '/setup',
         body: `dataDir=${encodeURIComponent(target)}&csrfToken=${await setupToken(handler)}`,
         contentType: 'application/x-www-form-urlencoded',
       });
-      const cookie = setup.headers!['Set-Cookie']!.split(';')[0];
 
-      const config = await handler({
-        method: 'GET',
-        url: '/api/config',
-        headers: { cookie },
-      });
+      const config = await handler({ method: 'GET', url: '/api/config' });
       const body = JSON.parse(config.body);
       expect(body.dbConfigured).toBe(true);
       expect(body.dataDir).toBe(target);
@@ -227,8 +229,13 @@ describe('createCoachHandler (M6 server surface)', () => {
       });
       expect(res.status).toBe(400);
       expect(res.body).toContain('Could not create the database directory');
-      // No cookie on failure.
+      // Nothing persisted on failure.
       expect(res.headers?.['Set-Cookie']).toBeUndefined();
+      expect(
+        fs.existsSync(
+          path.join(testDataDir!, '.interviewbudai', 'config.json'),
+        ),
+      ).toBe(false);
     });
 
     it('DELETE /setup returns 405', async () => {
