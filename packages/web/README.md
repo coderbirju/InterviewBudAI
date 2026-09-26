@@ -345,8 +345,11 @@ to the server through your browser, so every request is checked
   port-isolated, so a page on another localhost port could set it and point
   writes at any existing directory. It is now ignored and expired.)
 - **Body cap** — request bodies over 1 MiB are refused with `413` (JSON for
-  `/api`, plain text for `/setup`) before any parsing; excess bytes are
-  discarded, never buffered.
+  `/api`, plain text for `/setup`) before any parsing. The Host / Origin /
+  Content-Type checks run before a body is read at all; a declared
+  `Content-Length` over the cap gets `413` + `Connection: close` immediately
+  (the upload is not read), and a chunked upload is cut off once it passes
+  2 MiB. Server timeouts: request 30s, headers 10s, keep-alive 5s.
 - **Headers on every response** — `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer` (`same-origin` on the server-rendered pages,
   so the `/setup` form post sends a real `Origin` even in browsers without
