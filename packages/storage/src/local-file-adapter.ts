@@ -848,8 +848,9 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
 // (the old writer put all of them there). A legacy value saved once (`\"`)
 // already decodes correctly by the rules above. An odd run of 3+ before a `"`
 // is indistinguishable from an intended `\"` and is decoded by the rules
-// above (stable from then on). Legacy values ending in an even backslash run
-// read with that run halved (old versions could not round-trip them either).
+// above (stable from then on). Known read difference: a legacy value ending in
+// an even backslash run (e.g. `C:\\`) round-tripped in old versions but now
+// reads with that run halved (`C:\`); it is stable from the next save on.
 
 /** Encode a frontmatter string value (see the rules above). */
 function encodeFrontmatterString(value: string): string {
