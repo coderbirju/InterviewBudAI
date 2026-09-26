@@ -14,9 +14,9 @@ The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, serv
 
 The server is intentionally small — three surfaces:
 
-- **`/` (and all other non-API, non-`/setup` GET paths)** — the React SPA bundle + assets. Client-side routing (History API, no routing library) handles `/notes/:id`, `/analytics`, and `/interview`; deep links and refreshes fall back to `index.html`. Vite `base` is `/`, so assets are served at `/assets/*` (local, same-origin — no CDN).
+- **`/` (and all other non-API, non-`/setup` GET paths)** — the React SPA bundle + assets. Client-side routing (History API, no routing library) handles `/notes/:id`, `/analytics`, `/interview`, and `/data`; deep links and refreshes fall back to `index.html`. Vite `base` is `/`, so assets are served at `/assets/*` (local, same-origin — no CDN).
 - **`/api/*`** — the same-origin, localhost-only JSON API the SPA consumes (`/api/catalog`, `/api/notes/:id` GET+POST, `/api/progress`, `/api/competency`, `/api/config`, and the Quiz Master routes `/api/quiz/start|new|session|answer` plus session-management `/api/quiz/sessions` GET, `/api/quiz/end` POST, `/api/quiz/resume` POST, `/api/quiz/delete` POST + `DELETE /api/quiz/session/:id`). The server owns the data directory; the browser is UI only (see [The data directory](#first-run-and-the-data-directory)).
-- **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory, saves the choice to `~/.interviewbudai/config.json` and switches the server to it immediately (for every browser, and after restarts), then links back to the SPA at `/`. The SPA's no-DB states link here.
+- **`/setup`** — the one remaining **server-rendered page**: `GET /setup` shows the create-database form; `POST /setup` creates the data directory, saves the choice to `~/.interviewbudai/config.json` and switches the server to it immediately (for every browser, and after restarts), then links back to the SPA at `/`. It is the **no-JavaScript fallback** for the SPA's [Your data](#your-data-data--adr-0009-d1) page (`/data`), shares its code path (`DataDirControl.choose` in `src/data-dir-control.ts`) and links to it; the SPA itself links to `/data`, not here.
 
 Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.json`, `/dashboard`, `/assess`, `/assess.json`, `/plan.json`) was **removed**. Home/notes/analytics/interview now live in the SPA; the assess/plan views (Where You Stand / Next Session) were not ported and are CLI-only for now.
 
@@ -29,7 +29,9 @@ Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.
 
   **Session management (quiz-fix-b).** An **End session** control is shown during an active quiz — `POST /api/quiz/end` persists the session `complete` and clears the active pointer, so it stops being resumable-active but **remains listed** (ending never deletes). The idle and complete views show a **Your sessions** list (`GET /api/quiz/sessions`, empty-safe): one card per past + active session (created time, `answered / deckSize`, correct tally, status/Active badge) with a **Resume** button (`POST /api/quiz/resume { sessionId }` — re-activates it as the resumable session and continues from its position; a session whose deck is exhausted is shown as complete and is not re-activated) and a **Delete** button (`POST /api/quiz/delete { sessionId }` after a small confirm; a REST-form `DELETE /api/quiz/session/:id` is also accepted). Delete is idempotent (missing → `ok:true`); deleting the active session also clears the pointer. Loading/empty/error states are handled and the page never crashes with no DB / no sessions.
 
-All no-DB states link to `/setup`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. The only outbound calls are the user-configured LLM provider, made **server-side** inside the `POST /api/quiz/*` routes.
+- **Your data** (`/data`, nav link **Data**) — see [below](#your-data-data--adr-0009-d1).
+
+All no-DB states link to `/data`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. The only outbound calls are the user-configured LLM provider, made **server-side** inside the `POST /api/quiz/*` routes.
 
 ### Where the UI lives
 
@@ -107,7 +109,8 @@ on every mutating call.
 Every `/api` route returns `application/json`, uses the **server's** data
 directory (resolved once at boot — see
 [The data directory](#first-run-and-the-data-directory) — and changed only by
-`/setup`; nothing in the request can redirect it), uses proper status codes,
+`POST /setup` or `POST /api/data-dir`; no cookie or other request metadata can
+redirect it), uses proper status codes,
 and never emits HTML (`404` for unknown `/api` paths, `405` for wrong methods,
 `413` for a body over 1 MiB).
 
@@ -122,8 +125,54 @@ and never emits HTML (`404` for unknown `/api` paths, `405` for wrong methods,
 
 Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
 `ApiNoteResponse`, `ApiProgressResponse`, `ApiCompetencyResponse`,
-`ApiConfigResponse`). The old generic interview chat (`POST /api/chat`) was
-removed (ADR 0008 D4) — it now 404s like any unknown `/api` path.
+`ApiConfigResponse`, `ApiDataDirResponse`, `ApiDataDirInspection`). The old
+generic interview chat (`POST /api/chat`) was removed (ADR 0008 D4) — it now
+404s like any unknown `/api` path.
+
+### Your data (`/data` — ADR 0009 D1)
+
+The SPA's data-setup page (nav link **Data**; `/setup` is the no-JS
+fallback). Sections: **Active folder** (path, source, note count; read-only
+with "restart without `--data-dir` / unset `IBAI_DATA_DIR`" when pinned),
+**Found previous data** (legacy-recovery cards, below), **Use an existing
+notes folder** (path field → **Check** = dry run, **Use this folder** =
+switch; server validation errors inline, success toast + refreshed counts),
+and an **Import notes from CSV** placeholder (ADR 0009 D2, next PR).
+
+A **banner** on Home and Analytics links here: "Don't see your solved
+problems? …" whenever the active folder has **0 notes** (not dismissible), or
+"We found your previous notes — restore them" when a candidate exists
+(dismissible for the tab via `sessionStorage` once the folder has notes).
+
+| Method & path | Body | Result |
+|---|---|---|
+| `GET /api/data-dir` | — | `{ dataDir, source: 'flag'\|'env'\|'config'\|'default', pinned, exists, noteCount, formatVersion, legacyCandidates: [{ path, noteCount, origin: 'cookie'\|'legacy-default' }] }` |
+| `POST /api/data-dir` | `{ path, dryRun?: boolean }` | **Dry run:** `{ dryRun: true, path, exists, noteCount, quizSessionCount, hint? }` — no writes; `hint` is `{ kind: 'use-parent', path }` for a `…/notes` folder whose parent holds notes, or `{ kind: 'not-ibai-format' }` for Markdown that is not `notes/<id>.md`. **Otherwise:** validated exactly like `POST /setup` (absolute or `~/`, normalized, no NUL, not a root, not a file), created `0700` if missing, `config.json` written atomically (`0600`), the running server switched; returns the `GET` shape. Invalid path / pinned dir → `400 { error }` (the pinned message names the flag/env). |
+| `POST /api/data-dir/legacy/dismiss` | `{}` | Stops offering the current candidates (this server process); returns the `GET` shape. |
+
+All three sit behind the same checks as every `/api` write (Host allowlist,
+same-origin `Origin`/`Sec-Fetch-Site` → `403`, `Content-Type:
+application/json` → else `415`, 1 MiB cap → `413`). `noteCount` counts
+parseable notes: regular `notes/*.md` files that open with a `---`
+frontmatter fence. `formatVersion` is `1` for every folder today (no
+`manifest.json` yet — ADR 0009 D4).
+
+**Legacy recovery.** Folders chosen with the old cookie-era `/setup` are not
+lost — the server just stopped looking there. `legacyCandidates` offers:
+
+- `cookie` — the path in a legacy `ibai_data_dir` cookie, captured in memory
+  the first time a request that passed the Host/Origin checks carries it (so
+  it survives the browser dropping the cookie), and
+- `legacy-default` — `~/.ibai/data` (the old documented default, still used
+  by the frozen CLI),
+
+each only while the dir is **not pinned** and **no `config.json` exists**,
+and only if the path passes the same validation, is an existing directory
+other than the active one, and holds ≥ 1 parseable note (re-checked on every
+read). A candidate is only a **suggestion**: "Use it" sends an ordinary
+`POST /api/data-dir { path }` (re-validated from scratch). The cookie never
+selects the directory; it is expired (`Set-Cookie … Max-Age=0`) on a
+successful switch (`POST /api/data-dir` or `POST /setup`) or a dismiss.
 
 ### Quiz Master API (ADR 0007 — Q2)
 
@@ -248,8 +297,9 @@ it, and every browser sees the same data.
   mode `0700`) so the app is usable immediately.
 - **Flag / env / config.json:** never auto-created (a typo, or a directory you
   removed, must not silently reappear). The banner says it does not exist yet;
-  create it yourself or use `/setup`.
-- **`/setup`** creates the chosen directory, writes `config.json` atomically
+  create it yourself or choose one on **Your data** (`/data`) or `/setup`.
+- **`/data` (SPA) and `/setup` (no-JS fallback)** share one code path.
+  `/setup` creates the chosen directory, writes `config.json` atomically
   (temp file + rename) and switches the running server to it immediately; it
   survives restarts. If the directory is **pinned** by `--data-dir` /
   `IBAI_DATA_DIR`, `/setup` says so and refuses to change it (`400`) — it can
@@ -258,9 +308,12 @@ it, and every browser sees the same data.
   bytes, a filesystem root, …) is ignored with a one-time warning at boot; the
   default is used.
 - **Legacy cookie:** older versions remembered the path in an `ibai_data_dir`
-  browser cookie. It is no longer read; any request that still carries it gets
-  a `Set-Cookie` that expires it. If you had chosen a custom path that way,
-  pick it again once at `/setup`.
+  browser cookie. It never selects the directory any more. If that folder (or
+  the old default `~/.ibai/data`) still holds notes and you have not chosen a
+  folder yet, **Your data** offers "Found previous data at … — Use it /
+  Dismiss" (see [Your data](#your-data-data--adr-0009-d1)); the cookie is
+  expired once you switch folders or dismiss. Otherwise type the old path
+  into "Use an existing notes folder".
 
 ### `.env` loading
 
@@ -343,7 +396,11 @@ to the server through your browser, so every request is checked
 - **Server-owned data dir** — no request input selects where data is read or
   written. (The retired `ibai_data_dir` cookie was a hole: cookies are not
   port-isolated, so a page on another localhost port could set it and point
-  writes at any existing directory. It is now ignored and expired.)
+  writes at any existing directory. It never selects the dir now; it is only
+  read as a recovery suggestion the user must confirm, and expired on a
+  switch or dismiss — ADR 0009 D1.) `POST /api/data-dir` is protected like
+  every `/api` write (same-origin + JSON-only is the SPA equivalent of the
+  `/setup` CSRF token).
 - **Body cap** — request bodies over 1 MiB are refused with `413` (JSON for
   `/api`, plain text for `/setup`) before any parsing. The Host / Origin /
   Content-Type checks run before a body is read at all; a declared
