@@ -10,7 +10,10 @@ export const PACKAGE_NAME = '@ibai/web';
 // Config
 export {
   resolveDataDir,
-  resolveDataDirWithCookie,
+  resolveServerDataDir,
+  readLocalConfig,
+  writeLocalConfig,
+  localConfigPathFor,
   resolvePort,
   resolveHost,
   resolveOllamaUrl,

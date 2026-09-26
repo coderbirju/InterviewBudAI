@@ -13,8 +13,12 @@ import {
   resolveAnthropicModel,
 } from './config.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
-import { createCoachHandler } from './handler.js';
-import { securityHeaders } from './security.js';
+import { createCoachHandler, precheckRequest } from './handler.js';
+import {
+  allowedHostsFor,
+  securityHeaders,
+  MAX_BODY_BYTES,
+} from './security.js';
 
 export interface ServerHandle {
   readonly url: string;
@@ -71,15 +75,59 @@ export function formatStartupBanner(input: {
   ];
 }
 
+/** Server timeouts: whole request, headers, idle keep-alive (ms). */
+export const REQUEST_TIMEOUT_MS = 30_000;
+export const HEADERS_TIMEOUT_MS = 10_000;
+export const KEEP_ALIVE_TIMEOUT_MS = 5_000;
+
+/** True when the declared `Content-Length` already exceeds `limit`. */
+export function declaresTooLarge(
+  req: http.IncomingMessage,
+  limit: number = MAX_BODY_BYTES,
+): boolean {
+  const declared = Number(req.headers['content-length']);
+  return Number.isFinite(declared) && declared > limit;
+}
+
 /**
- * Read the full request body from an IncomingMessage.
+ * Read the request body, buffering at most `limit` bytes. Resolves `null` as
+ * soon as more than `limit` bytes arrive (the caller answers 413 and closes).
+ * Bytes after that are discarded, never buffered; once `2 × limit` bytes have
+ * arrived in total the socket is destroyed so an endless (chunked) upload
+ * cannot keep it open.
  */
-function readRequestBody(req: http.IncomingMessage): Promise<string> {
+export function readRequestBody(
+  req: http.IncomingMessage,
+  limit: number = MAX_BODY_BYTES,
+): Promise<string | null> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    let received = 0;
+    let settled = false;
+    req.on('data', (chunk: Buffer) => {
+      received += chunk.length;
+      if (settled) {
+        if (received > 2 * limit) req.destroy();
+        return;
+      }
+      if (received > limit) {
+        settled = true;
+        chunks.length = 0;
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -101,9 +149,13 @@ export async function startServer(
   const argv = opts?.argv;
   const log = opts?.log ?? ((line: string) => console.log(line));
 
-  // First run: create the canonical default data dir so the app is usable
-  // immediately. Explicit --data-dir / IBAI_DATA_DIR paths are not created.
+  // Resolve the server's data dir ONCE (flag > env > config.json > default).
+  // First run: create the canonical default so the app is usable immediately;
+  // explicit or persisted paths are not created.
   const bootData = prepareBootDataDir(env, argv, opts?.homeDir);
+  if (bootData.warning !== undefined) {
+    log(`Warning: ${bootData.warning}`);
+  }
   const dataDir = bootData.dataDir;
   const port = resolvePort(env, argv);
   const host = resolveHost();
@@ -114,10 +166,10 @@ export async function startServer(
   const ollamaUrl = resolveOllamaUrl(env);
   const ollamaModel = resolveOllamaModel(env);
 
-  // Create storage adapter (default for routes that don't use cookie)
+  // Storage adapter for the boot data dir (the handler requires one).
   const storage = new LocalFileStorageAdapter(dataDir);
 
-  // Create storage factory for per-request cookie-aware storage resolution
+  // Storage factory for the server's CURRENT data dir (/setup can switch it).
   const createStorage = (dir: string) => new LocalFileStorageAdapter(dir);
 
   // Create provider: Anthropic if key+model, else Ollama if model, else undefined (NO demo fallback)
@@ -144,33 +196,63 @@ export async function startServer(
     provider,
     providerLabel,
     createStorage,
-    defaultDataDir: dataDir,
+    // The server owns the data dir: resolved once above, never per request.
+    dataDir,
+    dataDirSource: bootData.source,
+    homeDir: opts?.homeDir,
     env,
     argv,
     // The Host allowlist is pinned to the port we actually bind.
     port,
   });
 
+  const allowedHosts = allowedHostsFor(port);
+
   const server = http.createServer(async (req, res) => {
     try {
-      // Read request body for POST requests
-      let body: string | undefined;
-      if (req.method === 'POST') {
-        body = await readRequestBody(req);
-      }
-
-      const result = await handler({
+      const base = {
         method: req.method ?? 'GET',
         url: req.url ?? '/',
-        body,
         contentType: req.headers['content-type'],
         headers: req.headers as Record<string, string | string[] | undefined>,
-      });
+      };
+
+      // Read the body only for POST, and only after the header-only checks
+      // (Host / Origin / Content-Type) pass and the declared length fits.
+      let body: string | undefined;
+      let bodyTooLarge = false;
+      // The body was not (fully) read: don't reuse the connection.
+      let closeAfter = false;
+      if (req.method === 'POST') {
+        if (precheckRequest(base, allowedHosts) !== null) {
+          closeAfter = true;
+        } else if (declaresTooLarge(req)) {
+          bodyTooLarge = true;
+          closeAfter = true;
+        } else {
+          const read = await readRequestBody(req);
+          if (read === null) {
+            bodyTooLarge = true;
+            closeAfter = true;
+          } else {
+            body = read;
+          }
+        }
+      }
+
+      const result = await handler({ ...base, body, bodyTooLarge });
 
       const responseHeaders: Record<string, string> = {
         'Content-Type': result.contentType,
         ...result.headers,
+        ...(closeAfter ? { Connection: 'close' } : {}),
       };
+      if (bodyTooLarge) {
+        // Stop reading the oversized upload once the 413 is flushed. (Other
+        // unread bodies are small; Node drains them and honours
+        // `Connection: close` gracefully.)
+        res.once('finish', () => req.destroy());
+      }
       res.writeHead(result.status, responseHeaders);
       res.end(result.body);
     } catch (error) {
@@ -183,6 +265,11 @@ export async function startServer(
       res.end(message);
     }
   });
+
+  // Explicit timeouts so slow or stalled clients cannot hold sockets open.
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
 
   return new Promise((resolve, reject) => {
     // Surface bind failures (e.g. port already in use) instead of hanging.

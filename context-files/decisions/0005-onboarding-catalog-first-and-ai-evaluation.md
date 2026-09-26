@@ -68,6 +68,10 @@ paths, so:
 This explicitly records the client/server boundary: browser = UI + cookie of
 chosen path; server = filesystem authority.
 
+> **Amended (w2d, 2026-09-25):** the browser no longer chooses the path; the
+> server owns it and persists `/setup`'s choice in `~/.interviewbudai/config.json`.
+> See "Amendment (w2d, 2026-09-25)" at the end of this ADR.
+
 Bulk-import of an existing markdown/CSV intuition database is FUTURE scope (not
 now).
 
@@ -229,3 +233,38 @@ Each is a small PR the Architect will follow.
 - **Invariant:** Progress data is never committed (D3).
 
 Any change to these decisions requires a new ADR.
+
+## Amendment (w2d, 2026-09-25)
+
+Implements ADR 0008 D4 Wave 2(d). Supersedes D2's "browser = UI + cookie of
+chosen path".
+
+**Why.** The data dir came from the `ibai_data_dir` cookie per request and was
+trusted if the directory merely existed. Cookies are not port-isolated, so a
+page on any other localhost port could set it and redirect note/quiz writes
+into any existing directory. Separately, different browsers silently used
+different data dirs.
+
+**Decision.** The server owns the data directory; the browser never chooses it.
+
+- Resolved **once at boot** into server state. Precedence: `--data-dir` flag >
+  `IBAI_DATA_DIR` env > `~/.interviewbudai/config.json`
+  (`{ "dataDir": "<abs path>" }`, file 0600, dir 0700, no secrets) > default
+  `~/.interviewbudai/data` (auto-created). Per-request code uses only that
+  state.
+- `config.json` is untrusted: it must parse and `dataDir` must be an absolute
+  string without NUL (not a filesystem root); otherwise warn once and use the
+  default.
+- `POST /setup` (CSRF token + path validation unchanged) creates the dir
+  (0700), writes `config.json` atomically (temp + rename) and switches the
+  running server immediately. If the dir is pinned by flag/env, /setup says so
+  and refuses to change it (400); it may only create the pinned dir.
+- The legacy cookie is ignored; any request carrying it gets a `Set-Cookie`
+  that expires it (`Max-Age=0`, same attributes). `GET /api/config` keeps its
+  shape.
+- Same PR: request bodies are capped at 1 MiB (413), and the dead
+  `POST /api/chat` is removed.
+
+**Consequence.** One data dir per server, shared by every browser and kept
+across restarts. A custom path chosen under the old cookie must be chosen once
+more at /setup.

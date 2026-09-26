@@ -46,7 +46,9 @@ function makeHandler(): (req: HandlerRequest) => Promise<HandlerResponse> {
     storage: new LocalFileStorageAdapter(tmpDir),
     catalog: CATALOG,
     createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
-    defaultDataDir: tmpDir,
+    dataDir: tmpDir,
+    // config.json lands under the temp dir, never the real home.
+    homeDir: tmpDir,
     env: {},
     argv: [],
     port: PORT,
@@ -346,7 +348,7 @@ describe('/setup CSRF token + path validation', () => {
     expect(fs.existsSync(target)).toBe(false);
   });
 
-  it('a good token creates the directory with mode 0700 and a strict cookie', async () => {
+  it('a good token creates the directory with mode 0700 and persists an owner-only config.json', async () => {
     const handler = makeHandler();
     const target = path.join(tmpDir, 'nested', 'db');
     const res = await postSetup(handler, {
@@ -356,11 +358,15 @@ describe('/setup CSRF token + path validation', () => {
     expect(res.status).toBe(200);
     expect(fs.statSync(target).isDirectory()).toBe(true);
     expect(fs.statSync(target).mode & 0o777).toBe(0o700);
-    const cookie = res.headers?.['Set-Cookie'] ?? '';
-    expect(cookie).toContain(`ibai_data_dir=${encodeURIComponent(target)}`);
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('SameSite=Strict');
-    expect(cookie).toContain('Path=/');
+    // No data-dir cookie any more: the server owns the choice.
+    expect(res.headers?.['Set-Cookie']).toBeUndefined();
+    const configDir = path.join(tmpDir, '.interviewbudai');
+    const configFile = path.join(configDir, 'config.json');
+    expect(JSON.parse(fs.readFileSync(configFile, 'utf8'))).toEqual({
+      dataDir: target,
+    });
+    expect(fs.statSync(configFile).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(configDir).mode & 0o777).toBe(0o700);
   });
 
   it('accepts a real browser form post (Origin: null + Sec-Fetch-Site: same-origin)', async () => {
@@ -391,7 +397,9 @@ describe('/setup CSRF token + path validation', () => {
     });
     expect(res.status).toBe(200);
     expect(fs.statSync(target).isDirectory()).toBe(true);
-    expect(res.headers?.['Set-Cookie']).toContain('ibai_data_dir=');
+    expect(
+      fs.existsSync(path.join(tmpDir, '.interviewbudai', 'config.json')),
+    ).toBe(true);
   });
 
   it.each([
@@ -399,7 +407,7 @@ describe('/setup CSRF token + path validation', () => {
     ['a filesystem root', '/'],
     ['a NUL byte', '/tmp/ibai\0evil'],
     ['an empty path', '   '],
-  ])('rejects %s with 400 and no cookie', async (_label, dataDir) => {
+  ])('rejects %s with 400 and persists nothing', async (_label, dataDir) => {
     const handler = makeHandler();
     const res = await postSetup(handler, {
       dataDir,
@@ -408,6 +416,9 @@ describe('/setup CSRF token + path validation', () => {
     expect(res.status).toBe(400);
     expect(res.body).toContain('Could not create the database directory');
     expect(res.headers?.['Set-Cookie']).toBeUndefined();
+    expect(
+      fs.existsSync(path.join(tmpDir, '.interviewbudai', 'config.json')),
+    ).toBe(false);
   });
 
   it('rejects an existing file at the path', async () => {
