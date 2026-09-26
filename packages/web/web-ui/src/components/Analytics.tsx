@@ -172,7 +172,7 @@ export function Analytics(): JSX.Element {
           </a>
         ) : (
           <a
-            href="/setup"
+            href="/data"
             className="mt-5 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
           >
             <Database className="h-4 w-4" aria-hidden />

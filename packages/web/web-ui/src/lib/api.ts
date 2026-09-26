@@ -391,12 +391,12 @@ export type QuizAnswerResult =
     };
 
 /**
- * Shared POST helper for the quiz routes. Sends the (optional) JSON body and,
+ * Shared POST helper (quiz + data-dir routes). Sends the (optional) JSON body and,
  * on a non-2xx response, throws an `ApiError` carrying the server's JSON
  * `error` message and HTTP status so the UI can show a friendly inline banner
  * and special-case the provider-required `400` (no model configured).
  */
-async function postQuiz<T>(path: string, body?: unknown): Promise<T> {
+async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
     headers: {
@@ -436,7 +436,7 @@ export function getQuizSession(): Promise<QuizSessionResult> {
  * (message `no model configured`) or `ApiError(502)` on a provider failure.
  */
 export function startQuiz(): Promise<QuizStartResult> {
-  return postQuiz<QuizStartResult>('/api/quiz/start');
+  return postJson<QuizStartResult>('/api/quiz/start');
 }
 
 /**
@@ -445,7 +445,7 @@ export function startQuiz(): Promise<QuizStartResult> {
  * modes as `startQuiz`.
  */
 export function newQuiz(): Promise<QuizStartResult> {
-  return postQuiz<QuizStartResult>('/api/quiz/new');
+  return postJson<QuizStartResult>('/api/quiz/new');
 }
 
 /**
@@ -456,7 +456,7 @@ export function newQuiz(): Promise<QuizStartResult> {
  * provider/verdict failure) — the caller preserves the transcript.
  */
 export function answerQuiz(answer: string): Promise<QuizAnswerResult> {
-  return postQuiz<QuizAnswerResult>('/api/quiz/answer', { answer });
+  return postJson<QuizAnswerResult>('/api/quiz/answer', { answer });
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +514,7 @@ export function endQuiz(): Promise<{
   readonly ok: true;
   readonly session: QuizState;
 }> {
-  return postQuiz<{ readonly ok: true; readonly session: QuizState }>(
+  return postJson<{ readonly ok: true; readonly session: QuizState }>(
     '/api/quiz/end',
   );
 }
@@ -525,7 +525,7 @@ export function endQuiz(): Promise<{
  * `ApiError(404)` for an unknown id, `ApiError(400)` when no DB / bad id.
  */
 export function resumeQuiz(sessionId: string): Promise<QuizResumeResult> {
-  return postQuiz<QuizResumeResult>('/api/quiz/resume', { sessionId });
+  return postJson<QuizResumeResult>('/api/quiz/resume', { sessionId });
 }
 
 /**
@@ -536,5 +536,76 @@ export function resumeQuiz(sessionId: string): Promise<QuizResumeResult> {
 export function deleteQuizSession(
   sessionId: string,
 ): Promise<{ readonly ok: true }> {
-  return postQuiz<{ readonly ok: true }>('/api/quiz/delete', { sessionId });
+  return postJson<{ readonly ok: true }>('/api/quiz/delete', { sessionId });
+}
+
+// ---------------------------------------------------------------------------
+// Your data (ADR 0009 D1) — typed client for /api/data-dir*. Mirrors the
+// server `DataDirStatus` / `DataDirInspection` in
+// `packages/web/src/data-dir-control.ts`.
+// ---------------------------------------------------------------------------
+
+/** Where the active data folder came from (highest precedence first). */
+export type DataDirSource = 'flag' | 'env' | 'config' | 'default';
+
+/** A previous data folder the server found (a suggestion, never auto-used). */
+export interface LegacyCandidate {
+  readonly path: string;
+  readonly noteCount: number;
+  readonly origin: 'cookie' | 'legacy-default';
+}
+
+/** GET /api/data-dir response shape. */
+export interface DataDirStatus {
+  readonly dataDir: string;
+  readonly source: DataDirSource;
+  readonly pinned: boolean;
+  readonly exists: boolean;
+  readonly noteCount: number;
+  readonly formatVersion: number;
+  readonly readOnly?: boolean;
+  readonly legacyCandidates: readonly LegacyCandidate[];
+}
+
+/** A dry-run hint (see the server `InspectionHint`). */
+export type DataDirHint =
+  | { readonly kind: 'use-parent'; readonly path: string }
+  | { readonly kind: 'not-ibai-format' };
+
+/** POST /api/data-dir { dryRun: true } response shape (no writes). */
+export interface DataDirInspection {
+  readonly dryRun: true;
+  readonly path: string;
+  readonly exists: boolean;
+  readonly noteCount: number;
+  readonly quizSessionCount: number;
+  readonly hint?: DataDirHint;
+}
+
+/** GET /api/data-dir — the active folder + any previous-data candidates. */
+export function fetchDataDir(): Promise<DataDirStatus> {
+  return getJson<DataDirStatus>('/api/data-dir');
+}
+
+/**
+ * POST /api/data-dir { path, dryRun: true } — validate a path and report what
+ * is there, without switching. Throws `ApiError(400)` with the server's
+ * message for an invalid path.
+ */
+export function checkDataDir(path: string): Promise<DataDirInspection> {
+  return postJson<DataDirInspection>('/api/data-dir', { path, dryRun: true });
+}
+
+/**
+ * POST /api/data-dir { path } — switch the server to `path` (created 0700 if
+ * missing, persisted to config.json). Throws `ApiError(400)` with the server's
+ * message (invalid path, pinned dir, …).
+ */
+export function switchDataDir(path: string): Promise<DataDirStatus> {
+  return postJson<DataDirStatus>('/api/data-dir', { path });
+}
+
+/** POST /api/data-dir/legacy/dismiss — stop offering previous-data folders. */
+export function dismissLegacyData(): Promise<DataDirStatus> {
+  return postJson<DataDirStatus>('/api/data-dir/legacy/dismiss', {});
 }

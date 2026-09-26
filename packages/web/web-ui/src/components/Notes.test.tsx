@@ -198,7 +198,7 @@ describe('Notes editor', () => {
     const cta = await screen.findByRole('link', {
       name: /create your database/i,
     });
-    expect(cta).toHaveAttribute('href', '/setup');
+    expect(cta).toHaveAttribute('href', '/data');
     // Editor form not rendered.
     expect(screen.queryByLabelText(/Intuition/i)).not.toBeInTheDocument();
   });
