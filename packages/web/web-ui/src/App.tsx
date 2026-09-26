@@ -3,16 +3,21 @@ import {
   Home as HomeIcon,
   MessageSquare,
   BarChart3,
+  Database,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Home } from './components/Home';
 import { Notes } from './components/Notes';
 import { Analytics } from './components/Analytics';
 import { Interview } from './components/Interview';
+import { DataPage } from './components/DataPage';
+import { DataFolderBanner } from './components/DataFolderBanner';
 import {
   analyticsHref,
+  dataHref,
   homeHref,
   interviewHref,
+  isPlainClick,
   navigate,
   useRoute,
 } from './lib/router';
@@ -62,19 +67,14 @@ const NAV_LINKS: readonly NavLink[] = [
     spa: true,
     isCurrent: (r) => r.kind === 'analytics',
   },
+  {
+    label: 'Data',
+    icon: Database,
+    href: dataHref(),
+    spa: true,
+    isCurrent: (r) => r.kind === 'data',
+  },
 ];
-
-/** True for a plain left-click with no modifier keys (safe to intercept). */
-function isPlainClick(e: React.MouseEvent): boolean {
-  return (
-    !e.defaultPrevented &&
-    e.button === 0 &&
-    !e.metaKey &&
-    !e.ctrlKey &&
-    !e.shiftKey &&
-    !e.altKey
-  );
-}
 
 export default function App(): JSX.Element {
   const route = useRoute();
@@ -137,8 +137,20 @@ export default function App(): JSX.Element {
       <main className="mx-auto max-w-5xl px-6 py-10">
         {route.kind === 'notes' ? (
           <Notes problemId={route.problemId} />
+        ) : route.kind === 'data' ? (
+          <>
+            <h1 className="text-2xl font-bold tracking-tight">Your data</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Where InterviewBudAI keeps your notes and progress — a local
+              folder you own. Nothing leaves your machine.
+            </p>
+            <div className="mt-8">
+              <DataPage />
+            </div>
+          </>
         ) : route.kind === 'analytics' ? (
           <>
+            <DataFolderBanner />
             <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
             <p className="mt-1 text-sm text-slate-400">
               Your progress at a glance — status breakdown and per-topic
@@ -163,6 +175,7 @@ export default function App(): JSX.Element {
           </>
         ) : (
           <>
+            <DataFolderBanner />
             <h1 className="text-2xl font-bold tracking-tight">Problems</h1>
             <p className="mt-1 text-sm text-slate-400">
               Track your progress across the catalog. Set a status on each
