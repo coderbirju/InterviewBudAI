@@ -141,7 +141,7 @@ and **Import notes from CSV** ([below](#csv-import-adr-0009-d2d3)).
 
 A **banner** on Home and Analytics links here: "Don't see your solved
 problems? …" whenever the active folder has **0 notes** (not dismissible), or
-"We found your previous notes — restore them" when a candidate exists
+"A folder with InterviewBudAI notes was found — review it" when a candidate exists
 (dismissible for the tab via `sessionStorage` once the folder has notes).
 
 | Method & path | Body | Result |
@@ -153,22 +153,29 @@ problems? …" whenever the active folder has **0 notes** (not dismissible), or
 All three sit behind the same checks as every `/api` write (Host allowlist,
 same-origin `Origin`/`Sec-Fetch-Site` → `403`, `Content-Type:
 application/json` → else `415`, 1 MiB cap → `413`). `noteCount` counts
-parseable notes: regular `notes/*.md` files that open with a `---`
-frontmatter fence. `formatVersion` is `1` for every folder today (no
+recognised notes, matching how storage reads them (by filename id): regular
+files `notes/<id>.md` whose id is in the catalog, that open with frontmatter,
+and whose `id:` is absent or equal to `<id>` (only a conflicting `id:` is
+rejected; an Obsidian/Jekyll `notes/recipe.md` does not count). The same rule decides candidate
+eligibility and the dry-run `not-ibai-format` hint. `formatVersion` is `1` for every folder today (no
 `manifest.json` yet — ADR 0009 D4).
 
 **Legacy recovery.** Folders chosen with the old cookie-era `/setup` are not
 lost — the server just stopped looking there. `legacyCandidates` offers:
 
-- `cookie` — the path in a legacy `ibai_data_dir` cookie, captured in memory
-  the first time a request that passed the Host/Origin checks carries it (so
-  it survives the browser dropping the cookie), and
+- `cookie` — the path(s) seen in a legacy `ibai_data_dir` cookie on requests
+  that passed the Host check, remembered in memory (newest first, up to 3
+  distinct valid values) so they survive the browser dropping or overwriting
+  the cookie. A small set rather than first-wins or latest-wins: any page on
+  another localhost port can set this cookie, so a planted value can neither
+  lock out nor silently replace the real one — the user sees both and picks
+  the folder they recognise; and
 - `legacy-default` — `~/.ibai/data` (the old documented default, still used
   by the frozen CLI),
 
 each only while the dir is **not pinned** and **no `config.json` exists**,
 and only if the path passes the same validation, is an existing directory
-other than the active one, and holds ≥ 1 parseable note (re-checked on every
+other than the active one, and holds ≥ 1 recognised note (re-checked on every
 read). A candidate is only a **suggestion**: "Use it" sends an ordinary
 `POST /api/data-dir { path }` (re-validated from scratch). The cookie never
 selects the directory; it is expired (`Set-Cookie … Max-Age=0`) on a

@@ -18,10 +18,22 @@ and is listed there with what you need to do (ADR 0009 D4).
   `~/.interviewbudai/config.json` > default `~/.interviewbudai/data`.
   **If you picked a custom folder through `/setup` before this change, the app
   will look empty — your notes are not lost.** Nothing was moved or deleted.
-  Open `/setup` and enter that folder's path once; the choice is now saved in
-  `~/.interviewbudai/config.json` and shared by every browser. (If you do not
-  remember the path, look for a folder containing a `notes/` directory of
-  `lc-*.md` files; `~/.ibai/data` is the CLI's default and a common choice.)
+  Open the **Your data** page (`/data`, "Data" in the nav) and either accept
+  the "Found previous data" offer or enter that folder's path under "Use an
+  existing folder"; the choice is then saved in
+  `~/.interviewbudai/config.json` and shared by every browser. (`/setup`
+  remains as a no-JavaScript fallback. If you do not remember the path, look
+  for a folder containing a `notes/` directory of `lc-*.md` files;
+  `~/.ibai/data` is the CLI's default and a common choice — the page offers it
+  automatically when it has notes, only if you haven't chosen a folder since;
+  your old cookie folder is offered only if your browser still has the old
+  cookie; otherwise use "Use an existing folder".)
+- **The legacy `ibai_data_dir` cookie is now kept until you act** (#62). Since
+  #60 it was expired on every response; it is now expired only after you
+  switch folders (on `/data` or `/setup`) or dismiss the "Found previous data"
+  prompt, so the app can offer the folder it points to. The cookie still
+  never selects the data folder — using it always takes an explicit click.
+  Nothing to do.
 
 ### Added
 
@@ -32,6 +44,15 @@ and is listed there with what you need to do (ADR 0009 D4).
   loading).
 - The data-folder choice persists across restarts in
   `~/.interviewbudai/config.json` (#60).
+- **Your data** page (`/data`, "Data" in the nav): shows the active folder,
+  where it came from and its note count; check (dry run) and switch to an
+  existing folder; and a one-click "Found previous data" recovery offer for
+  the old cookie folder or `~/.ibai/data` (#62).
+- A banner on Home and Analytics when the active folder has no notes (or
+  previous notes were found), linking to `/data` (#62).
+- JSON API for the data folder: `GET /api/data-dir`, `POST /api/data-dir`
+  (with `dryRun`), `POST /api/data-dir/legacy/dismiss`, behind the same
+  localhost protections as the rest of `/api` (#62).
 - CSV import on **Your data** (`/data`): preview a Notion export matched to
   the catalog, choose skip / overwrite / merge per conflict, then import; the
   data folder is backed up to `<dataFolder>/.backups/` (last 5 kept) before
@@ -40,6 +61,11 @@ and is listed there with what you need to do (ADR 0009 D4).
 ### Changed
 
 - The web app is the product; the CLI is frozen (ADR 0008, #57).
+- Docs: ADR 0009 (data lifecycle — data page, CSV import, backups, format
+  versioning, release strategy) and this changelog (#61). Releases will be
+  prebuilt zips on tagged GitHub Releases, with these notes (ADR 0009 D5).
+- `/setup` is now the no-JavaScript fallback and links to `/data`; in-app
+  "no data folder" links go to `/data` (#62).
 - Test and dependency hygiene: single `@testing-library/dom`, Home no longer
   re-filters on unchanged history navigation, catalog topic checks (#59).
 

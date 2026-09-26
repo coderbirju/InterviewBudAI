@@ -116,7 +116,9 @@ describe('DataPage', () => {
     ) as HTMLElement;
     expect(card).toHaveTextContent('/Users/me/Desktop/old-notes');
     expect(card).toHaveTextContent('25 notes');
-    expect(card).toHaveTextContent(/only if you recognise this folder/);
+    expect(card).toHaveTextContent(
+      'A folder with InterviewBudAI notes was found at /Users/me/Desktop/old-notes (25 notes). Only use it if you recognise it.',
+    );
 
     await user.click(within(card).getByRole('button', { name: 'Use it' }));
     expect(mockedApi.switchDataDir).toHaveBeenCalledWith(
@@ -276,11 +278,13 @@ describe('DataFolderBanner', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('previous data found → "restore them" variant', async () => {
+  it('candidate found → neutral "review it" variant', async () => {
     mockedApi.fetchDataDir.mockResolvedValue(WITH_LEGACY);
     render(<DataFolderBanner />);
     expect(
-      await screen.findByText('We found your previous notes — restore them'),
+      await screen.findByText(
+        'A folder with InterviewBudAI notes was found — review it',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -289,7 +293,10 @@ describe('DataFolderBanner', () => {
     const status = { ...WITH_LEGACY, noteCount: 4 };
     mockedApi.fetchDataDir.mockResolvedValue(status);
     const first = render(<DataFolderBanner />);
-    await user.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    const dismiss = await screen.findByRole('button', { name: 'Dismiss' });
+    // Keyboard users get the same focus ring as the page buttons.
+    expect(dismiss.className).toContain('focus-visible:ring-2');
+    await user.click(dismiss);
     expect(
       screen.queryByRole('region', { name: 'Data folder' }),
     ).not.toBeInTheDocument();

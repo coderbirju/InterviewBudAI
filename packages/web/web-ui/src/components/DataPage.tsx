@@ -270,15 +270,17 @@ export function DataPage(): JSX.Element {
                 className="rounded-md border border-slate-800 bg-slate-900/60 p-4"
               >
                 <p className="text-sm text-slate-300">
-                  We found your previous data at{' '}
+                  A folder with InterviewBudAI notes was found at{' '}
                   <span className="break-all font-mono text-slate-100">
                     {c.path}
                   </span>{' '}
-                  with {plural(c.noteCount, 'note')}
+                  ({plural(c.noteCount, 'note')}). Only use it if you recognise
+                  it.
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
                   {c.origin === 'legacy-default'
-                    ? ' (the old default location)'
-                    : ' (the folder this browser used before)'}
-                  . Use it only if you recognise this folder.
+                    ? 'Found at the old default location (~/.ibai/data).'
+                    : 'Suggested by an old browser setting — any local page can set it, so check the path.'}
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
