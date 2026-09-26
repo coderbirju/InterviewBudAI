@@ -181,33 +181,39 @@ describe('GET /api/data-dir', () => {
     expect(res.status).toBe(405);
   });
 
-  it('countNotes: only notes/<id>.md whose frontmatter id matches (and is in the catalog)', () => {
+  it('countNotes: known notes/<id>.md with frontmatter whose id: is absent or matching (like storage reads them)', () => {
     const notes = path.join(serverDir, 'notes');
     fs.mkdirSync(path.join(notes, 'sub.md'), { recursive: true });
     const known = (id: string) => CATALOG.getById(id) !== undefined;
-    const [a, b, c, d] = IDS;
+    const [a, b, c, d, e] = IDS;
+    // Counted: matching id; BOM + CRLF + quoted id; no id: line at all; an
+    // `id:` only in the body (frontmatter itself has none).
     fs.writeFileSync(path.join(notes, `${a}.md`), `---\nid: ${a}\n---\n`);
     fs.writeFileSync(
       path.join(notes, `${b}.md`),
       `\uFEFF---\r\nlastUpdated: x\r\nid: "${b}"\r\n---\r\n`,
     );
-    // id mismatch, id after the frontmatter, no frontmatter:
-    fs.writeFileSync(path.join(notes, `${c}.md`), `---\nid: ${a}\n---\n`);
+    fs.writeFileSync(
+      path.join(notes, `${e}.md`),
+      '---\nlastUpdated: 2026-09-01T00:00:00.000Z\nstatus: done\n---\n\nbody\n',
+    );
     fs.writeFileSync(path.join(notes, `${d}.md`), `---\nx: 1\n---\nid: ${d}\n`);
-    fs.writeFileSync(path.join(notes, 'plain.md'), '# no fm');
+    // Not counted: a CONFLICTING id:, no frontmatter, not .md:
+    fs.writeFileSync(path.join(notes, `${c}.md`), `---\nid: ${a}\n---\n`);
+    fs.writeFileSync(path.join(notes, `${IDS[5]}.md`), '# no frontmatter');
     fs.writeFileSync(path.join(notes, 'b.txt'), `---\nid: b\n---\n`);
-    // Matches its own id but is not a catalog problem:
+    // Not counted with the catalog check: unknown ids, incl. an Obsidian page.
     fs.writeFileSync(
       path.join(notes, 'lc-999999.md'),
       '---\nid: lc-999999\n---\n',
     );
-    // An Obsidian/Jekyll page with its own frontmatter:
     fs.writeFileSync(
       path.join(notes, 'recipe.md'),
       '---\ntitle: my obsidian page\n---\n',
     );
-    expect(countNotes(serverDir, known)).toBe(2);
-    expect(countNotes(serverDir)).toBe(3); // no catalog check \u2192 lc-999999 too
+    expect(countNotes(serverDir, known)).toBe(4);
+    // Without a catalog check, lc-999999 and recipe.md also pass.
+    expect(countNotes(serverDir)).toBe(6);
     expect(countNotes(path.join(root, 'missing'), known)).toBe(0);
   });
 
