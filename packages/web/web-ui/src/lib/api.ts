@@ -609,3 +609,113 @@ export function switchDataDir(path: string): Promise<DataDirStatus> {
 export function dismissLegacyData(): Promise<DataDirStatus> {
   return postJson<DataDirStatus>('/api/data-dir/legacy/dismiss', {});
 }
+
+// ---------------------------------------------------------------------------
+// CSV import (ADR 0009 D2)
+// ---------------------------------------------------------------------------
+
+/** A CSV file read client-side. `name` is display-only on the server. */
+export interface ImportFileInput {
+  readonly name: string;
+  readonly text: string;
+}
+
+/** How the server matched a row to the catalog. */
+export interface ImportMatch {
+  readonly problemId: string;
+  readonly title: string;
+  readonly by: 'url' | 'number' | 'title';
+}
+
+/** One preview row. */
+export interface ImportPreviewRow {
+  readonly key: string;
+  readonly file: string;
+  readonly line: number;
+  readonly title: string;
+  readonly match: ImportMatch | null;
+  readonly existing: 'none' | 'note';
+  /** The row imported for its problem by default (one per problem). */
+  readonly chosen: boolean;
+  readonly fields: {
+    readonly status: NoteStatus;
+    readonly lastUpdated: string | null;
+    readonly timeComplexity?: string;
+    readonly spaceComplexity?: string;
+    readonly bodyPreview: string;
+  };
+  readonly warnings: readonly string[];
+}
+
+/** A row that matched no catalog problem (never written). */
+export interface ImportUnmatchedRow {
+  readonly key: string;
+  readonly file: string;
+  readonly line: number;
+  readonly title: string;
+  readonly url: string;
+}
+
+/** POST /api/import/csv/preview response. */
+export interface ImportPreview {
+  readonly previewHash: string;
+  readonly defaultStatus: NoteStatus;
+  readonly rows: readonly ImportPreviewRow[];
+  readonly unmatched: readonly ImportUnmatchedRow[];
+  readonly duplicatesCollapsed: number;
+  readonly blankRows: number;
+  readonly errors: readonly { readonly file: string; readonly error: string }[];
+}
+
+export type ImportAction = 'create' | 'skip' | 'overwrite' | 'merge';
+
+/** Per-problem choice sent on commit. */
+export interface ImportDecision {
+  readonly action: ImportAction;
+  readonly status?: NoteStatus;
+  readonly rowKey?: string;
+}
+
+/** POST /api/import/csv/commit response. */
+export interface ImportCommitResult {
+  readonly created: number;
+  readonly overwritten: number;
+  readonly merged: number;
+  readonly skipped: number;
+  readonly unmatched: number;
+  readonly failed: readonly {
+    readonly problemId: string;
+    readonly error: string;
+  }[];
+  readonly backup: string;
+}
+
+/** POST /api/import/csv/preview — parse + match, no writes. */
+export function previewCsvImport(
+  files: readonly ImportFileInput[],
+  defaultStatus: NoteStatus,
+): Promise<ImportPreview> {
+  return postJson<ImportPreview>('/api/import/csv/preview', {
+    files,
+    defaultStatus,
+  });
+}
+
+/**
+ * POST /api/import/csv/commit — the server re-parses the same files, checks
+ * `previewHash` (409 "re-run preview" on any change), backs up the data folder
+ * and writes the chosen notes.
+ */
+export function commitCsvImport(
+  files: readonly ImportFileInput[],
+  previewHash: string,
+  defaultStatus: NoteStatus,
+  decisions: Readonly<Record<string, ImportDecision>>,
+): Promise<ImportCommitResult> {
+  return postJson<ImportCommitResult>('/api/import/csv/commit', {
+    files,
+    previewHash,
+    defaultStatus,
+    decisions,
+  });
+}

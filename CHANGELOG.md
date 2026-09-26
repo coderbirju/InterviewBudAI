@@ -32,6 +32,10 @@ and is listed there with what you need to do (ADR 0009 D4).
   loading).
 - The data-folder choice persists across restarts in
   `~/.interviewbudai/config.json` (#60).
+- CSV import on **Your data** (`/data`): preview a Notion export matched to
+  the catalog, choose skip / overwrite / merge per conflict, then import; the
+  data folder is backed up to `<dataFolder>/.backups/` (last 5 kept) before
+  anything is written (ADR 0009 D2/D3).
 
 ### Changed
 

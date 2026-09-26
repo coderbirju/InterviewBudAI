@@ -135,7 +135,8 @@ describe('Notion mapping', () => {
 
   it('headers match case-insensitively; other text columns become ## sections in order', () => {
     const res = mapCsv(
-      'problem,Tags,INTUITION,Extra Thoughts\n' + 'Longest Substring Without Repeating Characters,array,body text,more\n',
+      'problem,Tags,INTUITION,Extra Thoughts\n' +
+        'Longest Substring Without Repeating Characters,array,body text,more\n',
     );
     expect(res.rows[0]?.content).toBe(
       'body text\n\n## Tags\n\narray\n\n## Extra Thoughts\n\nmore',
@@ -149,13 +150,19 @@ describe('Notion mapping', () => {
   });
 
   it('trims NBSP / Unicode whitespace from headers and cells', () => {
-    const res = mapCsv('\u00A0Problem\u00A0,URL\n\u00A0 Longest Substring Without Repeating Characters\u00A0,\n');
-    expect(res.rows[0]?.title).toBe('Longest Substring Without Repeating Characters');
+    const res = mapCsv(
+      '\u00A0Problem\u00A0,URL\n\u00A0 Longest Substring Without Repeating Characters\u00A0,\n',
+    );
+    expect(res.rows[0]?.title).toBe(
+      'Longest Substring Without Repeating Characters',
+    );
     expect(trimUnicode('\uFEFF\u00A0 x \u200B')).toBe('x');
   });
 
   it('skips and counts blank rows (all cells empty after trim)', () => {
-    const res = mapCsv('Problem,Notes\n,\n\u00A0, \nLongest Substring Without Repeating Characters,x\n\n');
+    const res = mapCsv(
+      'Problem,Notes\n,\n\u00A0, \nLongest Substring Without Repeating Characters,x\n\n',
+    );
     expect(res.rows).toHaveLength(1);
     expect(res.blankRows).toBe(3);
   });
@@ -182,7 +189,9 @@ describe('parseVisitedDate', () => {
   });
 
   it('an ambiguous date warns and falls back to import time (null)', () => {
-    const res = mapCsv('Problem,Last Visited\nLongest Substring Without Repeating Characters,03/04/2024\n');
+    const res = mapCsv(
+      'Problem,Last Visited\nLongest Substring Without Repeating Characters,03/04/2024\n',
+    );
     expect(res.rows[0]?.lastVisited).toBeNull();
     expect(res.rows[0]?.warnings[0]).toMatch(/ambiguous date/);
   });
@@ -206,7 +215,9 @@ describe('extractComplexities', () => {
     expect(extractComplexities('TC: O(n) later TC: O(1)').timeComplexity).toBe(
       'O(n)',
     );
-    expect(extractComplexities('TC: O(n log(n)').timeComplexity).toBeUndefined();
+    expect(
+      extractComplexities('TC: O(n log(n)').timeComplexity,
+    ).toBeUndefined();
     expect(
       extractComplexities(`TC: O(${'n'.repeat(120)})`).timeComplexity,
     ).toBeUndefined();
@@ -216,31 +227,53 @@ describe('extractComplexities', () => {
 
 describe('catalog matching', () => {
   it('extracts slugs ignoring /description/, /editorial/, /solutions/…, query, hash', () => {
-    expect(leetcodeSlug('https://leetcode.com/problems/longest-substring-without-repeating-characters/editorial/')).toBe(
-      'longest-substring-without-repeating-characters',
-    );
     expect(
-      leetcodeSlug('https://www.leetcode.com/problems/Longest-Substring-Without-Repeating-Characters/description/?x=1#y'),
+      leetcodeSlug(
+        'https://leetcode.com/problems/longest-substring-without-repeating-characters/editorial/',
+      ),
     ).toBe('longest-substring-without-repeating-characters');
-    expect(leetcodeSlug('leetcode.com/problems/longest-substring-without-repeating-characters/solutions/123/abc')).toBe(
-      'longest-substring-without-repeating-characters',
-    );
-    expect(leetcodeSlug('https://evil.example/problems/longest-substring-without-repeating-characters/')).toBeNull();
+    expect(
+      leetcodeSlug(
+        'https://www.leetcode.com/problems/Longest-Substring-Without-Repeating-Characters/description/?x=1#y',
+      ),
+    ).toBe('longest-substring-without-repeating-characters');
+    expect(
+      leetcodeSlug(
+        'leetcode.com/problems/longest-substring-without-repeating-characters/solutions/123/abc',
+      ),
+    ).toBe('longest-substring-without-repeating-characters');
+    expect(
+      leetcodeSlug(
+        'https://evil.example/problems/longest-substring-without-repeating-characters/',
+      ),
+    ).toBeNull();
     expect(leetcodeSlug('javascript:alert(1)')).toBeNull();
   });
 
   it('matches by URL cell, then a URL in the title, then NNN., then title', () => {
     expect(
-      MATCHER.match('whatever', 'https://leetcode.com/problems/longest-substring-without-repeating-characters/editorial/'),
-    ).toEqual({ problemId: 'lc-3', title: 'Longest Substring Without Repeating Characters', by: 'url' });
+      MATCHER.match(
+        'whatever',
+        'https://leetcode.com/problems/longest-substring-without-repeating-characters/editorial/',
+      ),
+    ).toEqual({
+      problemId: 'lc-3',
+      title: 'Longest Substring Without Repeating Characters',
+      by: 'url',
+    });
     expect(
-      MATCHER.match('see https://leetcode.com/problems/longest-substring-without-repeating-characters/description/', ''),
+      MATCHER.match(
+        'see https://leetcode.com/problems/longest-substring-without-repeating-characters/description/',
+        '',
+      ),
     ).toMatchObject({ problemId: 'lc-3', by: 'url' });
     expect(MATCHER.match('3. Something else', '')).toMatchObject({
       problemId: 'lc-3',
       by: 'number',
     });
-    expect(MATCHER.match('longest substring, without repeating characters!', '')).toMatchObject({
+    expect(
+      MATCHER.match('longest substring, without repeating characters!', ''),
+    ).toMatchObject({
       problemId: 'lc-3',
       by: 'title',
     });
@@ -249,7 +282,10 @@ describe('catalog matching', () => {
 
   it('a blank title still tries the URL cell', () => {
     expect(
-      MATCHER.match('', 'https://leetcode.com/problems/longest-substring-without-repeating-characters/'),
+      MATCHER.match(
+        '',
+        'https://leetcode.com/problems/longest-substring-without-repeating-characters/',
+      ),
     ).toMatchObject({ problemId: 'lc-3', by: 'url' });
     expect(MATCHER.match('', '')).toBeNull();
   });
@@ -295,7 +331,13 @@ describe('analyzeImport + preview', () => {
       },
     });
     expect(preview.unmatched).toEqual([
-      { key: '0:4', file: 'Arrays.csv', line: 4, title: 'My Custom Puzzle', url: '' },
+      {
+        key: '0:4',
+        file: 'Arrays.csv',
+        line: 4,
+        title: 'My Custom Puzzle',
+        url: '',
+      },
     ]);
     expect(preview.previewHash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -312,7 +354,9 @@ describe('analyzeImport + preview', () => {
     ]);
     const preview = buildPreview(analysis, '/d', 'done', new Set());
     expect(preview.rows.map((r) => r.chosen)).toEqual([false, true]);
-    expect(preview.rows[0]?.warnings[0]).toMatch(/2 different rows match Longest Substring Without Repeating Characters/);
+    expect(preview.rows[0]?.warnings[0]).toMatch(
+      /2 different rows match Longest Substring Without Repeating Characters/,
+    );
     const plan = planCommit(analysis, new Set(), new Map());
     expect(plan.ok && plan.operations[0]?.row.mapped.body).toBe('newer idea');
     const picked = planCommit(
@@ -320,28 +364,37 @@ describe('analyzeImport + preview', () => {
       new Set(),
       new Map([['lc-3', { action: 'create', rowKey: '0:2' }]]),
     );
-    expect(picked.ok && picked.operations[0]?.row.mapped.body).toBe('older idea');
+    expect(picked.ok && picked.operations[0]?.row.mapped.body).toBe(
+      'older idea',
+    );
   });
 
   it('the hash covers dataDir, defaultStatus, file text and the note-exists flag', () => {
     const analysis = analyze([{ name: 'a.csv', text: SYN_A }]);
     const base = computePreviewHash(analysis, '/d', 'done', new Set());
     expect(computePreviewHash(analysis, '/d', 'done', new Set())).toBe(base);
-    expect(computePreviewHash(analysis, '/e', 'done', new Set())).not.toBe(base);
-    expect(computePreviewHash(analysis, '/d', 'to_revisit', new Set())).not.toBe(
+    expect(computePreviewHash(analysis, '/e', 'done', new Set())).not.toBe(
       base,
     );
-    expect(computePreviewHash(analysis, '/d', 'done', new Set(['lc-3']))).not.toBe(
-      base,
-    );
-    const edited = analyze([{ name: 'a.csv', text: SYN_A.replace('Edge', 'edge') }]);
+    expect(
+      computePreviewHash(analysis, '/d', 'to_revisit', new Set()),
+    ).not.toBe(base);
+    expect(
+      computePreviewHash(analysis, '/d', 'done', new Set(['lc-3'])),
+    ).not.toBe(base);
+    const edited = analyze([
+      { name: 'a.csv', text: SYN_A.replace('Edge', 'edge') },
+    ]);
     expect(computePreviewHash(edited, '/d', 'done', new Set())).not.toBe(base);
   });
 
   it('a file with a parse error is reported and contributes nothing', () => {
     const analysis = analyze([
       { name: 'bad.csv', text: 'Problem\n"unterminated' },
-      { name: 'ok.csv', text: 'Problem\nLongest Substring Without Repeating Characters\n' },
+      {
+        name: 'ok.csv',
+        text: 'Problem\nLongest Substring Without Repeating Characters\n',
+      },
     ]);
     expect(analysis.errors).toEqual([
       { file: 'bad.csv', error: expect.stringMatching(/unterminated/) },
@@ -358,7 +411,9 @@ describe('analyzeImport + preview', () => {
     );
     expect(tooMany).toMatchObject({ ok: false, status: 413 });
     expect(
-      parseImportFiles([{ name: 'a', text: 'x'.repeat(IMPORT_LIMITS.maxTotalBytes + 1) }]),
+      parseImportFiles([
+        { name: 'a', text: 'x'.repeat(IMPORT_LIMITS.maxTotalBytes + 1) },
+      ]),
     ).toMatchObject({ ok: false, status: 413 });
     expect(parseImportFiles([{ name: 1, text: '' }])).toMatchObject({
       ok: false,
@@ -367,20 +422,27 @@ describe('analyzeImport + preview', () => {
     expect(parseImportFiles([])).toMatchObject({ ok: false, status: 400 });
 
     const rows = 'Problem\n' + 'x\n'.repeat(IMPORT_LIMITS.maxRows + 1);
-    expect(analyzeImport([{ name: 'r.csv', text: rows }], MATCHER)).toMatchObject({
+    expect(
+      analyzeImport([{ name: 'r.csv', text: rows }], MATCHER),
+    ).toMatchObject({
       ok: false,
       status: 413,
     });
     const cols =
-      Array.from({ length: IMPORT_LIMITS.maxColumns + 1 }, (_, i) => `c${i}`).join(
-        ',',
-      ) + '\n';
-    expect(analyzeImport([{ name: 'c.csv', text: cols }], MATCHER)).toMatchObject({
+      Array.from(
+        { length: IMPORT_LIMITS.maxColumns + 1 },
+        (_, i) => `c${i}`,
+      ).join(',') + '\n';
+    expect(
+      analyzeImport([{ name: 'c.csv', text: cols }], MATCHER),
+    ).toMatchObject({
       ok: false,
       status: 413,
     });
     const cell = `Problem\n${'y'.repeat(IMPORT_LIMITS.maxCellBytes + 1)}\n`;
-    expect(analyzeImport([{ name: 'b.csv', text: cell }], MATCHER)).toMatchObject({
+    expect(
+      analyzeImport([{ name: 'b.csv', text: cell }], MATCHER),
+    ).toMatchObject({
       ok: false,
       status: 413,
     });
@@ -393,7 +455,9 @@ describe('planCommit + buildImportedNote', () => {
 
   it('defaults: create when new, skip on conflict', () => {
     const fresh = planCommit(analysis, new Set(), new Map());
-    expect(fresh.ok && fresh.operations.map((o) => o.action)).toEqual(['create']);
+    expect(fresh.ok && fresh.operations.map((o) => o.action)).toEqual([
+      'create',
+    ]);
     const conflict = planCommit(analysis, new Set(['lc-3']), new Map());
     expect(conflict.ok && conflict.operations.map((o) => o.action)).toEqual([
       'skip',
@@ -402,10 +466,18 @@ describe('planCommit + buildImportedNote', () => {
 
   it('rejects ids the preview did not produce and actions that do not fit', () => {
     expect(
-      planCommit(analysis, new Set(), new Map([['lc-2', { action: 'create' }]])),
+      planCommit(
+        analysis,
+        new Set(),
+        new Map([['lc-2', { action: 'create' }]]),
+      ),
     ).toMatchObject({ ok: false, status: 400 });
     expect(
-      planCommit(analysis, new Set(['lc-3']), new Map([['lc-3', { action: 'create' }]])),
+      planCommit(
+        analysis,
+        new Set(['lc-3']),
+        new Map([['lc-3', { action: 'create' }]]),
+      ),
     ).toMatchObject({ ok: false, status: 400 });
     expect(
       planCommit(analysis, new Set(), new Map([['lc-3', { action: 'merge' }]])),
@@ -425,14 +497,19 @@ describe('planCommit + buildImportedNote', () => {
       false,
     );
     expect(parseDecisions([]).ok).toBe(false);
-    const ok = parseDecisions({ 'lc-3': { action: 'merge', status: 'to_revisit' } });
+    const ok = parseDecisions({
+      'lc-3': { action: 'merge', status: 'to_revisit' },
+    });
     expect(ok.ok && ok.decisions.get('lc-3')).toEqual({
       action: 'merge',
       status: 'to_revisit',
     });
   });
 
-  const opFor = (action: 'create' | 'overwrite' | 'merge', status?: 'to_revisit') => {
+  const opFor = (
+    action: 'create' | 'overwrite' | 'merge',
+    status?: 'to_revisit',
+  ) => {
     const plan = planCommit(
       analysis,
       action === 'create' ? new Set() : new Set(['lc-3']),
@@ -488,7 +565,12 @@ describe('planCommit + buildImportedNote', () => {
       lastUpdated: '2025-01-01T00:00:00.000Z',
       attempts: 3,
     });
-    const picked = buildImportedNote(opFor('merge', 'to_revisit'), EXISTING, 'done', NOW);
+    const picked = buildImportedNote(
+      opFor('merge', 'to_revisit'),
+      EXISTING,
+      'done',
+      NOW,
+    );
     expect(picked.status).toBe('to_revisit');
   });
 });

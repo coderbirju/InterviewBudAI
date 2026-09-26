@@ -62,7 +62,7 @@ describe('router: /data', () => {
 });
 
 describe('DataPage', () => {
-  it('default state: active folder, source, note count, CSV placeholder', async () => {
+  it('default state: active folder, source, note count, CSV import section', async () => {
     mockedApi.fetchDataDir.mockResolvedValue({
       ...DEFAULT_STATUS,
       noteCount: 3,
@@ -74,7 +74,9 @@ describe('DataPage', () => {
     expect(screen.getByText('Default location')).toBeInTheDocument();
     expect(screen.getByTestId('note-count')).toHaveTextContent('3 notes');
     expect(screen.queryByText(/Found previous data/)).not.toBeInTheDocument();
-    expect(screen.getByText(/CSV import — coming next/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Import notes from CSV' }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Folder path')).toBeEnabled();
   });
 

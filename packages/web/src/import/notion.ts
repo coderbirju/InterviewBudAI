@@ -22,7 +22,10 @@ export interface MappedRow {
   /** `Notes` cell ('' when absent). */
   readonly notes: string;
   /** Other non-empty text columns, in column order. */
-  readonly sections: readonly { readonly header: string; readonly text: string }[];
+  readonly sections: readonly {
+    readonly header: string;
+    readonly text: string;
+  }[];
   /** Parsed `Last Visited` as ISO 8601, or null (→ import time). */
   readonly lastVisited: string | null;
   /** The composed note body (body + `## Notes` + `## <Header>` sections). */
@@ -64,7 +67,10 @@ interface ColumnPlan {
   readonly headers: readonly string[];
 }
 
-function indexOfKey(keys: readonly string[], ...wanted: string[]): number | null {
+function indexOfKey(
+  keys: readonly string[],
+  ...wanted: string[]
+): number | null {
   for (const w of wanted) {
     const i = keys.indexOf(w);
     if (i >= 0) return i;

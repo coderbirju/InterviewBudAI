@@ -52,7 +52,10 @@ export interface ImportCommitResult {
   readonly merged: number;
   readonly skipped: number;
   readonly unmatched: number;
-  readonly failed: readonly { readonly problemId: string; readonly error: string }[];
+  readonly failed: readonly {
+    readonly problemId: string;
+    readonly error: string;
+  }[];
   /** Absolute path of the pre-import snapshot. */
   readonly backup: string;
 }

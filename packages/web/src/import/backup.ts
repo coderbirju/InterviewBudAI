@@ -54,7 +54,10 @@ function compareBackups(a: string, b: string): number {
  * Snapshot `dataDir` and prune old snapshots. Returns the new backup's
  * absolute path.
  */
-export async function createBackup(dataDir: string, now: Date): Promise<string> {
+export async function createBackup(
+  dataDir: string,
+  now: Date,
+): Promise<string> {
   const root = path.join(dataDir, BACKUPS_DIR);
   await fs.mkdir(root, { recursive: true, mode: 0o700 });
   await fs.writeFile(path.join(root, '.gitignore'), '*\n', 'utf8');
