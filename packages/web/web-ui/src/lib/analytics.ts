@@ -95,6 +95,8 @@ export function barLength(
 /** Per-topic completion row (done / total + a proportional bar length). */
 export interface TopicCompletionBar {
   readonly topic: string;
+  /** Display label (curriculum label, else the raw topic id). */
+  readonly label: string;
   readonly done: number;
   readonly total: number;
   /** Completion fraction in [0, 1]; 0 when the topic has no problems. */
@@ -107,7 +109,8 @@ export interface TopicCompletionBar {
  * Build per-topic completion bars from the catalog. Each topic's `done` counts
  * problems whose status is `done`; the bar length is the completion fraction
  * (done/total) times `axisLength`. Topics with no problems yield fraction 0.
- * Order is preserved from the catalog (server-defined topic order).
+ * Order is preserved from the catalog — the server emits the curriculum's
+ * learning order (ADR 0003 amendment 2026-09-26); never re-sort here.
  */
 export function topicCompletionBars(
   catalog: CatalogResponse,
@@ -119,6 +122,7 @@ export function topicCompletionBars(
     const fraction = total > 0 ? done / total : 0;
     return {
       topic: topic.topic,
+      label: topic.label ?? topic.topic,
       done,
       total,
       fraction,

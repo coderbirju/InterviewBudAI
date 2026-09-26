@@ -33,7 +33,7 @@ export function TopicCompletionChart({
           <li key={bar.topic}>
             <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
               <span className="truncate font-medium text-slate-200">
-                {bar.topic}
+                {bar.label}
               </span>
               <span className="shrink-0 tabular-nums text-slate-400">
                 {bar.done} / {bar.total}
@@ -44,11 +44,11 @@ export function TopicCompletionChart({
               viewBox={`0 0 ${ROW_WIDTH} ${TRACK_HEIGHT}`}
               className="h-3 w-full"
               role="img"
-              aria-label={`${bar.topic}: ${bar.done} of ${bar.total} done (${pct}%)`}
+              aria-label={`${bar.label}: ${bar.done} of ${bar.total} done (${pct}%)`}
               preserveAspectRatio="none"
             >
               <title>
-                {bar.topic}: {bar.done} of {bar.total} done ({pct}%)
+                {bar.label}: {bar.done} of {bar.total} done ({pct}%)
               </title>
               {/* Track. */}
               <rect
