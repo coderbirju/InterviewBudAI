@@ -40,7 +40,11 @@ import type {
   TopicId,
   TopicStrength,
 } from '@ibai/storage';
-import { isNoteStatus, resolveNoteStatus } from '@ibai/storage';
+import {
+  isNoteStatus,
+  resolveNoteStatus,
+  LocalFileStorageAdapter,
+} from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import type { LlmProvider } from '@ibai/providers';
 import {
@@ -265,6 +269,10 @@ async function resolveStatuses(
  * Resolve the active data directory and a storage adapter for it, but only if
  * the directory actually exists. Returns `{ dataDir, storage: null }` when no
  * DB is configured so callers can produce a safe empty/clear state.
+ *
+ * Storage is ALWAYS built for the current `dataDir` (injected factory, else a
+ * `LocalFileStorageAdapter`) — never the boot-time `deps.storage` — so after a
+ * /setup switch no write can reach the old directory.
  */
 function resolveActiveStorage(deps: ApiDeps): {
   dataDir: string;
@@ -276,7 +284,7 @@ function resolveActiveStorage(deps: ApiDeps): {
   }
   const storage = deps.createStorage
     ? deps.createStorage(dataDir)
-    : deps.storage;
+    : new LocalFileStorageAdapter(dataDir);
   return { dataDir, storage };
 }
 
