@@ -12,15 +12,17 @@
  * `ibai_data_dir` cookie, so users who chose a custom folder that way now see
  * an empty default. Two kinds of "previous data" candidates are offered:
  *
- *   - `cookie` — the legacy cookie's path. It is CAPTURED in memory (per
- *     process) the first time a request that passed the Host/Origin checks
- *     carries it, so it can still be offered if the browser later drops it.
+ *   - `cookie` — the legacy cookie's path(s). Each distinct valid value seen on
+ *     a request that passed the Host check is remembered in memory (per
+ *     process, newest first, at most {@link MAX_COOKIE_CANDIDATES}), so it can
+ *     still be offered if the browser later drops or overwrites the cookie.
  *   - `legacy-default` — `~/.ibai/data` (ADR 0005 D2's default, still used by
  *     the frozen CLI).
  *
  * A candidate is offered only while recovery makes sense (not pinned, no
  * config.json yet) and only if it passes `validateSetupPath`, is an existing
- * directory other than the active one, and holds ≥ 1 parseable note. It is
+ * directory other than the active one, and holds ≥ 1 recognised note
+ * (`notes/<id>.md` with a matching frontmatter id in the catalog). It is
  * only ever a SUGGESTION: the server never reads or writes through it.
  * Accepting is a normal `POST /api/data-dir { path }`, re-validated from
  * scratch. Cookies are not port-isolated, so the cookie stays untrusted.
@@ -113,24 +115,41 @@ export function legacyDefaultDataDirFor(homeDir: string): string {
   return path.join(homeDir, '.ibai', 'data');
 }
 
-/** True when a file starts with a `---` frontmatter fence (optional BOM). */
-function hasFrontmatter(file: string): boolean {
+/** How much of a note file is read to find its frontmatter `id:`. */
+const NOTE_HEAD_BYTES = 4096;
+
+/**
+ * The `id:` value from a note's leading frontmatter block (`---` \u2026 `---`,
+ * optional BOM), read from the first {@link NOTE_HEAD_BYTES}. `undefined` when
+ * there is no frontmatter or no `id:` line. Never throws.
+ */
+function frontmatterId(file: string): string | undefined {
   let fd: number | undefined;
   try {
     fd = fs.openSync(file, 'r');
-    const head = Buffer.alloc(8);
+    const head = Buffer.alloc(NOTE_HEAD_BYTES);
     const read = fs.readSync(fd, head, 0, head.length, 0);
-    return head
+    const lines = head
       .subarray(0, read)
       .toString('utf8')
       .replace(/^\uFEFF/, '')
-      .startsWith('---');
+      .split(/\r?\n/);
+    if (lines[0]?.trim() !== '---') return undefined;
+    for (const line of lines.slice(1)) {
+      if (line.trim() === '---') return undefined;
+      const match = /^id:\s*(.*?)\s*$/.exec(line);
+      if (match) return match[1]?.replace(/^(['"])(.*)\1$/, '$2');
+    }
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
   }
 }
+
+/** Decides whether a problem id belongs to the shipped catalog. */
+export type ProblemIdCheck = (id: string) => boolean;
 
 /** Regular-file entries of a directory (empty on any error). */
 function filesIn(dir: string): string[] {
@@ -145,15 +164,21 @@ function filesIn(dir: string): string[] {
 }
 
 /**
- * Count the parseable notes: regular `<dir>/notes/*.md` files that open with a
- * frontmatter fence (the format-v1 note shape). Never throws: a missing or
- * unreadable directory counts as 0.
+ * Count the recognised InterviewBudAI notes (format v1, ADR 0009 D1): regular
+ * files `<dir>/notes/<id>.md` whose frontmatter `id:` equals `<id>` and — when
+ * `isKnownId` is given — whose id is in the catalog. An Obsidian/Jekyll page
+ * like `notes/recipe.md` with its own frontmatter does NOT count. This one
+ * rule drives `noteCount`, candidate eligibility and the dry-run hints. Never
+ * throws: a missing or unreadable directory counts as 0.
  */
-export function countNotes(dir: string): number {
+export function countNotes(dir: string, isKnownId?: ProblemIdCheck): number {
   const notesDir = path.join(dir, 'notes');
-  return filesIn(notesDir).filter(
-    (name) => name.endsWith('.md') && hasFrontmatter(path.join(notesDir, name)),
-  ).length;
+  return filesIn(notesDir).filter((name) => {
+    if (!name.endsWith('.md')) return false;
+    const id = name.slice(0, -'.md'.length);
+    if (id === '' || (isKnownId !== undefined && !isKnownId(id))) return false;
+    return frontmatterId(path.join(notesDir, name)) === id;
+  }).length;
 }
 
 /** Count saved quiz sessions (`quiz-sessions/*.json`, minus the pointer). */
@@ -192,20 +217,45 @@ export interface DataDirControlInit {
   readonly source: DataDirSource;
   /** Home directory holding `.interviewbudai/config.json` and `.ibai/data`. */
   readonly homeDir: string;
+  /** Catalog membership for note counting (see {@link countNotes}). */
+  readonly isKnownProblemId?: ProblemIdCheck;
 }
+
+/**
+ * How many distinct legacy-cookie paths are remembered (newest first).
+ *
+ * A small set, not "first wins" or "latest wins": the browser holds ONE
+ * `ibai_data_dir` value and any page on another localhost port can overwrite
+ * it, so a planted value must neither lock out the real one (first-wins) nor
+ * silently replace it (latest-wins). Keeping the few distinct valid values
+ * seen lets the user pick the folder they recognise; the bound keeps a flood
+ * from growing the list, and each entry must still be an existing folder with
+ * real InterviewBudAI notes that the user explicitly accepts.
+ */
+export const MAX_COOKIE_CANDIDATES = 3;
 
 /** Owns the active data dir + the legacy-recovery state (per process). */
 export class DataDirControl {
   private current: string;
   private currentSource: DataDirSource;
   private readonly homeDir: string;
-  private capturedCookiePath: string | undefined;
+  private readonly isKnownId: ProblemIdCheck | undefined;
+  /** Captured cookie paths, newest first (≤ {@link MAX_COOKIE_CANDIDATES}). */
+  private cookiePaths: string[] = [];
+  /** The last raw cookie value seen (skip re-checking an unchanged cookie). */
+  private lastCookieValue: string | undefined;
   private readonly dismissed = new Set<string>();
 
   constructor(init: DataDirControlInit) {
     this.current = init.dataDir;
     this.currentSource = init.source;
     this.homeDir = init.homeDir;
+    this.isKnownId = init.isKnownProblemId;
+  }
+
+  /** {@link countNotes} with this server's catalog. */
+  private notesIn(dir: string): number {
+    return countNotes(dir, this.isKnownId);
   }
 
   get dataDir(): string {
@@ -274,7 +324,7 @@ export class DataDirControl {
     }
     this.current = checked.path;
     this.currentSource = 'config';
-    this.capturedCookiePath = undefined;
+    this.cookiePaths = [];
     return { ok: true, path: checked.path };
   }
 
@@ -293,11 +343,11 @@ export class DataDirControl {
     }
     const dir = checked.path;
     const exists = directoryExists(dir);
-    const noteCount = exists ? countNotes(dir) : 0;
+    const noteCount = exists ? this.notesIn(dir) : 0;
     let hint: InspectionHint | undefined;
     if (exists && noteCount === 0) {
       const parent = path.dirname(dir);
-      if (path.basename(dir) === 'notes' && countNotes(parent) > 0) {
+      if (path.basename(dir) === 'notes' && this.notesIn(parent) > 0) {
         hint = { kind: 'use-parent', path: parent };
       } else if (hasAnyMarkdown(dir)) {
         hint = { kind: 'not-ibai-format' };
@@ -317,35 +367,38 @@ export class DataDirControl {
   }
 
   /**
-   * Inspect a request's Cookie header and capture a valid legacy cookie path
-   * (first valid one wins while it stays valid). Never switches anything.
+   * Inspect a request's Cookie header and remember a valid legacy cookie path
+   * (newest first, see {@link MAX_COOKIE_CANDIDATES}). Never switches anything.
    */
   observeLegacyCookie(cookieHeader: string | undefined): void {
-    // Cheap per-request path: once captured, validity is re-checked only when
-    // candidates are read (`legacyCandidates`, which drops a stale capture).
-    if (!cookieHeader || this.capturedCookiePath !== undefined) return;
-    if (!hasLegacyDataDirCookie(cookieHeader)) return;
-    if (!this.recoveryAllowed()) return;
+    if (!cookieHeader || !hasLegacyDataDirCookie(cookieHeader)) return;
     const raw = parseCookies(cookieHeader)[LEGACY_DATA_DIR_COOKIE];
-    if (raw === undefined || raw === '') return;
+    // Cheap per-request path: an unchanged cookie is not re-checked here
+    // (validity is re-checked whenever candidates are read).
+    if (raw === undefined || raw === '' || raw === this.lastCookieValue) return;
+    if (!this.recoveryAllowed()) return;
     const candidate = this.check(raw, 'cookie');
-    if (candidate !== undefined) {
-      this.capturedCookiePath = candidate.path;
-    }
+    if (candidate === undefined) return;
+    this.lastCookieValue = raw;
+    this.cookiePaths = [
+      candidate.path,
+      ...this.cookiePaths.filter((p) => p !== candidate.path),
+    ].slice(0, MAX_COOKIE_CANDIDATES);
   }
 
   /** The current candidates, each re-validated now. */
   legacyCandidates(): LegacyCandidate[] {
     if (!this.recoveryAllowed()) return [];
     const found: LegacyCandidate[] = [];
-    if (this.capturedCookiePath !== undefined) {
-      const fromCookie = this.check(this.capturedCookiePath, 'cookie');
-      if (fromCookie === undefined) {
-        this.capturedCookiePath = undefined;
-      } else {
+    const stillValid: string[] = [];
+    for (const cookiePath of this.cookiePaths) {
+      const fromCookie = this.check(cookiePath, 'cookie');
+      if (fromCookie !== undefined) {
+        stillValid.push(cookiePath);
         found.push(fromCookie);
       }
     }
+    this.cookiePaths = stillValid;
     const fromDefault = this.check(
       legacyDefaultDataDirFor(this.homeDir),
       'legacy-default',
@@ -364,7 +417,7 @@ export class DataDirControl {
     for (const candidate of this.legacyCandidates()) {
       this.dismissed.add(candidate.path);
     }
-    this.capturedCookiePath = undefined;
+    this.cookiePaths = [];
   }
 
   /** The `GET /api/data-dir` view of the current state. */
@@ -374,7 +427,7 @@ export class DataDirControl {
       source: this.currentSource,
       pinned: this.pinned,
       exists: directoryExists(this.current),
-      noteCount: countNotes(this.current),
+      noteCount: this.notesIn(this.current),
       formatVersion: CURRENT_FORMAT_VERSION,
       legacyCandidates: this.legacyCandidates(),
     };
@@ -394,7 +447,7 @@ export class DataDirControl {
     const dir = checked.path;
     if (dir === this.current || this.dismissed.has(dir)) return undefined;
     if (!directoryExists(dir)) return undefined;
-    const noteCount = countNotes(dir);
+    const noteCount = this.notesIn(dir);
     if (noteCount < 1) return undefined;
     return { path: dir, noteCount, origin };
   }

@@ -243,8 +243,11 @@ export function createCoachHandler(
   // The server's data dir: resolved ONCE here (or passed in by the
   // composition root, which already resolved it at boot). Mutated only via
   // `state.choose` (POST /setup, POST /api/data-dir).
+  // One catalog instance for the API and for recognising notes on disk.
+  const catalog = deps.catalog ?? createCatalogSource();
   const state = new DataDirControl({
     homeDir,
+    isKnownProblemId: (id) => catalog.getById(id) !== undefined,
     ...((): { dataDir: string; source: DataDirSource } => {
       if (deps.dataDir !== undefined) {
         return {
@@ -301,7 +304,7 @@ export function createCoachHandler(
         req.method,
         pathname,
         {
-          catalog: deps.catalog ?? createCatalogSource(),
+          catalog,
           createStorage: deps.createStorage,
           storage: deps.storage,
           dataDir: state.dataDir,

@@ -17,7 +17,7 @@ import {
   writeLocalConfig,
 } from './config.js';
 import type { ApiDataDirResponse } from './api.js';
-import { countNotes } from './data-dir-control.js';
+import { MAX_COOKIE_CANDIDATES, countNotes } from './data-dir-control.js';
 import { EXPIRE_LEGACY_DATA_DIR_COOKIE } from './security.js';
 
 /**
@@ -181,20 +181,44 @@ describe('GET /api/data-dir', () => {
     expect(res.status).toBe(405);
   });
 
-  it('countNotes counts only parseable notes/*.md (frontmatter), not other files', () => {
-    fs.mkdirSync(path.join(serverDir, 'notes', 'sub.md'), { recursive: true });
+  it('countNotes: only notes/<id>.md whose frontmatter id matches (and is in the catalog)', () => {
+    const notes = path.join(serverDir, 'notes');
+    fs.mkdirSync(path.join(notes, 'sub.md'), { recursive: true });
+    const known = (id: string) => CATALOG.getById(id) !== undefined;
+    const [a, b, c, d] = IDS;
+    fs.writeFileSync(path.join(notes, `${a}.md`), `---\nid: ${a}\n---\n`);
     fs.writeFileSync(
-      path.join(serverDir, 'notes', 'a.md'),
-      '---\nid: a\n---\n',
+      path.join(notes, `${b}.md`),
+      `\uFEFF---\r\nlastUpdated: x\r\nid: "${b}"\r\n---\r\n`,
     );
+    // id mismatch, id after the frontmatter, no frontmatter:
+    fs.writeFileSync(path.join(notes, `${c}.md`), `---\nid: ${a}\n---\n`);
+    fs.writeFileSync(path.join(notes, `${d}.md`), `---\nx: 1\n---\nid: ${d}\n`);
+    fs.writeFileSync(path.join(notes, 'plain.md'), '# no fm');
+    fs.writeFileSync(path.join(notes, 'b.txt'), `---\nid: b\n---\n`);
+    // Matches its own id but is not a catalog problem:
     fs.writeFileSync(
-      path.join(serverDir, 'notes', 'bom.md'),
-      '\uFEFF---\nid: b\n---\n',
+      path.join(notes, 'lc-999999.md'),
+      '---\nid: lc-999999\n---\n',
     );
-    fs.writeFileSync(path.join(serverDir, 'notes', 'plain.md'), '# no fm');
-    fs.writeFileSync(path.join(serverDir, 'notes', 'b.txt'), '---\n');
-    expect(countNotes(serverDir)).toBe(2);
-    expect(countNotes(path.join(root, 'missing'))).toBe(0);
+    // An Obsidian/Jekyll page with its own frontmatter:
+    fs.writeFileSync(
+      path.join(notes, 'recipe.md'),
+      '---\ntitle: my obsidian page\n---\n',
+    );
+    expect(countNotes(serverDir, known)).toBe(2);
+    expect(countNotes(serverDir)).toBe(3); // no catalog check \u2192 lc-999999 too
+    expect(countNotes(path.join(root, 'missing'), known)).toBe(0);
+  });
+
+  it('GET noteCount ignores notes whose id is not in the catalog', async () => {
+    fs.mkdirSync(path.join(serverDir, 'notes'));
+    fs.writeFileSync(
+      path.join(serverDir, 'notes', 'lc-999999.md'),
+      '---\nid: lc-999999\n---\n',
+    );
+    const body = await getDataDir(makeHandler({ dataDir: serverDir }));
+    expect(body.noteCount).toBe(0);
   });
 });
 
@@ -516,6 +540,57 @@ describe('legacy recovery candidates', () => {
       cookie: legacyCookie(empty),
     });
     expect(body.legacyCandidates).toEqual([]);
+  });
+
+  it('an Obsidian-style notes/recipe.md folder → not a candidate, and the dry run shows the not-ibai-format hint', async () => {
+    const vault = path.join(root, 'vault');
+    fs.mkdirSync(path.join(vault, 'notes'), { recursive: true });
+    fs.writeFileSync(
+      path.join(vault, 'notes', 'recipe.md'),
+      '---\ntitle: my obsidian page\n---\n\nFlour, eggs.\n',
+    );
+    const handler = makeHandler({ dataDir: serverDir });
+    const body = await getDataDir(handler, { cookie: legacyCookie(vault) });
+    expect(body.legacyCandidates).toEqual([]);
+
+    const dry = await postJson(handler, '/api/data-dir', {
+      path: vault,
+      dryRun: true,
+    });
+    expect(JSON.parse(dry.body)).toMatchObject({
+      noteCount: 0,
+      hint: { kind: 'not-ibai-format' },
+    });
+  });
+
+  it('a later, different valid cookie is offered too (newest first) — a planted value cannot squat', async () => {
+    const planted = path.join(root, 'planted');
+    await seedNotes(planted, IDS.slice(0, 1));
+    const handler = makeHandler({ dataDir: serverDir });
+    await getDataDir(handler, { cookie: legacyCookie(planted) });
+    const body = await getDataDir(handler, { cookie: legacyCookie(legacy) });
+    expect(body.legacyCandidates.map((c) => c.path)).toEqual([legacy, planted]);
+    // Seeing an older value again moves it to the front (no duplicates).
+    const again = await getDataDir(handler, { cookie: legacyCookie(planted) });
+    expect(again.legacyCandidates.map((c) => c.path)).toEqual([
+      planted,
+      legacy,
+    ]);
+  });
+
+  it(`remembers at most ${MAX_COOKIE_CANDIDATES} cookie paths`, async () => {
+    const handler = makeHandler({ dataDir: serverDir });
+    const dirs: string[] = [];
+    for (let i = 0; i < MAX_COOKIE_CANDIDATES + 2; i += 1) {
+      const dir = path.join(root, `cookie-${i}`);
+      await seedNotes(dir, IDS.slice(0, 1));
+      dirs.push(dir);
+      await getDataDir(handler, { cookie: legacyCookie(dir) });
+    }
+    const body = await getDataDir(handler);
+    expect(body.legacyCandidates.map((c) => c.path)).toEqual(
+      dirs.slice(-MAX_COOKIE_CANDIDATES).reverse(),
+    );
   });
 
   it.each([
