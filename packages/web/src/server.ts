@@ -13,8 +13,12 @@ import {
   resolveAnthropicModel,
 } from './config.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
-import { createCoachHandler } from './handler.js';
-import { securityHeaders, MAX_BODY_BYTES } from './security.js';
+import { createCoachHandler, precheckRequest } from './handler.js';
+import {
+  allowedHostsFor,
+  securityHeaders,
+  MAX_BODY_BYTES,
+} from './security.js';
 
 export interface ServerHandle {
   readonly url: string;
@@ -71,35 +75,59 @@ export function formatStartupBanner(input: {
   ];
 }
 
+/** Server timeouts: whole request, headers, idle keep-alive (ms). */
+export const REQUEST_TIMEOUT_MS = 30_000;
+export const HEADERS_TIMEOUT_MS = 10_000;
+export const KEEP_ALIVE_TIMEOUT_MS = 5_000;
+
+/** True when the declared `Content-Length` already exceeds `limit`. */
+export function declaresTooLarge(
+  req: http.IncomingMessage,
+  limit: number = MAX_BODY_BYTES,
+): boolean {
+  const declared = Number(req.headers['content-length']);
+  return Number.isFinite(declared) && declared > limit;
+}
+
 /**
- * Read the request body, buffering at most `limit` bytes. Resolves `null` when
- * the declared `Content-Length` or the bytes received exceed the cap. Excess
- * bytes are discarded as they arrive (never buffered); we still wait for the
- * end of the request so the client receives the 413 instead of a reset.
+ * Read the request body, buffering at most `limit` bytes. Resolves `null` as
+ * soon as more than `limit` bytes arrive (the caller answers 413 and closes).
+ * Bytes after that are discarded, never buffered; once `2 × limit` bytes have
+ * arrived in total the socket is destroyed so an endless (chunked) upload
+ * cannot keep it open.
  */
 export function readRequestBody(
   req: http.IncomingMessage,
   limit: number = MAX_BODY_BYTES,
 ): Promise<string | null> {
   return new Promise((resolve, reject) => {
-    const declared = Number(req.headers['content-length']);
-    let tooLarge = Number.isFinite(declared) && declared > limit;
     const chunks: Buffer[] = [];
     let received = 0;
+    let settled = false;
     req.on('data', (chunk: Buffer) => {
-      if (tooLarge) return;
       received += chunk.length;
+      if (settled) {
+        if (received > 2 * limit) req.destroy();
+        return;
+      }
       if (received > limit) {
-        tooLarge = true;
+        settled = true;
         chunks.length = 0;
+        resolve(null);
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () =>
-      resolve(tooLarge ? null : Buffer.concat(chunks).toString('utf8')),
-    );
-    req.on('error', reject);
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -178,33 +206,53 @@ export async function startServer(
     port,
   });
 
+  const allowedHosts = allowedHostsFor(port);
+
   const server = http.createServer(async (req, res) => {
     try {
-      // Read request body for POST requests (capped at MAX_BODY_BYTES).
+      const base = {
+        method: req.method ?? 'GET',
+        url: req.url ?? '/',
+        contentType: req.headers['content-type'],
+        headers: req.headers as Record<string, string | string[] | undefined>,
+      };
+
+      // Read the body only for POST, and only after the header-only checks
+      // (Host / Origin / Content-Type) pass and the declared length fits.
       let body: string | undefined;
       let bodyTooLarge = false;
+      // The body was not (fully) read: don't reuse the connection.
+      let closeAfter = false;
       if (req.method === 'POST') {
-        const read = await readRequestBody(req);
-        if (read === null) {
+        if (precheckRequest(base, allowedHosts) !== null) {
+          closeAfter = true;
+        } else if (declaresTooLarge(req)) {
           bodyTooLarge = true;
+          closeAfter = true;
         } else {
-          body = read;
+          const read = await readRequestBody(req);
+          if (read === null) {
+            bodyTooLarge = true;
+            closeAfter = true;
+          } else {
+            body = read;
+          }
         }
       }
 
-      const result = await handler({
-        method: req.method ?? 'GET',
-        url: req.url ?? '/',
-        body,
-        bodyTooLarge,
-        contentType: req.headers['content-type'],
-        headers: req.headers as Record<string, string | string[] | undefined>,
-      });
+      const result = await handler({ ...base, body, bodyTooLarge });
 
       const responseHeaders: Record<string, string> = {
         'Content-Type': result.contentType,
         ...result.headers,
+        ...(closeAfter ? { Connection: 'close' } : {}),
       };
+      if (bodyTooLarge) {
+        // Stop reading the oversized upload once the 413 is flushed. (Other
+        // unread bodies are small; Node drains them and honours
+        // `Connection: close` gracefully.)
+        res.once('finish', () => req.destroy());
+      }
       res.writeHead(result.status, responseHeaders);
       res.end(result.body);
     } catch (error) {
@@ -217,6 +265,11 @@ export async function startServer(
       res.end(message);
     }
   });
+
+  // Explicit timeouts so slow or stalled clients cannot hold sockets open.
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
 
   return new Promise((resolve, reject) => {
     // Surface bind failures (e.g. port already in use) instead of hanging.

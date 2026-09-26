@@ -143,6 +143,39 @@ function reject(
   };
 }
 
+/**
+ * The header-only localhost checks, in order: Host allowlist (DNS rebinding →
+ * 421), same-origin on mutating methods (CSRF → 403), and JSON-only `/api`
+ * writes (→ 415). Returns the rejection, or `null` to continue. Needs no body,
+ * so the transport runs it BEFORE reading one.
+ */
+export function precheckRequest(
+  req: Pick<HandlerRequest, 'method' | 'url' | 'contentType' | 'headers'>,
+  allowedHosts: ReadonlySet<string>,
+): HandlerResponse | null {
+  const pathname = new URL(req.url, 'http://localhost').pathname;
+  const isApi = isApiRoute(pathname);
+  if (!isAllowedHost(headerValue(req.headers, 'host'), allowedHosts)) {
+    return reject(isApi, 421, 'misdirected request: unexpected Host header');
+  }
+  if (isMutatingMethod(req.method)) {
+    const verdict = checkSameOrigin(req.headers, allowedHosts);
+    if (!verdict.ok) {
+      return reject(isApi, 403, verdict.reason);
+    }
+    const contentType =
+      req.contentType ?? headerValue(req.headers, 'content-type');
+    if (isApi && mediaType(contentType) !== 'application/json') {
+      return reject(
+        isApi,
+        415,
+        'unsupported media type: use Content-Type: application/json',
+      );
+    }
+  }
+  return null;
+}
+
 /** The 413 response for an over-cap body (JSON for `/api`, plain elsewhere). */
 export function payloadTooLarge(pathname: string): HandlerResponse {
   return reject(
@@ -239,12 +272,13 @@ export function createCoachHandler(
     const pathname = url.pathname;
     const isApi = isApiRoute(pathname);
 
-    // 1. Host allowlist (DNS rebinding).
-    if (!isAllowedHost(headerValue(req.headers, 'host'), allowedHosts)) {
-      return reject(isApi, 421, 'misdirected request: unexpected Host header');
+    // 1–3. Host allowlist, same-origin, JSON-only API writes (header-only).
+    const rejected = precheckRequest(req, allowedHosts);
+    if (rejected !== null) {
+      return rejected;
     }
 
-    // 2. Body-size cap (before any parsing).
+    // 4. Body-size cap (before any parsing).
     if (
       req.bodyTooLarge === true ||
       (req.body !== undefined &&
@@ -255,22 +289,6 @@ export function createCoachHandler(
 
     const contentType =
       req.contentType ?? headerValue(req.headers, 'content-type');
-
-    if (isMutatingMethod(req.method)) {
-      // 3. Same-origin check (CSRF).
-      const verdict = checkSameOrigin(req.headers, allowedHosts);
-      if (!verdict.ok) {
-        return reject(isApi, 403, verdict.reason);
-      }
-      // 4. JSON-only API writes (defeats "simple request" CSRF).
-      if (isApi && mediaType(contentType) !== 'application/json') {
-        return reject(
-          isApi,
-          415,
-          'unsupported media type: use Content-Type: application/json',
-        );
-      }
-    }
 
     const isGet = req.method === 'GET';
     const isPost = req.method === 'POST';
@@ -366,7 +384,13 @@ export function createCoachHandler(
           state.source = 'config';
         }
 
-        return serverPage(200, renderSetupSuccessHtml(checked.path));
+        return serverPage(
+          200,
+          renderSetupSuccessHtml(
+            checked.path,
+            pinned ? pinnedBy(state.source) : undefined,
+          ),
+        );
       }
       // Any other method on /setup.
       return {

@@ -232,6 +232,20 @@ describe('/setup persists the choice server-side', () => {
     expect(await noteIn(target)).toBe('survives restart');
   });
 
+  it('without an injected createStorage, writes after a switch never reach the boot dir', async () => {
+    const handler = makeHandler({
+      dataDir: serverDir,
+      // Boot storage points at the OLD dir; it must never be used.
+      storage: new LocalFileStorageAdapter(serverDir),
+      createStorage: undefined,
+    });
+    const target = path.join(root, 'switched');
+    expect((await postSetup(handler, target)).status).toBe(200);
+    expect((await postNote(handler, 'new dir only')).status).toBe(200);
+    expect(await noteIn(target)).toBe('new dir only');
+    expect(await noteIn(serverDir)).toBeNull();
+  });
+
   it('a second /setup replaces the persisted choice', async () => {
     const handler = makeHandler();
     await postSetup(handler, path.join(root, 'first'));
@@ -285,6 +299,12 @@ describe('a data dir pinned by flag/env', () => {
     expect(res.status).toBe(200);
     expect(fs.statSync(pinned()).isDirectory()).toBe(true);
     expect(fs.existsSync(localConfigPathFor(home))).toBe(false);
+    // The success page must not claim the choice was saved.
+    expect(res.body).toContain(
+      'pinned by the IBAI_DATA_DIR environment variable',
+    );
+    expect(res.body).toContain('created or verified');
+    expect(res.body).not.toContain('has been saved');
   });
 
   it('flag/env win over config.json', () => {
@@ -490,17 +510,135 @@ describe('over a real loopback socket', () => {
       ]);
       expect(await noteIn(defaultDataDirFor(home))).toBe('socket note');
       expect(fs.readdirSync(otherDir)).toEqual([]);
+    } finally {
+      await handle.close();
+    }
+  });
 
-      const tooBig = await request(port, {
-        method: 'POST',
-        path: `/api/notes/${PROBLEM_ID}`,
-        headers: writeHeaders,
-        body: JSON.stringify({ content: 'z'.repeat(MAX_BODY_BYTES) }),
+  /**
+   * Raw-socket exchange: send `head` (request line + headers), optionally
+   * flood a chunked body, and collect whatever comes back until the server
+   * closes the connection.
+   */
+  function rawExchange(
+    port: number,
+    head: string,
+    flood: boolean,
+  ): Promise<{ response: string; sent: number; ms: number }> {
+    return new Promise((resolve, reject) => {
+      const started = Date.now();
+      const socket = net.connect(port, '127.0.0.1');
+      const chunks: Buffer[] = [];
+      let sent = 0;
+      let closed = false;
+      const LIMIT = 16 * MAX_BODY_BYTES; // fail-safe: the server must cut us off
+      const chunk = Buffer.alloc(64 * 1024, 'a');
+      const frame = Buffer.concat([
+        Buffer.from(`${chunk.length.toString(16)}\r\n`),
+        chunk,
+        Buffer.from('\r\n'),
+      ]);
+      const pump = () => {
+        while (!closed && sent < LIMIT) {
+          sent += chunk.length;
+          if (!socket.write(frame)) {
+            socket.once('drain', pump);
+            return;
+          }
+        }
+        if (!closed) reject(new Error('server never closed the upload'));
+      };
+      socket.on('data', (c: Buffer) => chunks.push(c));
+      // A reset while we are still writing is an acceptable way to close.
+      socket.on('error', () => undefined);
+      socket.on('close', () => {
+        closed = true;
+        resolve({
+          response: Buffer.concat(chunks).toString('utf8'),
+          sent,
+          ms: Date.now() - started,
+        });
       });
-      expect(tooBig.status).toBe(413);
-      expect(JSON.parse(tooBig.body)).toHaveProperty('error');
-      expect(tooBig.headers['x-content-type-options']).toBe('nosniff');
-      expect(await noteIn(defaultDataDirFor(home))).toBe('socket note');
+      socket.write(head, () => {
+        if (flood) pump();
+      });
+    });
+  }
+
+  it('a huge declared Content-Length gets 413 fast, without the upload', async () => {
+    const port = await freePort();
+    const handle = await startServer({
+      env: {},
+      argv: [`--port=${port}`],
+      homeDir: home,
+      log: () => undefined,
+    });
+    try {
+      const host = `127.0.0.1:${port}`;
+      const { response, ms } = await rawExchange(
+        port,
+        `POST /api/notes/${PROBLEM_ID} HTTP/1.1\r\nHost: ${host}\r\n` +
+          `Origin: http://${host}\r\nContent-Type: application/json\r\n` +
+          `Content-Length: ${10 * 1024 * 1024 * 1024}\r\n\r\n`,
+        false,
+      );
+      expect(response.startsWith('HTTP/1.1 413')).toBe(true);
+      expect(response.toLowerCase()).toContain('connection: close');
+      expect(response).toContain('payload too large');
+      expect(ms).toBeLessThan(5_000);
+      expect(await noteIn(defaultDataDirFor(home))).toBeNull();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('a chunked upload over the limit is cut off (connection closed)', async () => {
+    const port = await freePort();
+    const handle = await startServer({
+      env: {},
+      argv: [`--port=${port}`],
+      homeDir: home,
+      log: () => undefined,
+    });
+    try {
+      const host = `127.0.0.1:${port}`;
+      const { response, sent } = await rawExchange(
+        port,
+        `POST /api/notes/${PROBLEM_ID} HTTP/1.1\r\nHost: ${host}\r\n` +
+          `Origin: http://${host}\r\nContent-Type: application/json\r\n` +
+          `Transfer-Encoding: chunked\r\n\r\n`,
+        true,
+      );
+      // Closed long before the fail-safe; the 413 usually arrives first.
+      expect(sent).toBeLessThan(16 * MAX_BODY_BYTES);
+      if (response !== '') {
+        expect(response.startsWith('HTTP/1.1 413')).toBe(true);
+      }
+      expect(await noteIn(defaultDataDirFor(home))).toBeNull();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('a cross-site POST is rejected (403) before its body is read', async () => {
+    const port = await freePort();
+    const handle = await startServer({
+      env: {},
+      argv: [`--port=${port}`],
+      homeDir: home,
+      log: () => undefined,
+    });
+    try {
+      const host = `127.0.0.1:${port}`;
+      const { response } = await rawExchange(
+        port,
+        `POST /api/notes/${PROBLEM_ID} HTTP/1.1\r\nHost: ${host}\r\n` +
+          `Origin: http://evil.com\r\nContent-Type: application/json\r\n` +
+          `Content-Length: ${10 * 1024 * 1024 * 1024}\r\n\r\n`,
+        false,
+      );
+      expect(response.startsWith('HTTP/1.1 403')).toBe(true);
+      expect(response.toLowerCase()).toContain('connection: close');
     } finally {
       await handle.close();
     }
