@@ -1,3 +1,4 @@
+import * as os from 'node:os';
 import type { StorageAdapter } from '@ibai/storage';
 import type { LlmProvider } from '@ibai/providers';
 import {
@@ -9,24 +10,30 @@ import {
 import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
 import {
-  parseCookies,
-  resolveDataDir,
+  isPinnedSource,
   resolvePort,
+  resolveServerDataDir,
   validateSetupPath,
   createDataDir,
+  writeLocalConfig,
+  localConfigPathFor,
 } from './config.js';
+import type { DataDirSource } from './config.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { isApiRoute, handleApiRoute } from './api.js';
 import {
   allowedHostsFor,
   checkSameOrigin,
   createCsrfToken,
+  hasLegacyDataDirCookie,
   headerValue,
   isAllowedHost,
   isMutatingMethod,
   mediaType,
   securityHeaders,
   tokensEqual,
+  EXPIRE_LEGACY_DATA_DIR_COOKIE,
+  MAX_BODY_BYTES,
   SERVER_PAGE_CSP,
 } from './security.js';
 
@@ -47,9 +54,8 @@ export interface AssessHandlerDeps {
 /**
  * Dependencies for the coach handler (DI).
  *
- * The provider is passed through to the JSON API (POST /api/chat); the
- * server-rendered coach page was retired in M6. Storage/catalog wiring is
- * likewise forwarded to the API and setup routes.
+ * The provider is passed through to the JSON API (the Quiz Master routes).
+ * Storage/catalog wiring is likewise forwarded to the API and setup routes.
  */
 export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly provider?: LlmProvider;
@@ -59,8 +65,20 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly catalog?: CurriculumSource;
   /** Factory to create storage adapter for a given data directory. */
   readonly createStorage?: (dataDir: string) => StorageAdapter;
-  /** Default data directory (from config). */
-  readonly defaultDataDir?: string;
+  /**
+   * The server's data directory, already resolved at boot by the composition
+   * root. When absent the handler resolves it ONCE at creation (flag > env >
+   * config.json > default) from `env`/`argv`/`homeDir`. Per-request code only
+   * ever uses this server state — never anything the browser sends.
+   */
+  readonly dataDir?: string;
+  /** Where `dataDir` came from; `'flag'`/`'env'` pin it (/setup refuses). */
+  readonly dataDirSource?: DataDirSource;
+  /**
+   * Home directory holding `.interviewbudai/config.json` (tests inject a temp
+   * dir). Defaults to `os.homedir()`.
+   */
+  readonly homeDir?: string;
   /** Environment variables for config resolution. */
   readonly env?: NodeJS.ProcessEnv;
   /** CLI argv for config resolution. */
@@ -71,20 +89,27 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
    * configured port (`resolvePort(env, argv)`).
    */
   readonly port?: number;
+  /** Sink for one-time warnings (default: console.warn). */
+  readonly warn?: (line: string) => void;
 }
 
 /**
  * Minimal request shape for the handler.
- * Supports POST bodies and headers for cookie-based routing.
+ * Supports POST bodies and headers.
  */
 export interface HandlerRequest {
   readonly method: string;
   readonly url: string;
   /** Optional request body (for POST requests). */
   readonly body?: string;
+  /**
+   * Set by the transport when the body exceeded {@link MAX_BODY_BYTES} and was
+   * not buffered; the handler answers 413.
+   */
+  readonly bodyTooLarge?: boolean;
   /** Optional content-type header. */
   readonly contentType?: string;
-  /** Optional headers map for cookie parsing and other header access. */
+  /** Optional headers map (Host, Origin, Cookie, ...). */
   readonly headers?: Record<string, string | string[] | undefined>;
 }
 
@@ -118,6 +143,15 @@ function reject(
   };
 }
 
+/** The 413 response for an over-cap body (JSON for `/api`, plain elsewhere). */
+export function payloadTooLarge(pathname: string): HandlerResponse {
+  return reject(
+    isApiRoute(pathname),
+    413,
+    `payload too large: request body exceeds ${MAX_BODY_BYTES} bytes`,
+  );
+}
+
 /**
  * A server-rendered HTML page response (script-free CSP). Uses
  * `Referrer-Policy: same-origin` (not the global `no-referrer`) so the /setup
@@ -142,20 +176,32 @@ function serverPage(
   };
 }
 
+/** Human-readable name of what pins the data dir. */
+function pinnedBy(source: DataDirSource): string {
+  return source === 'flag'
+    ? 'the --data-dir flag'
+    : 'the IBAI_DATA_DIR environment variable';
+}
+
 /**
  * Create the web handler (ADR 0006 M6 — the SPA is the whole app).
  *
  * The server surface is intentionally small:
- *   - `/api/*`   — JSON API the SPA consumes (catalog/notes/progress/config/chat)
+ *   - `/api/*`   — JSON API the SPA consumes (catalog/notes/progress/config/quiz)
  *   - `/setup`   — the one remaining server-rendered page: GET shows the
- *                  create-database form, POST creates the data dir + sets the
- *                  persistent `ibai_data_dir` cookie, then links back to the SPA
+ *                  create-database form, POST creates the data dir, persists
+ *                  it to `~/.interviewbudai/config.json` and switches the
+ *                  server's active data dir, then links back to the SPA
  *   - everything else (GET) — the React SPA bundle + assets, with an
  *                  index.html fallback for client-side routes
  *
+ * The SERVER owns the data directory (ADR 0005 amendment w2d): it is resolved
+ * once (flag > env > config.json > default) into handler state and only /setup
+ * can change it. The legacy `ibai_data_dir` cookie is ignored and expired.
+ *
  * Every request first passes the localhost hardening in `security.ts` (Host
- * allowlist, same-origin check on mutating methods, JSON-only `/api` writes),
- * and every response carries the security headers.
+ * allowlist, body-size cap, same-origin check on mutating methods, JSON-only
+ * `/api` writes), and every response carries the security headers.
  */
 export function createCoachHandler(
   deps: CoachHandlerDeps,
@@ -167,6 +213,26 @@ export function createCoachHandler(
   // only readable same-origin (Host allowlist + SOP), so a foreign page cannot
   // learn it.
   const setupCsrfToken = createCsrfToken();
+  const homeDir = deps.homeDir ?? os.homedir();
+
+  // The server's data dir: resolved ONCE here (or passed in by the
+  // composition root, which already resolved it at boot). Mutated only by a
+  // successful POST /setup.
+  const state: { dataDir: string; source: DataDirSource } = (() => {
+    if (deps.dataDir !== undefined) {
+      return {
+        dataDir: deps.dataDir,
+        source: deps.dataDirSource ?? 'default',
+      };
+    }
+    const resolved = resolveServerDataDir(deps.env, deps.argv, homeDir);
+    if (resolved.warning !== undefined) {
+      (deps.warn ?? ((line: string) => console.warn(line)))(
+        `Warning: ${resolved.warning}`,
+      );
+    }
+    return { dataDir: resolved.dataDir, source: resolved.source };
+  })();
 
   const route = async (req: HandlerRequest): Promise<HandlerResponse> => {
     const url = new URL(req.url, 'http://localhost');
@@ -178,16 +244,25 @@ export function createCoachHandler(
       return reject(isApi, 421, 'misdirected request: unexpected Host header');
     }
 
+    // 2. Body-size cap (before any parsing).
+    if (
+      req.bodyTooLarge === true ||
+      (req.body !== undefined &&
+        Buffer.byteLength(req.body, 'utf8') > MAX_BODY_BYTES)
+    ) {
+      return payloadTooLarge(pathname);
+    }
+
     const contentType =
       req.contentType ?? headerValue(req.headers, 'content-type');
 
     if (isMutatingMethod(req.method)) {
-      // 2. Same-origin check (CSRF).
+      // 3. Same-origin check (CSRF).
       const verdict = checkSameOrigin(req.headers, allowedHosts);
       if (!verdict.ok) {
         return reject(isApi, 403, verdict.reason);
       }
-      // 3. JSON-only API writes (defeats "simple request" CSRF).
+      // 4. JSON-only API writes (defeats "simple request" CSRF).
       if (isApi && mediaType(contentType) !== 'application/json') {
         return reject(
           isApi,
@@ -200,13 +275,10 @@ export function createCoachHandler(
     const isGet = req.method === 'GET';
     const isPost = req.method === 'POST';
 
-    // /api/* — JSON API layer (ADR 0006 D4). Always JSON, never HTML; data-dir
-    // resolved per-request via the cookie>env>default precedence. Unknown /api
-    // paths 404 (JSON), wrong methods 405 (JSON). Routed FIRST so the SPA
-    // catch-all never shadows it.
+    // /api/* — JSON API layer (ADR 0006 D4). Always JSON, never HTML; uses the
+    // server's data dir. Unknown /api paths 404 (JSON), wrong methods 405
+    // (JSON). Routed FIRST so the SPA catch-all never shadows it.
     if (isApi) {
-      const apiCookieHeader = headerValue(req.headers, 'cookie');
-      const apiCookieDataDir = parseCookies(apiCookieHeader)['ibai_data_dir'];
       return handleApiRoute(
         req.method,
         pathname,
@@ -214,25 +286,26 @@ export function createCoachHandler(
           catalog: deps.catalog ?? createCatalogSource(),
           createStorage: deps.createStorage,
           storage: deps.storage,
-          defaultDataDir: deps.defaultDataDir,
+          dataDir: state.dataDir,
           provider: deps.provider,
           providerLabel: deps.providerLabel,
-          env: deps.env,
-          argv: deps.argv,
         },
-        apiCookieDataDir,
         req.body,
       );
     }
 
     // /setup — the one remaining server-rendered page (create-database flow).
-    // GET shows the form; POST creates the directory and sets the persistent
-    // cookie. Routed before the SPA catch-all so it is never shadowed.
+    // Routed before the SPA catch-all so it is never shadowed.
     if (pathname === '/setup') {
-      const defaultDataDir =
-        deps.defaultDataDir ?? resolveDataDir(deps.env, deps.argv);
+      const pinned = isPinnedSource(state.source);
+      const pinnedNotice = pinned
+        ? `The data directory is pinned to ${state.dataDir} by ${pinnedBy(state.source)}; /setup can create it but cannot change it. Restart the server without it to choose a different location here.`
+        : undefined;
       if (isGet) {
-        return serverPage(200, renderSetupHtml(defaultDataDir, setupCsrfToken));
+        return serverPage(
+          200,
+          renderSetupHtml(state.dataDir, setupCsrfToken, pinnedNotice),
+        );
       }
       if (isPost) {
         if (mediaType(contentType) !== 'application/x-www-form-urlencoded') {
@@ -248,10 +321,20 @@ export function createCoachHandler(
         }
 
         const checked = validateSetupPath(
-          formParams.get('dataDir') ?? defaultDataDir,
+          formParams.get('dataDir') ?? state.dataDir,
         );
         if (!checked.ok) {
           return serverPage(400, renderSetupErrorHtml(checked.error));
+        }
+
+        // A pinned data dir may be created here, never changed.
+        if (pinned && checked.path !== state.dataDir) {
+          return serverPage(
+            400,
+            renderSetupErrorHtml(
+              `The data directory is pinned to ${state.dataDir} by ${pinnedBy(state.source)}, so /setup cannot change it. Restart the server without it to choose ${checked.path}.`,
+            ),
+          );
         }
 
         try {
@@ -265,11 +348,25 @@ export function createCoachHandler(
           return serverPage(400, renderSetupErrorHtml(message));
         }
 
-        // Set the persistent cookie and return the success page.
-        const cookieValue = encodeURIComponent(checked.path);
-        return serverPage(200, renderSetupSuccessHtml(checked.path), {
-          'Set-Cookie': `ibai_data_dir=${cookieValue}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
-        });
+        if (!pinned) {
+          // Persist the choice (atomic, 0600) BEFORE switching, so the server
+          // never uses a dir it would forget on restart.
+          try {
+            writeLocalConfig(homeDir, checked.path);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return serverPage(
+              400,
+              renderSetupErrorHtml(
+                `Could not save your choice to ${localConfigPathFor(homeDir)}: ${message}`,
+              ),
+            );
+          }
+          state.dataDir = checked.path;
+          state.source = 'config';
+        }
+
+        return serverPage(200, renderSetupSuccessHtml(checked.path));
       }
       // Any other method on /setup.
       return {
@@ -301,7 +398,16 @@ export function createCoachHandler(
   return async (req: HandlerRequest): Promise<HandlerResponse> => {
     const res = await route(req);
     // Security headers on every response; a route's own CSP (server pages)
-    // overrides the SPA default.
-    return { ...res, headers: { ...securityHeaders(), ...res.headers } };
+    // overrides the SPA default. A legacy `ibai_data_dir` cookie is never
+    // read — only expired.
+    const expireLegacy: Record<string, string> = hasLegacyDataDirCookie(
+      headerValue(req.headers, 'cookie'),
+    )
+      ? { 'Set-Cookie': EXPIRE_LEGACY_DATA_DIR_COOKIE }
+      : {};
+    return {
+      ...res,
+      headers: { ...securityHeaders(), ...res.headers, ...expireLegacy },
+    };
   };
 }

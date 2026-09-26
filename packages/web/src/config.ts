@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -6,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 /**
  * Resolve the data directory path.
  * Precedence: --data-dir CLI flag > IBAI_DATA_DIR env > ~/.interviewbudai/data
+ *
+ * Ignores the persisted config.json; the web server resolves its data dir with
+ * {@link resolveServerDataDir} (flag > env > config.json > default).
  */
 export function resolveDataDir(
   env: NodeJS.ProcessEnv = process.env,
@@ -49,15 +53,179 @@ export function isDataDirExplicit(
   return Boolean(env.IBAI_DATA_DIR);
 }
 
-export interface BootDataDir {
-  /** Absolute data directory the server will use by default. */
+/** Where the active data directory came from (highest precedence first). */
+export type DataDirSource = 'flag' | 'env' | 'config' | 'default';
+
+/**
+ * True when the data dir is pinned by the operator (--data-dir / IBAI_DATA_DIR)
+ * and therefore must not be changed through /setup.
+ */
+export function isPinnedSource(source: DataDirSource): boolean {
+  return source === 'flag' || source === 'env';
+}
+
+export interface ResolvedDataDir {
+  /** Absolute, normalized data directory. */
   readonly dataDir: string;
-  /** Chosen via --data-dir / IBAI_DATA_DIR (never auto-created). */
+  readonly source: DataDirSource;
+  /** Set when config.json exists but was ignored (invalid). Never a secret. */
+  readonly warning?: string;
+}
+
+/** `<home>/.interviewbudai` — holds config.json and the default data dir. */
+export function localConfigDirFor(homeDir: string = os.homedir()): string {
+  return path.join(homeDir, '.interviewbudai');
+}
+
+/** `<home>/.interviewbudai/config.json` — the persisted data-dir choice. */
+export function localConfigPathFor(homeDir: string = os.homedir()): string {
+  return path.join(localConfigDirFor(homeDir), 'config.json');
+}
+
+/** config.json is tiny; anything larger is treated as invalid. */
+const MAX_LOCAL_CONFIG_BYTES = 64 * 1024;
+
+export type LocalConfigRead =
+  | { readonly status: 'absent' }
+  | { readonly status: 'ok'; readonly dataDir: string }
+  | { readonly status: 'invalid'; readonly error: string };
+
+/**
+ * Read the persisted local config (`{ "dataDir": "<abs path>" }`). The file is
+ * UNTRUSTED input: it must parse as a JSON object whose `dataDir` is an
+ * absolute string without NUL bytes that is not a filesystem root. Never
+ * throws; anything else is `invalid` (the caller warns and falls back).
+ */
+export function readLocalConfig(
+  homeDir: string = os.homedir(),
+): LocalConfigRead {
+  const file = localConfigPathFor(homeDir);
+  let text: string;
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) {
+      return { status: 'invalid', error: 'not a regular file' };
+    }
+    if (stat.size > MAX_LOCAL_CONFIG_BYTES) {
+      return { status: 'invalid', error: 'file is too large' };
+    }
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { status: 'absent' };
+    }
+    return {
+      status: 'invalid',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { status: 'invalid', error: 'not valid JSON' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { status: 'invalid', error: 'expected a JSON object' };
+  }
+  const dataDir = (parsed as Record<string, unknown>).dataDir;
+  if (typeof dataDir !== 'string' || dataDir === '') {
+    return { status: 'invalid', error: '"dataDir" must be a non-empty string' };
+  }
+  if (dataDir.includes('\0')) {
+    return { status: 'invalid', error: '"dataDir" must not contain NUL bytes' };
+  }
+  if (!path.isAbsolute(dataDir)) {
+    return { status: 'invalid', error: '"dataDir" must be an absolute path' };
+  }
+  const normalized = path.resolve(dataDir);
+  if (path.parse(normalized).root === normalized) {
+    return {
+      status: 'invalid',
+      error: '"dataDir" must not be a filesystem root',
+    };
+  }
+  return { status: 'ok', dataDir: normalized };
+}
+
+/**
+ * Persist the data-dir choice to `<home>/.interviewbudai/config.json`
+ * atomically: write a 0600 temp file in the same directory, then rename over
+ * the target. The config directory is created 0700 if missing. The file holds
+ * no secrets.
+ */
+export function writeLocalConfig(homeDir: string, dataDir: string): void {
+  const dir = localConfigDirFor(homeDir);
+  const firstCreated = fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (firstCreated !== undefined) {
+    // mkdir's mode is filtered by the umask; enforce owner-only explicitly.
+    fs.chmodSync(dir, 0o700);
+  }
+  const file = localConfigPathFor(homeDir);
+  const tmp = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    // 'wx' refuses to reuse anything already at the temp path.
+    fs.writeFileSync(tmp, `${JSON.stringify({ dataDir }, null, 2)}\n`, {
+      mode: 0o600,
+      flag: 'wx',
+    });
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/**
+ * Resolve the server's data directory ONCE (at boot). Precedence:
+ * `--data-dir` flag > `IBAI_DATA_DIR` env > persisted config.json > default
+ * `<home>/.interviewbudai/data`. An invalid config.json is ignored with a
+ * `warning` (never throws). The browser has no say in this.
+ */
+export function resolveServerDataDir(
+  env: NodeJS.ProcessEnv = process.env,
+  argv?: string[],
+  homeDir: string = os.homedir(),
+): ResolvedDataDir {
+  const flag = argv?.find((arg) => arg.startsWith('--data-dir='));
+  if (flag !== undefined) {
+    return {
+      dataDir: path.resolve(flag.slice('--data-dir='.length)),
+      source: 'flag',
+    };
+  }
+  if (env.IBAI_DATA_DIR) {
+    return { dataDir: path.resolve(env.IBAI_DATA_DIR), source: 'env' };
+  }
+  const config = readLocalConfig(homeDir);
+  if (config.status === 'ok') {
+    return { dataDir: config.dataDir, source: 'config' };
+  }
+  const dataDir = defaultDataDirFor(homeDir);
+  if (config.status === 'invalid') {
+    return {
+      dataDir,
+      source: 'default',
+      warning: `ignoring invalid ${localConfigPathFor(homeDir)} (${config.error}); using the default data directory`,
+    };
+  }
+  return { dataDir, source: 'default' };
+}
+
+export interface BootDataDir {
+  /** Absolute data directory the server will use. */
+  readonly dataDir: string;
+  /** Where it came from (flag > env > config > default). */
+  readonly source: DataDirSource;
+  /** Chosen via --data-dir / IBAI_DATA_DIR (pinned; never auto-created). */
   readonly explicit: boolean;
   /** This boot created the default directory (first run). */
   readonly created: boolean;
   /** The directory exists after boot preparation. */
   readonly exists: boolean;
+  /** An invalid config.json was ignored (warned once at boot). */
+  readonly warning?: string;
 }
 
 /**
@@ -65,8 +233,9 @@ export interface BootDataDir {
  * default (`~/.interviewbudai/data`, mode 0700) so the app is usable
  * immediately without visiting /setup.
  *
- * An EXPLICIT directory (--data-dir / IBAI_DATA_DIR) is never created here: a
- * typo in an explicit path must not silently create a stray directory. The
+ * Only the DEFAULT is ever created here. An explicit directory (--data-dir /
+ * IBAI_DATA_DIR) or one persisted in config.json is not: a typo, or a
+ * directory the user has since removed, must not silently reappear. The
  * caller reports it as missing; /setup can still create it.
  */
 export function prepareBootDataDir(
@@ -74,20 +243,26 @@ export function prepareBootDataDir(
   argv?: string[],
   homeDir?: string,
 ): BootDataDir {
-  const dataDir = resolveDataDir(env, argv, homeDir);
-  const explicit = isDataDirExplicit(env, argv);
+  const resolved = resolveServerDataDir(env, argv, homeDir);
+  const { dataDir, source } = resolved;
+  const base = {
+    dataDir,
+    source,
+    explicit: isPinnedSource(source),
+    ...(resolved.warning !== undefined ? { warning: resolved.warning } : {}),
+  };
 
   if (directoryExists(dataDir)) {
-    return { dataDir, explicit, created: false, exists: true };
+    return { ...base, created: false, exists: true };
   }
-  if (explicit) {
-    return { dataDir, explicit, created: false, exists: false };
+  if (source !== 'default') {
+    return { ...base, created: false, exists: false };
   }
 
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   // mkdir's mode is filtered by the umask; enforce owner-only explicitly.
   fs.chmodSync(dataDir, 0o700);
-  return { dataDir, explicit, created: true, exists: true };
+  return { ...base, created: true, exists: true };
 }
 
 export type ProviderStatus =
@@ -260,8 +435,14 @@ export function parseCookies(
   for (const pair of cookieHeader.split(';')) {
     const [key, ...rest] = pair.trim().split('=');
     if (key) {
-      // URL decode the value and rejoin any '=' that were in the value
-      cookies[key] = decodeURIComponent(rest.join('='));
+      // URL decode the value and rejoin any '=' that were in the value. The
+      // header is untrusted: a malformed escape keeps the raw value.
+      const raw = rest.join('=');
+      try {
+        cookies[key] = decodeURIComponent(raw);
+      } catch {
+        cookies[key] = raw;
+      }
     }
   }
   return cookies;
@@ -286,46 +467,6 @@ export function directoryExists(dirPath: string): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Resolve data directory with cookie support.
- * Precedence: cookie ibai_data_dir (if set AND exists) > CLI flag > env > default
- */
-export function resolveDataDirWithCookie(
-  cookieDataDir: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-  argv?: string[],
-  defaultDir?: string,
-): string {
-  // Cookie takes highest precedence IF the directory exists
-  if (cookieDataDir) {
-    const expanded = expandTilde(cookieDataDir);
-    const resolved = path.resolve(expanded);
-    if (directoryExists(resolved)) {
-      return resolved;
-    }
-  }
-
-  // Fall back to standard resolution, using explicit default if provided
-  if (defaultDir !== undefined) {
-    // Check CLI flag first
-    if (argv) {
-      for (const arg of argv) {
-        if (arg.startsWith('--data-dir=')) {
-          return path.resolve(arg.slice('--data-dir='.length));
-        }
-      }
-    }
-    // Check env var
-    if (env.IBAI_DATA_DIR) {
-      return path.resolve(env.IBAI_DATA_DIR);
-    }
-    // Use the explicitly provided default
-    return path.resolve(defaultDir);
-  }
-
-  return resolveDataDir(env, argv);
 }
 
 /**

@@ -14,7 +14,7 @@ import {
 } from './config.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
 import { createCoachHandler } from './handler.js';
-import { securityHeaders } from './security.js';
+import { securityHeaders, MAX_BODY_BYTES } from './security.js';
 
 export interface ServerHandle {
   readonly url: string;
@@ -72,14 +72,43 @@ export function formatStartupBanner(input: {
 }
 
 /**
- * Read the full request body from an IncomingMessage.
+ * Read the request body, buffering at most `limit` bytes. Resolves `null` as
+ * soon as the declared `Content-Length` or the bytes received exceed the cap;
+ * the rest of the body is discarded, never buffered.
  */
-function readRequestBody(req: http.IncomingMessage): Promise<string> {
+export function readRequestBody(
+  req: http.IncomingMessage,
+  limit: number = MAX_BODY_BYTES,
+): Promise<string | null> {
   return new Promise((resolve, reject) => {
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > limit) {
+      req.resume();
+      resolve(null);
+      return;
+    }
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    let received = 0;
+    let done = false;
+    const onData = (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > limit) {
+        done = true;
+        chunks.length = 0;
+        req.off('data', onData);
+        req.resume();
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    };
+    req.on('data', onData);
+    req.on('end', () => {
+      if (!done) resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', (err) => {
+      if (!done) reject(err);
+    });
   });
 }
 
@@ -101,9 +130,13 @@ export async function startServer(
   const argv = opts?.argv;
   const log = opts?.log ?? ((line: string) => console.log(line));
 
-  // First run: create the canonical default data dir so the app is usable
-  // immediately. Explicit --data-dir / IBAI_DATA_DIR paths are not created.
+  // Resolve the server's data dir ONCE (flag > env > config.json > default).
+  // First run: create the canonical default so the app is usable immediately;
+  // explicit or persisted paths are not created.
   const bootData = prepareBootDataDir(env, argv, opts?.homeDir);
+  if (bootData.warning !== undefined) {
+    log(`Warning: ${bootData.warning}`);
+  }
   const dataDir = bootData.dataDir;
   const port = resolvePort(env, argv);
   const host = resolveHost();
@@ -114,10 +147,10 @@ export async function startServer(
   const ollamaUrl = resolveOllamaUrl(env);
   const ollamaModel = resolveOllamaModel(env);
 
-  // Create storage adapter (default for routes that don't use cookie)
+  // Storage adapter for the boot data dir (the handler requires one).
   const storage = new LocalFileStorageAdapter(dataDir);
 
-  // Create storage factory for per-request cookie-aware storage resolution
+  // Storage factory for the server's CURRENT data dir (/setup can switch it).
   const createStorage = (dir: string) => new LocalFileStorageAdapter(dir);
 
   // Create provider: Anthropic if key+model, else Ollama if model, else undefined (NO demo fallback)
@@ -144,7 +177,10 @@ export async function startServer(
     provider,
     providerLabel,
     createStorage,
-    defaultDataDir: dataDir,
+    // The server owns the data dir: resolved once above, never per request.
+    dataDir,
+    dataDirSource: bootData.source,
+    homeDir: opts?.homeDir,
     env,
     argv,
     // The Host allowlist is pinned to the port we actually bind.
@@ -153,16 +189,23 @@ export async function startServer(
 
   const server = http.createServer(async (req, res) => {
     try {
-      // Read request body for POST requests
+      // Read request body for POST requests (capped at MAX_BODY_BYTES).
       let body: string | undefined;
+      let bodyTooLarge = false;
       if (req.method === 'POST') {
-        body = await readRequestBody(req);
+        const read = await readRequestBody(req);
+        if (read === null) {
+          bodyTooLarge = true;
+        } else {
+          body = read;
+        }
       }
 
       const result = await handler({
         method: req.method ?? 'GET',
         url: req.url ?? '/',
         body,
+        bodyTooLarge,
         contentType: req.headers['content-type'],
         headers: req.headers as Record<string, string | string[] | undefined>,
       });
@@ -170,6 +213,8 @@ export async function startServer(
       const responseHeaders: Record<string, string> = {
         'Content-Type': result.contentType,
         ...result.headers,
+        // Unread body bytes were discarded; don't reuse this connection.
+        ...(bodyTooLarge ? { Connection: 'close' } : {}),
       };
       res.writeHead(result.status, responseHeaders);
       res.end(result.body);
