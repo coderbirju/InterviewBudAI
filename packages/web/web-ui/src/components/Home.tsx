@@ -295,7 +295,7 @@ export function Home(): JSX.Element {
     );
   }
 
-  // No DB configured — call-to-action to create one (links to existing /setup).
+  // No DB configured — call-to-action to create one (links to the /data page).
   if (config && !config.dbConfigured) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-800/40 p-8 text-center">
@@ -308,7 +308,7 @@ export function Home(): JSX.Element {
           one to start tracking problems, statuses, and notes.
         </p>
         <a
-          href="/setup"
+          href="/data"
           className="mt-5 inline-block rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
         >
           Create your database

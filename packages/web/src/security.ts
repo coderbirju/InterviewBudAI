@@ -189,7 +189,9 @@ export const MAX_BODY_BYTES = 1024 * 1024;
 /**
  * The retired data-dir cookie (ADR 0005 amendment w2d). Cookies are not
  * port-isolated, so a page on any other localhost port could set it; the
- * server no longer reads it and expires it whenever a request carries it.
+ * server never uses it to select the data dir. It is only read as a
+ * recovery SUGGESTION (ADR 0009 D1, `data-dir-control.ts`) and expired once
+ * the user switches folders or dismisses that suggestion.
  */
 export const LEGACY_DATA_DIR_COOKIE = 'ibai_data_dir';
 

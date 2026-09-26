@@ -126,7 +126,7 @@ describe('createCoachHandler (M6 server surface)', () => {
       expect(body.dbConfigured).toBe(false);
     });
 
-    it('GET /api/config ignores a legacy cookie dir and expires the cookie', async () => {
+    it('GET /api/config ignores a legacy cookie dir (kept as a hint until switch/dismiss, ADR 0009)', async () => {
       const handler = createHandler();
       const res = await handler({
         method: 'GET',
@@ -140,9 +140,7 @@ describe('createCoachHandler (M6 server surface)', () => {
       // The server's (missing) dir wins; the cookie's existing dir is ignored.
       expect(body.dbConfigured).toBe(false);
       expect(body.dataDir).toBeUndefined();
-      expect(res.headers?.['Set-Cookie']).toBe(
-        'ibai_data_dir=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict',
-      );
+      expect(res.headers?.['Set-Cookie']).toBeUndefined();
     });
 
     it('GET /api/catalog and /api/progress return 200 JSON', async () => {

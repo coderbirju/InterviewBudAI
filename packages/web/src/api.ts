@@ -17,6 +17,11 @@
  *   GET  /api/competency  — quiz-derived competency signals (weak/strong topics
  *                           + recurring miss patterns); safe empty when no DB
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
+ *   GET  /api/data-dir    — active folder, source, pinned, exists, noteCount,
+ *                           formatVersion, legacyCandidates (ADR 0009 D1)
+ *   POST /api/data-dir    — { path, dryRun? } → dry run: report what is there;
+ *                           else validate, create, persist, switch
+ *   POST /api/data-dir/legacy/dismiss — stop offering previous-data folders
  *   POST /api/quiz/start|new    — start / reshuffle a quiz session
  *   GET  /api/quiz/session      — resume the active session
  *   POST /api/quiz/answer       — submit an answer (verdict + advance)
@@ -68,6 +73,12 @@ import type { RandomSource } from './quiz.js';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists } from './config.js';
+import { settlesLegacy } from './data-dir-control.js';
+import type {
+  DataDirControl,
+  DataDirInspection,
+  DataDirStatus,
+} from './data-dir-control.js';
 import type { HandlerResponse } from './handler.js';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
@@ -165,6 +176,16 @@ export interface ApiNoteResponse {
   readonly lastUpdated: string | null;
 }
 
+/**
+ * GET /api/data-dir (and every successful switching/dismissing POST) response
+ * shape: `{ dataDir, source, pinned, exists, noteCount, formatVersion,
+ * legacyCandidates: [{ path, noteCount, origin }] }` (ADR 0009 D1).
+ */
+export type ApiDataDirResponse = DataDirStatus;
+
+/** `POST /api/data-dir { path, dryRun: true }` response shape (no writes). */
+export type ApiDataDirInspection = DataDirInspection;
+
 /** GET /api/config response shape. */
 export interface ApiConfigResponse {
   readonly dbConfigured: boolean;
@@ -220,6 +241,11 @@ export interface ApiDeps {
    * Absent directory on disk → the safe "no DB configured" states.
    */
   readonly dataDir: string;
+  /**
+   * The server's data-dir controller (the handler's single source of truth).
+   * Required for the `/api/data-dir*` routes (absent → they 404).
+   */
+  readonly dataDirControl?: DataDirControl;
   /** LLM provider for the quiz routes. Absent → 400 (provider required). */
   readonly provider?: LlmProvider;
   readonly providerLabel?: string;
@@ -699,6 +725,11 @@ export async function handleApiRoute(
         ...(dbConfigured ? { dataDir } : {}),
       };
       return json(200, response);
+    }
+
+    // ----- /api/data-dir (GET, POST) + legacy accept/dismiss (POST) -----
+    if (pathname === '/api/data-dir' || pathname.startsWith('/api/data-dir/')) {
+      return handleDataDirRoute(method, pathname, deps.dataDirControl, body);
     }
 
     // ----- /api/notes/:id (GET, POST) -----
@@ -1294,4 +1325,88 @@ function toNoteResponse(
     spaceComplexity: note.spaceComplexity ?? null,
     lastUpdated: note.lastUpdated ?? null,
   };
+}
+
+/**
+ * Parse `{ path: string, dryRun?: boolean }` from an untrusted JSON body
+ * (`null` if invalid).
+ */
+function parseDataDirBody(
+  body: string | undefined,
+): { readonly path: string; readonly dryRun: boolean } | null {
+  if (body === undefined || body.trim() === '') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const { path: value, dryRun } = parsed as Record<string, unknown>;
+  if (typeof value !== 'string') return null;
+  if (dryRun !== undefined && typeof dryRun !== 'boolean') return null;
+  return { path: value, dryRun: dryRun === true };
+}
+
+/**
+ * The data-folder routes (ADR 0009 D1). Every change goes through
+ * `DataDirControl.choose` — the same validate → create 0700 → persist
+ * config.json → switch path `POST /setup` uses. The Host / Origin / JSON
+ * content-type prechecks and the body cap already ran in the handler.
+ */
+function handleDataDirRoute(
+  method: string,
+  pathname: string,
+  control: DataDirControl | undefined,
+  body: string | undefined,
+): HandlerResponse {
+  if (control === undefined) {
+    return json(404, { error: 'not found' });
+  }
+  const statusResponse = (): HandlerResponse => {
+    const response: ApiDataDirResponse = control.status();
+    return json(200, response);
+  };
+
+  if (pathname === '/api/data-dir') {
+    if (method === 'GET') {
+      return statusResponse();
+    }
+    if (method !== 'POST') {
+      return json(405, { error: 'method not allowed' });
+    }
+    const requested = parseDataDirBody(body);
+    if (requested === null) {
+      return json(400, {
+        error: 'expected a JSON body { "path": string, "dryRun"?: boolean }',
+      });
+    }
+    if (requested.dryRun) {
+      // Validate + report what is there; no writes, no switch.
+      const inspected = control.inspect(requested.path);
+      if (!inspected.ok) {
+        return json(400, { error: inspected.error });
+      }
+      const response: ApiDataDirInspection = inspected.inspection;
+      return json(200, response);
+    }
+    const chosen = control.choose(requested.path);
+    if (!chosen.ok) {
+      return json(400, { error: chosen.error });
+    }
+    // A switch settles legacy recovery: the handler expires the cookie.
+    return settlesLegacy(statusResponse());
+  }
+
+  if (pathname === '/api/data-dir/legacy/dismiss') {
+    if (method !== 'POST') {
+      return json(405, { error: 'method not allowed' });
+    }
+    control.dismissLegacy();
+    return settlesLegacy(statusResponse());
+  }
+
+  return json(404, { error: 'not found' });
 }
