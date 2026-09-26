@@ -759,6 +759,7 @@ function PreviewTableRow({
             type="button"
             className={SECONDARY_BTN}
             disabled={busy}
+            aria-label={`Use ${row.file} line ${row.line} for ${match.title}`}
             onClick={() => onChange(match.problemId, { rowKey: row.key })}
           >
             Use this row
@@ -805,22 +806,30 @@ function ImportSummary({
   result: ImportCommitResult;
   onAgain: () => void;
 }): JSX.Element {
+  const failures = result.failed.length;
   return (
     <div
       role="status"
       aria-label="Import summary"
-      className="mt-4 space-y-3 rounded-md border border-emerald-500/40 bg-emerald-500/5 p-4 text-sm text-slate-200"
+      className={`mt-4 space-y-3 rounded-md border p-4 text-sm text-slate-200 ${failures > 0 ? 'border-status-blocked/40 bg-status-blocked/10' : 'border-emerald-500/40 bg-emerald-500/5'}`}
     >
       <p className="flex items-center gap-2 font-semibold text-slate-100">
-        <CircleCheck className="h-5 w-5 text-emerald-400" aria-hidden />
-        Import finished
+        {failures > 0 ? (
+          <AlertTriangle className="h-5 w-5 text-status-blocked" aria-hidden />
+        ) : (
+          <CircleCheck className="h-5 w-5 text-emerald-400" aria-hidden />
+        )}
+        {failures > 0
+          ? `Import finished with ${failures} failure${failures === 1 ? '' : 's'}`
+          : 'Import finished'}
       </p>
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-6">
         <Stat label="Created" value={result.created} />
         <Stat label="Overwritten" value={result.overwritten} />
         <Stat label="Merged" value={result.merged} />
         <Stat label="Skipped" value={result.skipped} />
         <Stat label="Unmatched" value={result.unmatched} />
+        {failures > 0 && <Stat label="Failed" value={failures} />}
       </dl>
       {result.failed.length > 0 && (
         <div role="alert" className="text-status-blocked">

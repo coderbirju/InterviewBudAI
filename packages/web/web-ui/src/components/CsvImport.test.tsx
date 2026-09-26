@@ -166,6 +166,8 @@ describe('CsvImport', () => {
       },
     );
     const done = await screen.findByLabelText('Import summary');
+    expect(within(done).getByText('Import finished')).toBeInTheDocument();
+    expect(within(done).queryByText('Failed')).not.toBeInTheDocument();
     expect(within(done).getByText('Created').nextSibling).toHaveTextContent(
       '1',
     );
@@ -270,6 +272,62 @@ describe('CsvImport', () => {
     expect(
       screen.getByRole('button', { name: 'Import 1 note' }),
     ).toBeDisabled();
+  });
+
+  it('several rows for one problem: each "Use" button has a unique accessible name', async () => {
+    const user = userEvent.setup();
+    const base = PREVIEW.rows[0]!;
+    const multi: ImportPreview = {
+      ...PREVIEW,
+      rows: [
+        { ...base, key: '0:2', line: 2, chosen: true },
+        { ...base, key: '0:5', line: 5, chosen: false },
+        { ...base, key: '1:7', file: 'Arrays_all.csv', line: 7, chosen: false },
+      ],
+      unmatched: [],
+    };
+    mockedApi.previewCsvImport.mockResolvedValue(multi);
+    mockedApi.commitCsvImport.mockResolvedValue(RESULT);
+    render(<CsvImport folderExists />);
+    await pickAndPreview(user);
+    const title = 'Longest Substring Without Repeating Characters';
+    const a = screen.getByRole('button', {
+      name: `Use Arrays.csv line 5 for ${title}`,
+    });
+    expect(
+      screen.getByRole('button', {
+        name: `Use Arrays_all.csv line 7 for ${title}`,
+      }),
+    ).toBeInTheDocument();
+    await user.click(a);
+    await user.click(screen.getByRole('button', { name: 'Import 1 note' }));
+    expect(mockedApi.commitCsvImport).toHaveBeenCalledWith(
+      expect.any(Array),
+      multi.previewHash,
+      'done',
+      { 'lc-3': { action: 'create', rowKey: '0:5' } },
+    );
+  });
+
+  it('a partial failure is called out in the summary and listed', async () => {
+    const user = userEvent.setup();
+    mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+    mockedApi.commitCsvImport.mockResolvedValue({
+      ...RESULT,
+      created: 0,
+      failed: [{ problemId: 'lc-3', error: 'EACCES: permission denied' }],
+    });
+    render(<CsvImport folderExists />);
+    await pickAndPreview(user);
+    await user.click(screen.getByRole('button', { name: 'Import 1 note' }));
+    const done = await screen.findByLabelText('Import summary');
+    expect(
+      within(done).getByText('Import finished with 1 failure'),
+    ).toBeInTheDocument();
+    expect(within(done).getByRole('alert')).toHaveTextContent(
+      'lc-3: EACCES: permission denied',
+    );
+    expect(within(done).getByText('Failed').nextSibling).toHaveTextContent('1');
   });
 
   it('a preview error is shown', async () => {
