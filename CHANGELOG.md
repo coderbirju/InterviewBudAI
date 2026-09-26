@@ -25,7 +25,9 @@ and is listed there with what you need to do (ADR 0009 D4).
   remains as a no-JavaScript fallback. If you do not remember the path, look
   for a folder containing a `notes/` directory of `lc-*.md` files;
   `~/.ibai/data` is the CLI's default and a common choice — the page offers it
-  automatically when it has notes.)
+  automatically when it has notes, only if you haven't chosen a folder since;
+  your old cookie folder is offered only if your browser still has the old
+  cookie; otherwise use "Use an existing folder".)
 - **The legacy `ibai_data_dir` cookie is now kept until you act** (#62). Since
   #60 it was expired on every response; it is now expired only after you
   switch folders (on `/data` or `/setup`) or dismiss the "Found previous data"
