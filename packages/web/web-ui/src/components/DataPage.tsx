@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CircleCheck,
-  FileSpreadsheet,
   FolderOpen,
   History,
   Info,
   Loader2,
   Lock,
 } from 'lucide-react';
+import { CsvImport } from './CsvImport';
 import {
   ApiError,
   checkDataDir,
@@ -33,7 +33,7 @@ import type {
  *     (re-validated server-side), "Dismiss" = forget them.
  *  3. Use an existing folder — path field, "Check" (dry run: what is there)
  *     and "Use this folder" (switch); inline server validation errors.
- *  4. Import CSV — placeholder until the import PR (ADR 0009 D2).
+ *  4. Import CSV — `CsvImport` (ADR 0009 D2): preview, choose, import.
  *
  * Every path is rendered as JSX text (auto-escaped); no raw HTML.
  */
@@ -379,23 +379,15 @@ export function DataPage(): JSX.Element {
         </form>
       </section>
 
-      {/* 4. Import CSV (ADR 0009 D2 — next PR) */}
-      <section
-        aria-labelledby="import-csv"
-        className="rounded-xl border border-dashed border-slate-700 p-6"
-      >
-        <h2
-          id="import-csv"
-          className="flex items-center gap-2 font-semibold text-slate-300"
-        >
-          <FileSpreadsheet className="h-5 w-5 text-slate-500" aria-hidden />
-          Import notes from CSV
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          CSV import — coming next. You&apos;ll be able to bring in a Notion
-          export and preview every row before anything is written.
-        </p>
-      </section>
+      {/* 4. Import CSV (ADR 0009 D2) */}
+      <CsvImport
+        folderExists={status.exists}
+        onImported={() => {
+          fetchDataDir()
+            .then((next) => setLoad({ kind: 'ready', status: next }))
+            .catch(() => undefined);
+        }}
+      />
     </div>
   );
 }
@@ -441,7 +433,7 @@ function InspectionResult({
           <p>
             This folder has Markdown files, but not in InterviewBudAI&apos;s
             format (<code>notes/&lt;id&gt;.md</code>). If they came from Notion,
-            use CSV import instead (coming next).
+            use CSV import below instead.
           </p>
         )}
       </div>

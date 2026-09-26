@@ -89,7 +89,11 @@ export function parseImportFiles(
   let total = 0;
   for (const f of value) {
     if (typeof f !== 'object' || f === null || Array.isArray(f)) {
-      return { ok: false, status: 400, error: 'each file must be { name, text }' };
+      return {
+        ok: false,
+        status: 400,
+        error: 'each file must be { name, text }',
+      };
     }
     const { name, text } = f as Record<string, unknown>;
     if (typeof name !== 'string' || typeof text !== 'string') {
@@ -152,7 +156,10 @@ export function analyzeImport(
         error: `too many rows (the limit is ${IMPORT_LIMITS.maxRows} across all files)`,
       };
     }
-    for (const record of [{ line: 1, cells: parsed.header }, ...parsed.records]) {
+    for (const record of [
+      { line: 1, cells: parsed.header },
+      ...parsed.records,
+    ]) {
       for (const cell of record.cells) {
         if (Buffer.byteLength(cell, 'utf8') > IMPORT_LIMITS.maxCellBytes) {
           return {
@@ -476,7 +483,8 @@ export function planCommit(
   for (const [id, rows] of rowsById) {
     const exists = existing.has(id);
     const decision = decisions.get(id);
-    const action: ImportAction = decision?.action ?? (exists ? 'skip' : 'create');
+    const action: ImportAction =
+      decision?.action ?? (exists ? 'skip' : 'create');
     if (exists && action === 'create') {
       return {
         ok: false,
