@@ -57,9 +57,10 @@ function ready(extra: Partial<GuidanceResponse> = {}): GuidanceResponse {
       standing('graphs', 'unknown', { done: 1, total: 13 }),
     ],
     nextUp: [
-      next('p1', 'revisit'),
+      // Only a revisit may be topic-less (`topicId: null`).
+      next('p1', 'revisit', { topicId: null }),
       next('p2', 'weak_topic', { difficulty: 'Hard' }),
-      next('p3', 'continue', { topicId: null }),
+      next('p3', 'continue', { topicId: 'graphs' }),
     ],
     quiz: { doneCount: 4, lastQuizAt: null, suggested: false },
     ...extra,
