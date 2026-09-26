@@ -108,7 +108,11 @@ function SpaLink({
 function StandingChip({ s }: { s: GuidanceStanding }): JSX.Element {
   const { done, total, toRevisit, didNotUnderstand } = s.notes;
   const review = toRevisit + didNotUnderstand;
-  const color = STRENGTH_COLORS[s.band];
+  // An unrecognised band (newer server, bad data) falls back to `unknown`.
+  const band = Object.prototype.hasOwnProperty.call(STRENGTH_COLORS, s.band)
+    ? s.band
+    : 'unknown';
+  const color = STRENGTH_COLORS[band];
   // Counts lead: with little quiz data most bands are `unknown`, so the
   // done/total and review tallies are what make the chip informative.
   return (
@@ -127,14 +131,14 @@ function StandingChip({ s }: { s: GuidanceStanding }): JSX.Element {
         <span
           className="inline-flex items-center gap-1 font-medium"
           style={{ color }}
-          data-band={s.band}
+          data-band={band}
         >
           <span
             className="h-2 w-2 rounded-full"
             style={{ backgroundColor: color }}
             aria-hidden
           />
-          {STRENGTH_LABELS[s.band]}
+          {STRENGTH_LABELS[band]}
         </span>
         {s.needsReview && (
           <span className="rounded bg-status-revisit/15 px-1.5 py-0.5 font-medium text-status-revisit">
