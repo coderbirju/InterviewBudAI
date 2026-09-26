@@ -1,10 +1,16 @@
 # ADR 0009 — Data lifecycle: onboarding, import, format versioning, and releases
 
-- **Status:** Accepted
+- **Status:** Accepted (D1–D4); **D5 Proposed (pending founder confirmation)**
 - **Date:** 2026-09-25
 - **Deciders:** Founder, Architect
-- **Supersedes:** — (extends ADR 0005 D2 + its w2d amendment; schedules ADR
-  0005 D2's "bulk-import … FUTURE"; answers ADR 0008 D5 #5 "Distribution")
+- **Supersedes:** —
+- **Amends:** ADR 0005 D2 w2d amendment — the legacy cookie is expired only
+  after the user accepts/dismisses the recovery prompt (not on every request),
+  and its value may be shown as a confirm-to-use *suggestion* (still never
+  trusted to choose the dir) (D1); ADR 0005 D2 "bulk-import … FUTURE" is now
+  scheduled (D2); `skills/code-review.md` rubric (one line, D4). Proposes an
+  answer to ADR 0008 D5 #5 "Distribution" (D5) — that decision stays open until
+  the founder confirms.
 
 ## Context
 
@@ -126,6 +132,11 @@ cap — early 413 unchanged)
   status? } } }`. The server **re-parses and re-matches** the same files
   (no server-side import state); if the recomputed hash differs from
   `previewHash`, or the data dir changed since preview → 409 "re-run preview".
+  `previewHash` = SHA-256 over: the active data dir path, `defaultStatus`,
+  every file's `name` + exact `text`, and for every resolved row its
+  `problemId`, mapped fields (title, body, notes, date, complexities) and its
+  **"note exists" flag** — so a `create` whose note appeared after preview
+  (flag flipped) → 409, never a silent overwrite.
   Problem ids come **only** from server-side catalog matching; the client only
   chooses an action and a status for ids the preview produced. Then: D3 backup
   → write notes via `writeIntuitionNote` → `{ created, overwritten, merged,
@@ -138,20 +149,25 @@ fully testable; a pinned dep would add supply-chain surface for no gain.
 Unterminated quote or ragged rows beyond the header width → file-level error,
 nothing from that file is imported.
 
-**Column mapping** (observed Notion schema; header match is trimmed and
-case-insensitive, any column order; unknown columns ignored)
+**Column mapping** (observed Notion schema). Headers and cells are trimmed of
+**Unicode whitespace** (incl. NBSP `U+00A0` and BOM); known headers are
+matched case-insensitively after trimming, in any column order.
 
-| Header(s) | Use |
+| Column | Use |
 |---|---|
-| `Problem` \| `Property` | Title (required). May contain a URL. |
+| **Title** = `Problem` if present, **else the FIRST column** (Notion's title property is user-named, e.g. `Arrays - 1D`) | Problem title. May contain a URL. |
 | `URL` | Problem link (optional). |
-| `Intuition` | Note body (markdown, as-is). |
+| **Body** = `Intuition` if present, else `Property` | Note body (markdown, as-is). |
 | `Notes` | Appended under a `## Notes` heading. |
 | `Last Visited on` \| `Last Visited` | `lastUpdated` if parseable, else import time. |
+| any other non-empty text column | Appended as a `## <Header>` section, in column order. |
+
+Notion's per-row page bodies (the `.md` files beside the CSV in an export) are
+**not imported** — future scope.
 
 **Matching** (first hit wins)
 
-1. **LeetCode slug** from the `URL` cell, else a URL inside the `Problem` cell:
+1. **LeetCode slug** from the `URL` cell, else a URL inside the Title cell:
    host `leetcode.com` / `www.leetcode.com`, path `/problems/<slug>/…`; trailing
    segments (`/description/`, `/editorial/`, `/solutions/…`), query and hash
    are ignored → equal to the slug of a catalog entry's `url`.
@@ -162,21 +178,31 @@ case-insensitive, any column order; unknown columns ignored)
 4. Otherwise **unmatched** — listed in the preview, never written. (Future:
    create a custom problem once Wave 2(b)'s storage ADR lands.)
 
+Blank rows (every cell empty after trim) are skipped and counted in the
+preview. A row with a blank title but other content → unmatched.
+
 **Field rules**
 
-- Body = `Intuition`; if `Notes` is non-empty, append `\n\n## Notes\n\n<Notes>`.
-- Complexity: best-effort per line, case-insensitive,
-  `^(TC|Time( complexity)?)\s*[:=-]\s*(.+)$` → `timeComplexity`,
-  `^(SC|Space( complexity)?)\s*[:=-]\s*(.+)$` → `spaceComplexity`; first match
-  wins, trimmed, capped at 100 chars. The raw text stays in the body too.
+- Body = the Body column; if `Notes` is non-empty, append
+  `\n\n## Notes\n\n<Notes>`; then any other text columns as `## <Header>`.
+- Complexity: best-effort **tokeniser over the whole text** (body + notes; not
+  line-anchored), case-insensitive: a label `TC` \| `Time` (optionally
+  `Time complexity`) or `SC` \| `Space` (optionally `Space complexity`), then
+  optional whitespace, `:`, optional whitespace, then an `O(` expression read
+  to its **balanced** closing `)`. `TC: O(n), Space: O(1)` → time `O(n)`,
+  space `O(1)`; `Time: O(n log(n))` → `O(n log(n))`. First match per kind
+  wins; capped at 100 chars; unbalanced → ignored. The raw text stays in the
+  body too.
 - `Last Visited`: ISO 8601, Notion's `Month D, YYYY` (optionally with
   `h:mm AM/PM`), and `YYYY-MM-DD` / `YYYY/MM/DD`. Ambiguous numeric
   `NN/NN/YYYY` is **not guessed** (→ import time, with a warning).
 - Status: the user picks a default in the preview (default **`done`**), with a
   per-row override; any `NoteStatus` value.
 - **De-duplication:** Notion exports `X.csv` and `X_all.csv` with the same
-  rows; rows whose normalized cells are identical collapse to one (count
-  reported). Distinct rows that match the **same** problem are flagged in the
+  rows but possibly different columns or order, so rows are de-duplicated by
+  **mapped fields** — resolved problem id (or normalized title if unmatched)
+  plus normalized title, body, notes and date — never by cell positions;
+  duplicates collapse to one (count reported). Distinct rows that match the **same** problem are flagged in the
   preview; the user picks one (default: the most recent `Last Visited`).
 
 **Conflict policy** (a conflict = a note file already exists for that id)
@@ -196,8 +222,8 @@ case-insensitive, any column order; unknown columns ignored)
   as markdown source and shown through React's escaping (no
   `dangerouslySetInnerHTML`), in the preview and in Notes. Any future CSV
   *export* must neutralise cells starting with `= + - @` (formula injection).
-- Limits: ≤ 10 files, ≤ 5,000 rows total, ≤ 64 columns, ≤ 64 KiB per cell,
-  inside the 1 MiB body cap; over-limit → 413/400 with a clear message, no
+- Limits: ≤ 64 files, ≤ 5,000 rows total, ≤ 64 columns, ≤ 64 KiB per cell,
+  all inside the single 1 MiB request-body cap; over-limit → 413/400 with a clear message, no
   partial import. NUL and other C0 controls except `\t` `\n` are stripped;
   CRLF → LF.
 - File names from the client are display-only, never used as paths. Writes go
@@ -220,6 +246,8 @@ dir to `<dataDir>/.backups/<timestamp>/`:
 - If the backup fails, the import/migration **does not run**.
 - The backup path is returned to the UI ("Backup saved to …"). Restore is
   manual for now (copy back); a restore button is future scope.
+- These are safety snapshots only; this does **not** decide ADR 0008 Wave 3
+  "backup/export" (still pending founder).
 
 ### D4 — Data format versioning
 
@@ -239,14 +267,29 @@ dir to `<dataDir>/.backups/<timestamp>/`:
   - equal → nothing.
 - `GET /api/data-dir` reports `formatVersion` and `readOnly`.
 
+**What bumps `formatVersion`.** Additive, back-compatible changes (a new
+optional frontmatter key, or a new file older code ignores and newer code
+tolerates missing) do **not** bump it and need no migration — a CHANGELOG
+`### Added`/`### Changed` entry, and at most a minor app-version bump. A
+**breaking** format change (renamed/moved files, changed meaning or type of an
+existing field, anything older code would misread) **bumps `formatVersion`**
+and ships a migration plus a `### Breaking changes` entry.
+
 **Rule for every future PR.** Any PR that changes **where data lives, how the
 data dir is resolved, or the on-disk format** MUST include a migration (or, for
 location/resolution changes, a recovery path such as D1's legacy prompt) **and**
 a `CHANGELOG.md` `### Breaking changes` entry. `code-review` MUST mark a PR
-missing either as blocking (`NEEDS_CHANGES`); the rubric in
+missing either a migration/recovery path or a CHANGELOG breaking-change entry
+as blocking (`NEEDS_CHANGES`); the rubric in
 `skills/code-review.md` carries a one-line pointer to this rule.
 
-### D5 — Release strategy (middle ground)
+### D5 — Release strategy (middle ground) — **Proposed, pending founder confirmation**
+
+The founder has not explicitly approved distribution; ADR 0008 D5 #5 stays
+open. This is the proposal, and PR D does not start until it is confirmed.
+The `CHANGELOG.md` requirement is adopted now (it does not depend on how the
+app is distributed).
+
 
 - **Versioning:** SemVer `0.x.y` while pre-1.0. A breaking change bumps the
   minor (`0.x → 0.x+1`), anything else the patch.
@@ -262,6 +305,15 @@ missing either as blocking (`NEEDS_CHANGES`); the rubric in
   format, with an `## [Unreleased]` section and a mandatory
   `### Breaking changes` section in every release (write "None." if empty).
   GitHub Release notes are copied from it.
+- **Packaging notes for PR D:** the `@ibai/*` workspaces are private and
+  unpublished, so a bundler (e.g. esbuild, pinned) is the likely route rather
+  than publishing each package; `spa.ts` resolves the SPA as `../dist-ui`
+  relative to the compiled server module, so the published layout must keep
+  that shape (or make it configurable); `react`, `react-dom` and
+  `lucide-react` are listed as `@ibai/web` dependencies but are needed only to
+  *build* the SPA and must not become runtime dependencies of the published
+  package; decide which `package.json` is published (the root is `private`
+  with workspaces — likely a dedicated/generated publish manifest).
 - **Deferred ring:** standalone binaries (Node SEA / `bun compile`) — needs
   per-OS builds and code signing.
 - **Founder-owned setup (not done now):** confirm the npm name (`interviewbudai`
@@ -275,8 +327,8 @@ missing either as blocking (`NEEDS_CHANGES`); the rubric in
   back, and the founder can import their Notion history instead of re-typing
   it. Users learn about breaking changes from the CHANGELOG and release notes,
   and future format changes cannot silently strand data.
-- **Positive:** Distribution question (ADR 0008 D5 #5) answered: clone for
-  contributors, `npx` for users.
+- **Proposed:** Distribution (ADR 0008 D5 #5) — clone for contributors, `npx`
+  for users — pending founder confirmation (D5).
 - **Tradeoff:** More server surface (`/api/data-dir*`, `/api/import/csv/*`) —
   mitigated by reusing #58/#60 protections and validation, and server-side
   matching so the client never supplies ids or paths to write.
@@ -287,8 +339,6 @@ missing either as blocking (`NEEDS_CHANGES`); the rubric in
   (`REPO_DOTENV_PATH`) is inside the npm cache; the published build must read
   config from the environment or a user-level file (e.g.
   `~/.interviewbudai/.env`) instead — decided in PR D.
-- **Amends:** `skills/code-review.md` rubric (one line, D4). ADR 0005 D2's
-  "bulk-import is FUTURE scope" is now scheduled (D2).
 
 ## Roadmap (small serial PRs, each with a `code-review` pass)
 
@@ -297,6 +347,6 @@ missing either as blocking (`NEEDS_CHANGES`); the rubric in
 | A | `/data` page + nav link + zero-notes banner; `GET/POST /api/data-dir` (+ dry run); legacy-cookie / `~/.ibai/data` recovery prompt + dismiss; cookie-expiry change; CHANGELOG entry | — |
 | B | CSV parser + Notion mapping/matching; `/api/import/csv/preview` + `/commit`; import UI on `/data`; D3 backups | A |
 | C | `manifest.json` + migration framework (v1 baseline, no-op registry, read-only on newer/invalid) | B (reuses backups) |
-| D | Release packaging: `package.json` `bin`/`files` for npm, prebuilt server + SPA, `.env` handling under `npx`, tag-triggered release workflow publishing to npm + GitHub Release from CHANGELOG | founder: npm account + token secret |
+| D | Release packaging: `package.json` `bin`/`files` for npm, prebuilt server + SPA, `.env` handling under `npx`, tag-triggered release workflow publishing to npm + GitHub Release from CHANGELOG | founder confirms D5; npm account + token secret |
 
 Any change to these decisions requires a new ADR.

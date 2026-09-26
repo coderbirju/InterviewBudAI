@@ -55,7 +55,7 @@ See `team-charter.md` §0, §9A.
 | A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ⬜ |
 | B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ⬜ after A |
 | C | `manifest.json` format versioning + migration framework | ⬜ after B |
-| D | npm release packaging (`npx interviewbudai@latest`) + tag-triggered release workflow | ⬜ founder: npm account + `NPM_TOKEN` |
+| D | npm release packaging (`npx interviewbudai@latest`) + tag-triggered release workflow | ⬜ D5 proposed — pending founder confirmation; then npm account + `NPM_TOKEN` |
 
 ## Milestones (all ✅)
 
@@ -99,9 +99,9 @@ See `team-charter.md` §0, §9A.
 ## Blocked / needs founder action
 - **Open founder decisions (ADR 0008 D5):** System Design in v1 + shape; API
   keys on disk?; meaning of "git-backed"; quiz-only vs free-form coach/plan;
-  delete ADR 0004?; delete stale
-  branches/worktrees? (Distribution answered by ADR 0009 D5.)
-- **Release setup (ADR 0009 D5):** claim npm name `interviewbudai`, own the npm
+  distribution (clone+build vs npx — proposed in ADR 0009 D5); delete ADR
+  0004?; delete stale branches/worktrees?
+- **If ADR 0009 D5 is confirmed:** claim npm name `interviewbudai`, own the npm
   account (2FA), add an `NPM_TOKEN` repo secret, decide who pushes release tags.
 - ⛔ **Branch protection on `main` — not enabled.** GitHub returns 403
   ("Upgrade to GitHub Pro or make this repository public") for both branch
