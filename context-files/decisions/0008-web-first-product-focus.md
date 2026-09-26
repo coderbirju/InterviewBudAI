@@ -103,7 +103,9 @@ marked "needs ADR" or "pending founder" do not start until that lands.
 2. Whether API keys may be stored on disk (affects Wave 2c).
 3. What "git-backed" means — auto-commit vs export vs drop the claim.
 4. Quiz-only vs also free-form coach/plan in the web.
-5. Distribution — clone + build vs `npx`.
+5. Distribution — clone + build vs `npx`. **Answered** by ADR 0009 D5
+   (amendment d5-zip, 2026-09-25): contributors clone; users download a
+   prebuilt zip from tagged GitHub Releases; no npm/`npx` for now.
 6. Branch protection — 403 on the free private repo: make public / Pro / accept
    charter-only enforcement.
 7. Delete ADR 0004 (superseded demo provider)?

@@ -4,10 +4,10 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-25 — PRs #1–#60 merged or closed; ADR 0009 (data lifecycle) PR open on `architect/adr-0009-data-lifecycle`._
+_Last updated: 2026-09-25 — PRs #1–#62 merged or closed; distribution decided (GitHub Release zip, ADR 0009 D5)._
 
 ## Legend
-✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ✖ closed unmerged
+✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ⏸ deferred · ✖ closed unmerged
 
 ## Team model
 **Architect** (sole orchestrator; talks to founder) + skills in `skills/`
@@ -15,7 +15,8 @@ _Last updated: 2026-09-25 — PRs #1–#60 merged or closed; ADR 0009 (data life
 See `team-charter.md` §0, §9A.
 
 ## In progress
-- 🟡 ADR 0009 data lifecycle (onboarding, CSV import, backups, format versioning, releases) + root `CHANGELOG.md` — `architect/adr-0009-data-lifecycle`.
+- 🟡 ADR 0009 D5 accepted (GitHub zip releases) + CHANGELOG for #62 — `architect/adr-0009-d5-zip-release`.
+- 🔨 ADR 0009 PR B — CSV import (Notion) — `feature/csv-import`.
 
 ## Founder decision (2026-09-25) — recorded in ADR 0008
 - **The web app is the product.** CLI frozen (compiles + tests, no features).
@@ -51,11 +52,11 @@ See `team-charter.md` §0, §9A.
 ## Milestone: Data lifecycle (ADR 0009)
 | Item | What | Status |
 |---|---|---|
-| ADR | ADR 0009 + root `CHANGELOG.md` (#60 breaking change recorded) | 🟡 `architect/adr-0009-data-lifecycle` |
-| A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ⬜ |
-| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ⬜ after A |
+| ADR | ADR 0009 + root `CHANGELOG.md` (#60 breaking change recorded) | ✅ #61; D5 zip amendment 🟡 `architect/adr-0009-d5-zip-release` |
+| A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ✅ #62 |
+| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | 🔨 `feature/csv-import` |
 | C | `manifest.json` format versioning + migration framework | ⬜ after B |
-| D | npm release packaging (`npx interviewbudai@latest`) + tag-triggered release workflow | ⬜ D5 proposed — pending founder confirmation; then npm account + `NPM_TOKEN` |
+| D | Release zip (prebuilt server + SPA, `node …` start) + tag-triggered Action: verify → zip → GitHub Release from CHANGELOG (no npm) | ⏸ deferred (founder) — D5 accepted; founder pushes tags |
 
 ## Milestones (all ✅)
 
@@ -99,10 +100,8 @@ See `team-charter.md` §0, §9A.
 ## Blocked / needs founder action
 - **Open founder decisions (ADR 0008 D5):** System Design in v1 + shape; API
   keys on disk?; meaning of "git-backed"; quiz-only vs free-form coach/plan;
-  distribution (clone+build vs npx — proposed in ADR 0009 D5); delete ADR
-  0004?; delete stale branches/worktrees?
-- **If ADR 0009 D5 is confirmed:** claim npm name `interviewbudai`, own the npm
-  account (2FA), add an `NPM_TOKEN` repo secret, decide who pushes release tags.
+  delete ADR 0004?; delete stale branches/worktrees? (Distribution answered:
+  GitHub Release zip, ADR 0009 D5.)
 - ⛔ **Branch protection on `main` — not enabled.** GitHub returns 403
   ("Upgrade to GitHub Pro or make this repository public") for both branch
   protection and rulesets on this private repo. Founder options: make the repo
@@ -120,7 +119,7 @@ See `team-charter.md` §0, §9A.
   answers" but exits 0 without running `coach()`.
 
 ## Next up (proposed)
-1. ADR 0009 PR A (data page + legacy recovery) → PR B (CSV import) → C → D.
+1. ADR 0009 PR B (CSV import, in progress) + `/data` (#62) hardening → C. PR D (release zip) deferred.
 2. Wave 2a growth loop.
 3. `architect-task` — storage-interface ADR for custom problems (Wave 2b).
 4. Wave 2c; hygiene PRs in between.
