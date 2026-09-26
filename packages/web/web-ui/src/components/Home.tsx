@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Database, Loader2, SearchX } from 'lucide-react';
 import {
   fetchCatalog,
@@ -19,6 +19,7 @@ import {
   EMPTY_FILTER,
   filterCatalog,
   filterFromSearch,
+  filtersEqual,
   isFilterActive,
   searchWithFilter,
 } from '../lib/home';
@@ -122,6 +123,9 @@ export function Home(): JSX.Element {
     ReadonlySet<string>
   >(new Set());
 
+  // Latest filter, read by the popstate listener without re-subscribing.
+  const filterRef = useRef(filter);
+
   /** Every filter change goes through here (bar, reset button, URL). */
   const applyFilter = useCallback((next: CatalogFilter): void => {
     setFilter(next);
@@ -139,8 +143,15 @@ export function Home(): JSX.Element {
     function onPopState(): void {
       // Only while the location is still Home — navigating away to /notes/…
       // also fires popstate and must not wipe the remembered Home query.
-      if (parseRoute(window.location.pathname).kind === 'home') {
-        applyFilter(filterFromSearch(currentSearch()));
+      if (parseRoute(window.location.pathname).kind !== 'home') {
+        return;
+      }
+      // A popstate that leaves the query unchanged (e.g. a same-URL
+      // `navigate()`) must not re-apply the filter: that would un-pin rows
+      // the user just changed, making them vanish mid-interaction.
+      const next = filterFromSearch(currentSearch());
+      if (!filtersEqual(next, filterRef.current)) {
+        applyFilter(next);
       }
     }
     window.addEventListener('popstate', onPopState);
@@ -149,6 +160,7 @@ export function Home(): JSX.Element {
 
   // Mirror user filter edits into the URL query (replace, not push).
   useEffect(() => {
+    filterRef.current = filter;
     const search = searchWithFilter(currentSearch(), filter);
     replaceSearch(search);
     rememberHomeSearch(search);

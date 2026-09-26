@@ -78,10 +78,12 @@ beforeEach(() => {
 });
 
 describe('App shell', () => {
-  it('renders an Analytics nav link pointing at the SPA analytics route', () => {
+  it('renders an Analytics nav link pointing at the SPA analytics route', async () => {
     render(<App />);
     const link = screen.getByRole('link', { name: /Analytics/i });
     expect(link).toHaveAttribute('href', '/analytics');
+    // Let Home finish its initial load so no update lands after the test.
+    expect(await screen.findByText('Arrays & Hashing')).toBeInTheDocument();
   });
 
   it('navigates to the analytics page via the nav link (client-side)', async () => {
@@ -114,10 +116,12 @@ describe('App shell', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders an Interview nav link pointing at the SPA interview route', () => {
+  it('renders an Interview nav link pointing at the SPA interview route', async () => {
     render(<App />);
     const link = screen.getByRole('link', { name: /^Interview$/ });
     expect(link).toHaveAttribute('href', '/interview');
+    // Let Home finish its initial load so no update lands after the test.
+    expect(await screen.findByText('Arrays & Hashing')).toBeInTheDocument();
   });
 
   it('navigates to the interview page via the nav link (client-side)', async () => {
