@@ -5,9 +5,9 @@ All notable changes to InterviewBudAI are documented here. The format follows
 [Semantic Versioning](https://semver.org/) (`0.x.y` while pre-1.0).
 
 Every release MUST have a `### Breaking changes` section (write "None." if
-empty). Any change to where your data lives, how the data folder is chosen, or
-the on-disk format is a breaking change and is listed there with what you need
-to do (ADR 0009 D4).
+empty). Any change to where your data lives or how the data folder is chosen,
+and any non-back-compatible change to the on-disk format, is a breaking change
+and is listed there with what you need to do (ADR 0009 D4).
 
 ## [Unreleased]
 
