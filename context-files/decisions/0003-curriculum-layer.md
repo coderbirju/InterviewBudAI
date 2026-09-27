@@ -140,3 +140,12 @@ Explicit invariants enforced by schema, package boundary, and code review:
 - **No existing public interface changed:** Core is untouched in this skeleton
   PR; verify stays green.
 - Any change to these decisions requires a new ADR.
+
+## Amendment (topic taxonomy, 2026-09-26)
+
+Topic taxonomy, display order, labels and aliases are part of the curriculum:
+`@ibai/curriculum` exports `TOPIC_ORDER` (13 ids, learning order), `TOPIC_LABELS`,
+`TOPIC_ALIASES` (retired id → current id, `null` = dropped) and
+`compareTopics`/`sortTopics` (unknown ids last, alphabetically). Every surface
+listing topics as sections follows this order; aliases are applied at READ time
+to stored progress keyed by topic id, so no on-disk change (ADR 0009 D4).

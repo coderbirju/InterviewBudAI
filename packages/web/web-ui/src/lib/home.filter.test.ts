@@ -120,6 +120,17 @@ describe('filterCatalog', () => {
     expect(all.matched).toBe(4); // two-sum de-duplicated across topics
   });
 
+  it('keeps the server curriculum topic order (no alphabetical re-sort)', () => {
+    const topics: CatalogTopic[] = [
+      { topic: 'trees', label: 'Trees', problems: [TWO_SUM] },
+      { topic: 'arrays', label: 'Arrays', problems: [THREE_SUM] },
+      { topic: 'dynamic-programming', problems: [ANAGRAM] },
+    ];
+    expect(
+      filterCatalog(topics, EMPTY_FILTER).topics.map((t) => t.topic.topic),
+    ).toEqual(['trees', 'arrays', 'dynamic-programming']);
+  });
+
   it('returns per-topic matches and a de-duplicated count', () => {
     const r = filterCatalog(TOPICS, f({ query: 'sum' }));
     expect(

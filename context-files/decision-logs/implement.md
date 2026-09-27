@@ -38,3 +38,4 @@
 2026-09-26  feature/w2a-guidance-engine  — Unparseable note dates sort after dated revisits and get a reason without an age; malformed signal numbers count as 0 — inputs are untrusted (§7.3).
 2026-09-26  feature/w2a-guidance-engine  — `resolveStatuses` now returns `{ status, lastUpdated }` and `readDoneProblemIds` reuses it — rejected a second note-reading helper for guidance.
 2026-09-26  feature/w2a-guidance-engine  — `no_db` returns empty `nextUp` (no folder yet → nothing personal to suggest; the SPA shows setup); `empty` returns starter problems.
+2026-09-26  feature/topic-order  — Topic order/labels/aliases live in `@ibai/curriculum`; the server emits order + `label` and the SPA never re-sorts — rejected SPA importing curriculum (would bundle the catalog). Aliases fold stored signals in api.ts before `/api/competency` and `deriveGuidance` (no core edit, no rewrite); competency/guidance weak→strong ordering kept by purpose.

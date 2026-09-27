@@ -58,6 +58,8 @@ export interface CatalogProblem {
 /** A topic group in the catalog response. */
 export interface CatalogTopic {
   readonly topic: string;
+  /** Curriculum display label (server `TOPIC_LABELS`); absent → show `topic`. */
+  readonly label?: string;
   readonly problems: readonly CatalogProblem[];
 }
 
@@ -87,6 +89,8 @@ export type TopicStrength = 'unknown' | 'weak' | 'improving' | 'strong';
  */
 export interface CompetencyTopic {
   readonly topicId: string;
+  /** Curriculum display label (server `TOPIC_LABELS`); absent → show `topicId`. */
+  readonly label?: string;
   readonly correct: number;
   readonly incorrect: number;
   readonly strength: TopicStrength;

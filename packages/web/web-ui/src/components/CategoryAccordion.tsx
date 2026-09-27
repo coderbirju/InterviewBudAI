@@ -40,6 +40,7 @@ export function CategoryAccordion({
   const { done, total } = topicCompletion(topic);
   const panelId = `topic-panel-${topic.topic.replace(/\s+/g, '-')}`;
   const rows = matches ?? topic.problems;
+  const label = topic.label ?? topic.topic;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-800/30">
@@ -58,21 +59,21 @@ export function CategoryAccordion({
             aria-hidden
           />
           <span className="text-base font-semibold text-slate-100">
-            {topic.topic}
+            {label}
           </span>
         </span>
         <span className="flex items-center gap-2">
           {matches && (
             <span
               className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400"
-              aria-label={`${matches.length} matching in ${topic.topic}`}
+              aria-label={`${matches.length} matching in ${label}`}
             >
               {matches.length} {matches.length === 1 ? 'match' : 'matches'}
             </span>
           )}
           <span
             className="rounded-full bg-slate-700/50 px-2.5 py-0.5 text-xs font-medium text-slate-300"
-            aria-label={`${done} of ${total} done in ${topic.topic}`}
+            aria-label={`${done} of ${total} done in ${label}`}
           >
             {formatFraction(done, total)}
           </span>

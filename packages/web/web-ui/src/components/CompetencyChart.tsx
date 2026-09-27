@@ -46,7 +46,7 @@ export function CompetencyChart({
               <li key={bar.topicId}>
                 <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
                   <span className="truncate font-medium text-slate-200">
-                    {bar.topicId}
+                    {bar.topicLabel}
                   </span>
                   <span className="flex shrink-0 items-center gap-2 tabular-nums text-slate-400">
                     <span
@@ -67,11 +67,11 @@ export function CompetencyChart({
                   viewBox={`0 0 ${ROW_WIDTH} ${TRACK_HEIGHT}`}
                   className="h-3 w-full"
                   role="img"
-                  aria-label={`${bar.topicId}: ${bar.label}, ${bar.correct} correct, ${bar.incorrect} incorrect`}
+                  aria-label={`${bar.topicLabel}: ${bar.label}, ${bar.correct} correct, ${bar.incorrect} incorrect`}
                   preserveAspectRatio="none"
                 >
                   <title>
-                    {bar.topicId}: {bar.label} ({bar.correct} correct,{' '}
+                    {bar.topicLabel}: {bar.label} ({bar.correct} correct,{' '}
                     {bar.incorrect} incorrect)
                   </title>
                   {/* Track. */}
