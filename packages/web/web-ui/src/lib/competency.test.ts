@@ -6,6 +6,7 @@ import {
   competencyBars,
   groupByStrength,
   hasCompetencyData,
+  patternTopicLabels,
 } from './competency';
 
 const TOPICS: readonly CompetencyTopic[] = [
@@ -170,5 +171,26 @@ describe('competency: hasCompetencyData', () => {
 
   it('is false for a fully empty dataset', () => {
     expect(hasCompetencyData({ topics: [], patterns: [] })).toBe(false);
+  });
+});
+
+describe('patternTopicLabels', () => {
+  it('uses the server labels, index-aligned', () => {
+    expect(
+      patternTopicLabels({
+        topics: ['stack', 'dynamic-programming'],
+        topicLabels: ['Stack & Queue', 'Dynamic Programming'],
+      }),
+    ).toEqual(['Stack & Queue', 'Dynamic Programming']);
+  });
+
+  it('falls back to raw ids when labels are absent or misaligned', () => {
+    expect(patternTopicLabels({ topics: ['stack'] })).toEqual(['stack']);
+    expect(
+      patternTopicLabels({ topics: ['stack', 'heap'], topicLabels: ['Heap'] }),
+    ).toEqual(['stack', 'heap']);
+    expect(
+      patternTopicLabels({ topics: ['stack'], topicLabels: [''] }),
+    ).toEqual(['stack']);
   });
 });

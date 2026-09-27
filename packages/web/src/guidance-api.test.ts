@@ -19,7 +19,7 @@ import type {
   StorageAdapter,
   TopicCompetency,
 } from '@ibai/storage';
-import { handleApiRoute } from './api.js';
+import { canonicalizeSignals, handleApiRoute } from './api.js';
 import type { ApiDeps, ApiGuidanceResponse } from './api.js';
 import { createCoachHandler } from './handler.js';
 
@@ -230,8 +230,18 @@ describe('GET /api/guidance', () => {
     expect(body.nextUp[2]).toMatchObject({
       kind: 'weak_topic',
       topicId: 'dynamic-programming',
-      reason: 'dynamic-programming: 1/5 correct in quiz',
+      label: 'Dynamic Programming',
+      reason: 'Dynamic Programming: 1/5 correct in quiz',
     });
+    // Every item carries its topic's curriculum label (raw id when unknown).
+    expect(dp!.label).toBe('Dynamic Programming');
+    expect(
+      body.standing.find((s) => s.topicId === 'not-in-catalog')!.label,
+    ).toBe('not-in-catalog');
+    for (const item of body.nextUp) {
+      expect(item.label).not.toBeNull();
+      expect(item.reason).not.toMatch(/dynamic-programming|linked-list/);
+    }
     const ids = body.nextUp.map((x) => x.problemId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).not.toContain('lc-999999');
@@ -282,6 +292,40 @@ describe('GET /api/guidance', () => {
     expect(body.standing.map((s) => s.topicId)).toEqual(['arrays']);
     expect(body.standing[0]!.quiz).toEqual({ correct: 2, incorrect: 2 });
     expect(body.standing[0]!.lastActivity).toBe(daysAgo(2));
+  });
+
+  it('empty state: start items carry the label and use it in the reason', async () => {
+    const { body } = await getGuidance();
+    for (const item of body.nextUp) {
+      expect(item.reason).toBe(`Start ${item.label}`);
+    }
+  });
+
+  it('canonicalizeSignals drops a merged topic with no string lastSeen (never undefined-as-timestamp)', () => {
+    const at = daysAgo(1);
+    const raw = {
+      topics: {
+        // Both retired ids fold into `arrays`; one carries a lastSeen.
+        'arrays-2d': { topicId: 'arrays-2d', correct: 1, incorrect: 1 },
+        'two-pointers': {
+          topicId: 'two-pointers',
+          correct: 1,
+          incorrect: 0,
+          lastSeen: at,
+        },
+        // No source carries a lastSeen → malformed → dropped.
+        trees: { topicId: 'trees', correct: 3, incorrect: 0, lastSeen: 42 },
+      },
+      patterns: [],
+      lastUpdated: at,
+    } as unknown as CompetencySignals;
+    const out = canonicalizeSignals(raw);
+    expect(Object.keys(out.topics)).toEqual(['arrays']);
+    expect(out.topics['arrays']).toMatchObject({
+      correct: 2,
+      incorrect: 1,
+      lastSeen: at,
+    });
   });
 
   it('an adapter whose signal read throws still answers 200', async () => {

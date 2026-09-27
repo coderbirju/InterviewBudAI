@@ -1,5 +1,5 @@
 import type { CompetencyResponse } from '../lib/api';
-import { competencyBars } from '../lib/competency';
+import { competencyBars, patternTopicLabels } from '../lib/competency';
 
 /**
  * Competency chart (ADR 0007 Q4): the quiz-derived competency-intelligence
@@ -130,7 +130,7 @@ export function CompetencyChart({
                 </div>
                 {pattern.topics.length > 0 && (
                   <p className="mt-1 text-xs text-slate-500">
-                    {pattern.topics.join(' · ')}
+                    {patternTopicLabels(pattern).join(' · ')}
                   </p>
                 )}
               </li>
