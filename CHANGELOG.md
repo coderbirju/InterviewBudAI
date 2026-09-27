@@ -80,6 +80,12 @@ and is listed there with what you need to do (ADR 0009 D4).
   retired; its problems and the combination/permutation/subset problems (plus
   Word Search) are re-tagged in the catalog (every topic has problems). Existing quiz stats for merged topics are combined at read time;
   no data is rewritten and no migration is needed.
+- Home "Where you stand" chips, next-up guidance reasons (e.g.
+  "Dynamic Programming: 1/5 correct in quiz") and Analytics miss-pattern topics
+  now show readable topic labels instead of raw ids; `/api/guidance` items and
+  `/api/competency` patterns carry the labels (additive fields).
+- Development-only catalog importer updated to the 13-topic taxonomy with
+  per-problem overrides; a test checks it reproduces every catalog topic.
 - The web app is the product; the CLI is frozen (ADR 0008, #57).
 - Docs: ADR 0009 (data lifecycle — data page, CSV import, backups, format
   versioning, release strategy) and this changelog (#61). Releases will be
@@ -102,6 +108,10 @@ and is listed there with what you need to do (ADR 0009 D4).
   complexity text verbatim (no more `"` → `'`), and a `merge` that would
   change nothing is reported as skipped (`unchanged`) without touching the
   note. Not a breaking change (ADR 0009 D4): the file format is unchanged.
+- Analytics no longer lists a recurring miss pattern whose only topic was the
+  retired `miscellaneous`; a stored quiz topic without a last-seen date is
+  ignored instead of passed on with a missing date (read-time only, nothing
+  rewritten).
 - Rare read difference from that fix: a complexity saved by an older version
   that ends in two (or any even number of) backslashes, e.g. `C:\\`, now reads
   with half of them (`C:\`). Re-type the value once if that matters.
