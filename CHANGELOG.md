@@ -37,6 +37,15 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Settings page** (`/settings`, gear in the nav): shows the active model
+  (provider, model, Ollama endpoint, whether an Anthropic key is configured),
+  a **Test connection** button (Ollama: checks the model is pulled; Anthropic:
+  one tiny billable 1-token call, only on click), the environment variables
+  the app reads (set ✓/✗) with a copyable placeholder `.env` snippet, and data
+  folder + app/Node versions. Keys stay in your environment — the page never
+  asks for, stores or shows one. New `GET /api/settings` and rate-limited
+  `POST /api/settings/test-provider`. The Interview "Configure a model" state
+  links to it.
 - Home catalog search plus difficulty and status filters (#54).
 - One-command start: `npm start` builds what is stale and creates the default
   data folder `~/.interviewbudai/data` (0700) on first run; accurate
