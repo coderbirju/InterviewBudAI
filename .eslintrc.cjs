@@ -25,7 +25,6 @@ module.exports = {
     'node_modules/',
     'coverage/',
     '*.config.*',
-    '**/scripts/',
   ],
   rules: {
     '@typescript-eslint/no-unused-vars': [

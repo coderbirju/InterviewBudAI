@@ -56,7 +56,10 @@ interface SkippedEntry {
   reason: string;
 }
 
-function parseFilename(filename: string, folderName: string): ParsedEntry | SkippedEntry {
+function parseFilename(
+  filename: string,
+  folderName: string,
+): ParsedEntry | SkippedEntry {
   if (!filename.endsWith('.md')) {
     return { filename, folder: folderName, reason: 'not-markdown' };
   }
@@ -69,12 +72,14 @@ function parseFilename(filename: string, folderName: string): ParsedEntry | Skip
   }
 
   const match = name.match(/^(\d+)\s+(.+)$/);
-  if (!match) {
+  const numberText = match?.[1];
+  const rawTitle = match?.[2];
+  if (numberText === undefined || rawTitle === undefined) {
     return { filename, folder: folderName, reason: 'no-leading-number' };
   }
 
-  const number = parseInt(match[1], 10);
-  const title = match[2].trim();
+  const number = parseInt(numberText, 10);
+  const title = rawTitle.trim();
 
   return { number, title, folderName };
 }
@@ -133,9 +138,18 @@ function main() {
   for (const [number, g] of byNumber) {
     const mapped = mapTopics(`lc-${number}`, g.folders);
     if (mapped.ok) {
-      catalog.push({ number, title: g.title, folders: g.folders, topics: mapped.topics });
+      catalog.push({
+        number,
+        title: g.title,
+        folders: g.folders,
+        topics: mapped.topics,
+      });
     } else {
-      skipped.push({ filename: `lc-${number} ${g.title}`, folder: mapped.folder, reason: mapped.reason });
+      skipped.push({
+        filename: `lc-${number} ${g.title}`,
+        folder: mapped.folder,
+        reason: mapped.reason,
+      });
     }
   }
 
@@ -153,8 +167,11 @@ function main() {
   console.log('\n=== PROBLEMS (sorted by number) ===');
   catalog.sort((a, b) => a.number - b.number);
   for (const e of catalog) {
-    const merged = e.folders.length > 1 ? ` (merged: ${e.folders.join(', ')})` : '';
-    console.log(`  lc-${e.number}: ${e.title} [${e.topics.join(', ')}]${merged}`);
+    const merged =
+      e.folders.length > 1 ? ` (merged: ${e.folders.join(', ')})` : '';
+    console.log(
+      `  lc-${e.number}: ${e.title} [${e.topics.join(', ')}]${merged}`,
+    );
   }
 }
 
