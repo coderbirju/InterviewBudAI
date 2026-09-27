@@ -15,11 +15,11 @@ _Last updated: 2026-09-27 — PRs #1–#71 merged or closed; Wave 2(a) done; Wav
 See `team-charter.md` §0, §9A.
 
 ## Next up
-- 🟡 Wave 2(b) custom problems — ADR 0010 **proposed, pending founder** (PR #__PR__); then PR 1 (storage + `/api/problems` + catalog merge), PR 2 (UI + CSV "add as custom").
+- 🟡 Wave 2(b) custom problems — ADR 0010 **proposed, pending founder** (PR #72); then PR 1 (storage + `/api/problems` + catalog merge), PR 2 (UI + CSV "add as custom").
 - 🔨 Wave 2(c-lite) settings / provider status — in progress.
 
 ## In progress
-- 🟡 ADR 0010 custom problems (proposed) — `architect/adr-0010-custom-problems`, PR #__PR__.
+- 🟡 ADR 0010 custom problems (proposed) — `architect/adr-0010-custom-problems`, PR #72.
 
 ## Recently merged
 - ✅ #71 Topic-label follow-ups (guidance/pattern labels, `canonicalizeSignals`, importer on 13 topics).
@@ -54,7 +54,7 @@ See `team-charter.md` §0, §9A.
 | W4 | One-command start (`npm start`, first-run data dir 0700, `.env.example`) | ✅ #55 |
 | W2 | Localhost hardening (Host/Origin/CSRF/content-type) | ✅ #58 |
 | 2a | Growth loop: read-time guidance (ADR 0007 A9) + "Where you stand / Next up" Home card | ✅ #67, #68 (topics #69) |
-| 2b | User-added custom problems | 🟡 ADR 0010 proposed (PR #__PR__) — pending founder |
+| 2b | User-added custom problems | 🟡 ADR 0010 proposed (PR #72) — pending founder |
 | 2c | Settings / provider status (active provider, test connection) | ⬜ key storage pending founder |
 | 2d | Server-side data dir as single source of truth (legacy cookie dropped — no migration; see ADR 0009) | ✅ #60 |
 | 3 | Backup/export or git-backing · OpenAI-compatible provider · System Design | ⬜ pending founder |
