@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-27 — PRs #1–#70 merged or closed; Wave 2(a) done; distribution decided (GitHub Release zip, ADR 0009 D5)._
+_Last updated: 2026-09-27 — PRs #1–#71 merged or closed; Wave 2(a) done; Wave 2(b) ADR 0010 proposed; distribution decided (GitHub Release zip, ADR 0009 D5)._
 
 ## Legend
 ✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ⏸ deferred · ✖ closed unmerged
@@ -14,10 +14,15 @@ _Last updated: 2026-09-27 — PRs #1–#70 merged or closed; Wave 2(a) done; dis
 (scaffold, implement, integrate, frontend, verify, code-review, architect-task).
 See `team-charter.md` §0, §9A.
 
+## Next up
+- 🟡 Wave 2(b) custom problems — ADR 0010 **proposed, pending founder** (PR #__PR__); then PR 1 (storage + `/api/problems` + catalog merge), PR 2 (UI + CSV "add as custom").
+- 🔨 Wave 2(c-lite) settings / provider status — in progress.
+
 ## In progress
-- 🟡 Topic-label follow-ups (#69/#70 reviews): guidance + pattern topic labels, `canonicalizeSignals` nits, catalog importer on the 13-topic taxonomy, memfs comment — `feature/topic-labels-followup`.
+- 🟡 ADR 0010 custom problems (proposed) — `architect/adr-0010-custom-problems`, PR #__PR__.
 
 ## Recently merged
+- ✅ #71 Topic-label follow-ups (guidance/pattern labels, `canonicalizeSignals`, importer on 13 topics).
 - ✅ #66 Frontmatter escaping fix (complexity round-trip, legacy normalize) + CSV import nits.
 - ✅ #67 Growth loop (w2a): core `deriveGuidance` + read-only `GET /api/guidance`.
 - ✅ #68 Home "Where you stand / Next up" guidance card.
@@ -49,7 +54,7 @@ See `team-charter.md` §0, §9A.
 | W4 | One-command start (`npm start`, first-run data dir 0700, `.env.example`) | ✅ #55 |
 | W2 | Localhost hardening (Host/Origin/CSRF/content-type) | ✅ #58 |
 | 2a | Growth loop: read-time guidance (ADR 0007 A9) + "Where you stand / Next up" Home card | ✅ #67, #68 (topics #69) |
-| 2b | User-added custom problems | ⬜ needs storage ADR |
+| 2b | User-added custom problems | 🟡 ADR 0010 proposed (PR #__PR__) — pending founder |
 | 2c | Settings / provider status (active provider, test connection) | ⬜ key storage pending founder |
 | 2d | Server-side data dir as single source of truth (legacy cookie dropped — no migration; see ADR 0009) | ✅ #60 |
 | 3 | Backup/export or git-backing · OpenAI-compatible provider · System Design | ⬜ pending founder |
