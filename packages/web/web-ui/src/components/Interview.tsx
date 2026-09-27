@@ -36,7 +36,7 @@ import type {
   QuizTranscriptEntry,
   QuizVerdict,
 } from '../lib/api';
-import { homeHref } from '../lib/router';
+import { homeHref, isPlainClick, navigate, settingsHref } from '../lib/router';
 import { DifficultyBadge } from './DifficultyBadge';
 
 /**
@@ -411,6 +411,18 @@ export function Interview(): JSX.Element {
           </code>
           , then restart the server and reload this page.
         </p>
+        <a
+          href={settingsHref()}
+          onClick={(e) => {
+            if (isPlainClick(e)) {
+              e.preventDefault();
+              navigate(settingsHref());
+            }
+          }}
+          className="mt-5 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
+        >
+          Open Settings
+        </a>
       </div>
     );
   }
