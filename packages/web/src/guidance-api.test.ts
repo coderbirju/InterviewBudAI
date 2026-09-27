@@ -270,6 +270,20 @@ describe('GET /api/guidance', () => {
     }
   });
 
+  it('folds retired topic ids in stored signals via TOPIC_ALIASES (read time)', async () => {
+    await new LocalFileStorageAdapter(tmpDir).writeCompetencySignals(
+      signals({
+        'arrays-2d': [1, 2, 5],
+        'two-pointers': [1, 0, 2],
+        miscellaneous: [4, 4, 1],
+      }),
+    );
+    const { body } = await getGuidance();
+    expect(body.standing.map((s) => s.topicId)).toEqual(['arrays']);
+    expect(body.standing[0]!.quiz).toEqual({ correct: 2, incorrect: 2 });
+    expect(body.standing[0]!.lastActivity).toBe(daysAgo(2));
+  });
+
   it('an adapter whose signal read throws still answers 200', async () => {
     const real = new LocalFileStorageAdapter(tmpDir);
     const throwing: StorageAdapter = {

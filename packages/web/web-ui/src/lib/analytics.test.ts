@@ -167,6 +167,36 @@ describe('analytics: topicCompletionBars', () => {
     expect(empty.length).toBe(0);
   });
 
+  it('keeps the server curriculum order (never re-sorts alphabetically) and uses labels', () => {
+    const mk = (topic: string, label?: string) => ({
+      topic,
+      ...(label ? { label } : {}),
+      problems: [],
+    });
+    const catalog: CatalogResponse = {
+      topics: [
+        mk('arrays', 'Arrays'),
+        mk('stack', 'Stack & Queue'),
+        mk('dynamic-programming', 'Dynamic Programming'),
+        mk('zeta-topic'),
+      ],
+      totals: CATALOG.totals,
+    };
+    const bars = topicCompletionBars(catalog, 300);
+    expect(bars.map((b) => b.topic)).toEqual([
+      'arrays',
+      'stack',
+      'dynamic-programming',
+      'zeta-topic',
+    ]);
+    expect(bars.map((b) => b.label)).toEqual([
+      'Arrays',
+      'Stack & Queue',
+      'Dynamic Programming',
+      'zeta-topic',
+    ]);
+  });
+
   it('preserves the server catalog topic order', () => {
     const bars = topicCompletionBars(CATALOG, 300);
     expect(bars.map((b) => b.topic)).toEqual([

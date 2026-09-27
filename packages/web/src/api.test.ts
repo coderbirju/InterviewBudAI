@@ -15,7 +15,7 @@ import type {
   ApiConfigResponse,
   ApiCompetencyResponse,
 } from './api.js';
-import { createCatalogSource } from '@ibai/curriculum';
+import { TOPIC_ORDER, createCatalogSource, sortTopics } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
 import type { IsoTimestamp } from '@ibai/storage';
 import type {
@@ -101,9 +101,10 @@ describe('api catalog', () => {
     const body = JSON.parse(res.body) as ApiCatalogResponse;
     expect(Array.isArray(body.topics)).toBe(true);
     expect(body.topics.length).toBeGreaterThan(0);
-    // Topics are sorted alphabetically.
+    // Topics follow the curriculum learning order, each with its label.
     const topicNames = body.topics.map((t) => t.topic);
-    expect([...topicNames].sort()).toEqual(topicNames);
+    expect(sortTopics(topicNames)).toEqual(topicNames);
+    expect(body.topics[0]!.label).toBeTruthy();
     // Each problem has the required shape + status/completed.
     const first = body.topics[0]!.problems[0]!;
     expect(first).toHaveProperty('id');
@@ -210,7 +211,120 @@ describe('api progress', () => {
   });
 });
 
+describe('api catalog topic order', () => {
+  it('GET /api/catalog lists topics in curriculum order, unknown topics last alphabetically', async () => {
+    const mk = (id: string, topics: string[]) => ({
+      id,
+      title: id,
+      url: `https://leetcode.com/problems/${id}/`,
+      difficulty: 'easy' as const,
+      topics,
+    });
+    const catalog = createCatalogSource([
+      mk('lc-1', ['zeta-topic']),
+      mk('lc-2', ['dynamic-programming']),
+      mk('lc-3', ['alpha-topic', 'trees']),
+      mk('lc-4', ['arrays']),
+      mk('lc-5', ['stack']),
+    ]);
+    const handler = makeHandler(makeDeps({ catalog }));
+    const res = await handler({ method: 'GET', url: '/api/catalog' });
+    const body = JSON.parse(res.body) as ApiCatalogResponse;
+    expect(body.topics.map((t) => t.topic)).toEqual([
+      'arrays',
+      'stack',
+      'trees',
+      'dynamic-programming',
+      'alpha-topic',
+      'zeta-topic',
+    ]);
+    expect(body.topics.map((t) => t.label)).toEqual([
+      'Arrays',
+      'Stack & Queue',
+      'Trees',
+      'Dynamic Programming',
+      'alpha-topic',
+      'zeta-topic',
+    ]);
+    // Every known topic id precedes every unknown one.
+    const known = body.topics.filter((t) => TOPIC_ORDER.includes(t.topic));
+    expect(body.topics.slice(0, known.length)).toEqual(known);
+  });
+});
+
 describe('api competency', () => {
+  it('GET /api/competency folds retired topic ids via TOPIC_ALIASES at read time (no rewrite)', async () => {
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const t1 = '2026-09-20T12:00:00.000Z' as IsoTimestamp;
+    const t2 = '2026-09-24T12:00:00.000Z' as IsoTimestamp;
+    const stored = {
+      topics: {
+        'arrays-2d': {
+          topicId: 'arrays-2d',
+          correct: 2,
+          incorrect: 1,
+          lastSeen: t1,
+          strength: 'unknown' as const,
+        },
+        'sliding-window': {
+          topicId: 'sliding-window',
+          correct: 1,
+          incorrect: 3,
+          lastSeen: t2,
+          strength: 'weak' as const,
+        },
+        'two-pointers': {
+          topicId: 'two-pointers',
+          correct: 0,
+          incorrect: 1,
+          lastSeen: t1,
+          strength: 'unknown' as const,
+        },
+        miscellaneous: {
+          topicId: 'miscellaneous',
+          correct: 9,
+          incorrect: 9,
+          lastSeen: t2,
+          strength: 'improving' as const,
+        },
+        trees: {
+          topicId: 'trees',
+          correct: 4,
+          incorrect: 0,
+          lastSeen: t1,
+          strength: 'strong' as const,
+        },
+      },
+      patterns: [
+        {
+          id: 'miss:lc-209',
+          description: 'Missed "Minimum Size Subarray Sum".',
+          topics: ['arrays-2d', 'sliding-window', 'miscellaneous'],
+          occurrences: 2,
+          lastObserved: t2,
+        },
+      ],
+      lastUpdated: t2,
+    };
+    await adapter.writeCompetencySignals(stored);
+
+    const handler = makeHandler(makeDeps());
+    const res = await handler({ method: 'GET', url: '/api/competency' });
+    const body = JSON.parse(res.body) as ApiCompetencyResponse;
+    const byId = new Map(body.topics.map((t) => [t.topicId, t]));
+    expect([...byId.keys()].sort()).toEqual(['arrays', 'trees']);
+    const arrays = byId.get('arrays')!;
+    expect(arrays.correct).toBe(3);
+    expect(arrays.incorrect).toBe(5);
+    expect(arrays.lastSeen).toBe(t2);
+    expect(arrays.label).toBe('Arrays');
+    expect(arrays.strength).toBe('weak');
+    expect(body.patterns[0]!.topics).toEqual(['arrays']);
+
+    // Read-time only: the stored dataset is untouched.
+    expect(await adapter.readCompetencySignals()).toEqual(stored);
+  });
+
   it('GET /api/competency returns seeded signals (topics sorted weak-first + patterns)', async () => {
     // Seed the competency-signals store via the real adapter.
     const adapter = new LocalFileStorageAdapter(tmpDir);

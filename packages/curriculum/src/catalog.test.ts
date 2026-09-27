@@ -68,17 +68,13 @@ describe('@ibai/curriculum CATALOG', () => {
     }
   });
 
-  it('multi-topic problems are only the deliberate ones in IMPORT-MANIFEST.md', () => {
-    // ADR 0003 allows several topics per problem. Each such entry counts once
-    // in de-duplicated totals but toward every topic it is tagged with, so a
-    // new one must be a conscious choice recorded in the import manifest.
-    const multi = CATALOG.filter((p) => p.topics.length > 1).map((p) => ({
-      id: p.id,
-      topics: [...p.topics],
-    }));
-    expect(multi).toEqual([
-      { id: 'lc-209', topics: ['arrays-2d', 'sliding-window'] },
-    ]);
+  it('every problem has exactly one topic after the 13-topic re-tag', () => {
+    // ADR 0003 allows several topics per problem, but the founder-approved
+    // re-tag (PR #69) folded lc-209's arrays-2d + sliding-window into a single
+    // `arrays` tag, so no multi-topic entries remain. A new one must be a
+    // conscious choice recorded in IMPORT-MANIFEST.md and in this test.
+    const multi = CATALOG.filter((p) => p.topics.length !== 1).map((p) => p.id);
+    expect(multi).toEqual([]);
   });
 
   it('catalog is not empty', () => {

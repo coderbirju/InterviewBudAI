@@ -13,7 +13,7 @@ import type { Problem } from './index.js';
 
 /**
  * The curated problem catalog.
- * 175 problems across 15 topics.
+ * 175 problems across 13 topics.
  */
 export const CATALOG: readonly Problem[] = [
   {
@@ -21,28 +21,28 @@ export const CATALOG: readonly Problem[] = [
     title: 'Longest Substring Without Repeating Characters',
     url: 'https://leetcode.com/problems/longest-substring-without-repeating-characters/',
     difficulty: 'medium',
-    topics: ['sliding-window'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-4',
     title: 'Median of Two Sorted Arrays',
     url: 'https://leetcode.com/problems/median-of-two-sorted-arrays/',
     difficulty: 'hard',
-    topics: ['miscellaneous'],
+    topics: ['binary-search'],
   },
   {
     id: 'lc-11',
     title: 'Container With Most Water',
     url: 'https://leetcode.com/problems/container-with-most-water/',
     difficulty: 'medium',
-    topics: ['sliding-window'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-17',
     title: 'Letter Combinations of a Phone Number',
     url: 'https://leetcode.com/problems/letter-combinations-of-a-phone-number/',
     difficulty: 'medium',
-    topics: ['recursion'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-19',
@@ -84,7 +84,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Next Permutation',
     url: 'https://leetcode.com/problems/next-permutation/',
     difficulty: 'medium',
-    topics: ['miscellaneous'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-32',
@@ -119,14 +119,14 @@ export const CATALOG: readonly Problem[] = [
     title: 'Combination Sum',
     url: 'https://leetcode.com/problems/combination-sum/',
     difficulty: 'medium',
-    topics: ['recursion'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-42',
     title: 'Trapping Rain Water',
     url: 'https://leetcode.com/problems/trapping-rain-water/',
     difficulty: 'hard',
-    topics: ['two-pointers'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-44',
@@ -140,28 +140,28 @@ export const CATALOG: readonly Problem[] = [
     title: 'Permutations',
     url: 'https://leetcode.com/problems/permutations/',
     difficulty: 'medium',
-    topics: ['recursion'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-47',
     title: 'Permutations II',
     url: 'https://leetcode.com/problems/permutations-ii/',
     difficulty: 'medium',
-    topics: ['recursion'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-53',
     title: 'Maximum Subarray',
     url: 'https://leetcode.com/problems/maximum-subarray/',
     difficulty: 'easy',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-54',
     title: 'Spiral Matrix',
     url: 'https://leetcode.com/problems/spiral-matrix/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-62',
@@ -203,21 +203,21 @@ export const CATALOG: readonly Problem[] = [
     title: 'Combinations',
     url: 'https://leetcode.com/problems/combinations/',
     difficulty: 'medium',
-    topics: ['recursion'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-78',
     title: 'Subsets',
     url: 'https://leetcode.com/problems/subsets/',
     difficulty: 'medium',
-    topics: ['recursion'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-79',
     title: 'Word Search',
     url: 'https://leetcode.com/problems/word-search/',
     difficulty: 'medium',
-    topics: ['trees'],
+    topics: ['backtracking'],
   },
   {
     id: 'lc-84',
@@ -301,7 +301,7 @@ export const CATALOG: readonly Problem[] = [
     title: "Pascal's Triangle",
     url: 'https://leetcode.com/problems/pascals-triangle/',
     difficulty: 'easy',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-121',
@@ -406,7 +406,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Two Sum II - Input Array Is Sorted',
     url: 'https://leetcode.com/problems/two-sum-ii-input-array-is-sorted/',
     difficulty: 'medium',
-    topics: ['two-pointers'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-172',
@@ -462,7 +462,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Minimum Size Subarray Sum',
     url: 'https://leetcode.com/problems/minimum-size-subarray-sum/',
     difficulty: 'medium',
-    topics: ['arrays-2d', 'sliding-window'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-210',
@@ -497,7 +497,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Contains Duplicate II',
     url: 'https://leetcode.com/problems/contains-duplicate-ii/',
     difficulty: 'easy',
-    topics: ['sliding-window'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-224',
@@ -609,7 +609,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Range Sum Query 2D - Immutable',
     url: 'https://leetcode.com/problems/range-sum-query-2d-immutable/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-307',
@@ -721,7 +721,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Longest Repeating Character Replacement',
     url: 'https://leetcode.com/problems/longest-repeating-character-replacement/',
     difficulty: 'medium',
-    topics: ['sliding-window'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-435',
@@ -749,7 +749,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Reverse Pairs',
     url: 'https://leetcode.com/problems/reverse-pairs/',
     difficulty: 'hard',
-    topics: ['miscellaneous'],
+    topics: ['sorting'],
   },
   {
     id: 'lc-503',
@@ -784,7 +784,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'K-diff Pairs in an Array',
     url: 'https://leetcode.com/problems/k-diff-pairs-in-an-array/',
     difficulty: 'medium',
-    topics: ['two-pointers'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-540',
@@ -798,7 +798,7 @@ export const CATALOG: readonly Problem[] = [
     title: '01 Matrix',
     url: 'https://leetcode.com/problems/01-matrix/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-547',
@@ -826,7 +826,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Find K Closest Elements',
     url: 'https://leetcode.com/problems/find-k-closest-elements/',
     difficulty: 'medium',
-    topics: ['two-pointers'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-669',
@@ -882,7 +882,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Self Dividing Numbers',
     url: 'https://leetcode.com/problems/self-dividing-numbers/',
     difficulty: 'easy',
-    topics: ['miscellaneous'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-739',
@@ -952,7 +952,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Transpose Matrix',
     url: 'https://leetcode.com/problems/transpose-matrix/',
     difficulty: 'easy',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-875',
@@ -980,7 +980,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Maximum Sum Circular Subarray',
     url: 'https://leetcode.com/problems/maximum-sum-circular-subarray/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-973',
@@ -994,7 +994,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Longest Turbulent Subarray',
     url: 'https://leetcode.com/problems/longest-turbulent-subarray/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-994',
@@ -1106,7 +1106,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'XOR Queries of a Subarray',
     url: 'https://leetcode.com/problems/xor-queries-of-a-subarray/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-1312',
@@ -1129,14 +1129,14 @@ export const CATALOG: readonly Problem[] = [
       'Number of Sub-arrays of Size K and Average Greater than or Equal to Threshold',
     url: 'https://leetcode.com/problems/number-of-sub-arrays-of-size-k-and-average-greater-than-or-equal-to-threshold/',
     difficulty: 'medium',
-    topics: ['sliding-window'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-1351',
     title: 'Count Negative Numbers in a Sorted Matrix',
     url: 'https://leetcode.com/problems/count-negative-numbers-in-a-sorted-matrix/',
     difficulty: 'easy',
-    topics: ['miscellaneous'],
+    topics: ['binary-search'],
   },
   {
     id: 'lc-1382',
@@ -1157,7 +1157,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Running Sum of 1d Array',
     url: 'https://leetcode.com/problems/running-sum-of-1d-array/',
     difficulty: 'easy',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-1482',
@@ -1178,7 +1178,7 @@ export const CATALOG: readonly Problem[] = [
     title: 'Special Positions in a Binary Matrix',
     url: 'https://leetcode.com/problems/special-positions-in-a-binary-matrix/',
     difficulty: 'medium',
-    topics: ['arrays-2d'],
+    topics: ['arrays'],
   },
   {
     id: 'lc-1584',
@@ -1241,6 +1241,6 @@ export const CATALOG: readonly Problem[] = [
     title: 'Path Existence Queries in a Graph I',
     url: 'https://leetcode.com/problems/path-existence-queries-in-a-graph-i/',
     difficulty: 'medium',
-    topics: ['miscellaneous'],
+    topics: ['graphs'],
   },
 ];

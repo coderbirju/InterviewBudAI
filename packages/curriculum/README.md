@@ -74,22 +74,24 @@ interface CurriculumSource {
 
 ## Topics
 
-The catalog includes problems tagged with these topics:
-- `arrays-2d` - 2D array problems
+The catalog includes problems tagged with these 13 topics, listed in learning
+order (`TOPIC_ORDER` in `src/topic-order.ts`, labels in `TOPIC_LABELS`):
+- `arrays` - Arrays, including 2D arrays, two pointers and sliding window
 - `binary-search` - Binary search algorithms
-- `dynamic-programming` - DP problems (including hard DP)
+- `sorting` - Sorting algorithms
+- `hashing` - Hash-based solutions
+- `linked-list` - Linked list problems
+- `stack` - Stack and queue problems
+- `heap` - Heap/priority queue problems
+- `recursion` - Recursive solutions
+- `backtracking` - Backtracking (combinations, permutations, subsets, grid search)
+- `trees` - Tree and trie problems
 - `graphs` - Graph algorithms
 - `greedy` - Greedy algorithms
-- `hashing` - Hash-based solutions
-- `heap` - Heap/priority queue problems
-- `linked-list` - Linked list problems
-- `miscellaneous` - General problems
-- `recursion` - Recursive solutions
-- `sliding-window` - Sliding window technique
-- `sorting` - Sorting algorithms
-- `stack` - Stack and queue problems
-- `trees` - Tree problems
-- `two-pointers` - Two pointer technique
+- `dynamic-programming` - DP problems (including hard DP)
+
+Legacy ids `arrays-2d`, `two-pointers` and `sliding-window` are aliases of
+`arrays` (`TOPIC_ALIASES`); `miscellaneous` was retired and its problems re-tagged.
 
 ## Regenerating the Catalog
 
