@@ -11,7 +11,12 @@
  * The design-system status tokens are reused (mirror `analytics.ts`):
  *   weak=red  improving=amber  strong=emerald  unknown=slate
  */
-import type { CompetencyResponse, CompetencyTopic, TopicStrength } from './api';
+import type {
+  CompetencyPattern,
+  CompetencyResponse,
+  CompetencyTopic,
+  TopicStrength,
+} from './api';
 import { barLength } from './analytics';
 
 /** Design-system colors per strength band (mirror `STATUS_COLORS`). */
@@ -118,4 +123,21 @@ export function groupByStrength(
  */
 export function hasCompetencyData(data: CompetencyResponse): boolean {
   return data.topics.length > 0 || data.patterns.length > 0;
+}
+
+/**
+ * Display labels for a pattern's topics: the server's index-aligned
+ * `topicLabels` when present and well-formed, else the raw topic ids (an older
+ * server, or a length mismatch).
+ */
+export function patternTopicLabels(
+  pattern: Pick<CompetencyPattern, 'topics' | 'topicLabels'>,
+): readonly string[] {
+  const labels = pattern.topicLabels;
+  if (!Array.isArray(labels) || labels.length !== pattern.topics.length) {
+    return pattern.topics;
+  }
+  return pattern.topics.map((id, i) =>
+    typeof labels[i] === 'string' && labels[i] !== '' ? labels[i]! : id,
+  );
 }

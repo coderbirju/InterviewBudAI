@@ -164,6 +164,8 @@ export interface ApiCompetencyPattern {
   readonly id: string;
   readonly description: string;
   readonly topics: readonly TopicId[];
+  /** Display labels for `topics`, index-aligned (curriculum `TOPIC_LABELS`; raw id when unknown). */
+  readonly topicLabels: readonly string[];
   readonly occurrences: number;
   readonly lastObserved: string | null;
 }
@@ -189,10 +191,19 @@ export interface ApiCompetencyResponse {
 export interface ApiGuidanceResponse {
   readonly state: 'no_db' | 'empty' | 'ready';
   readonly generatedAt: IsoTimestamp;
-  readonly standing: readonly TopicStanding[];
-  readonly nextUp: readonly NextUpItem[];
+  readonly standing: readonly ApiGuidanceStanding[];
+  readonly nextUp: readonly ApiGuidanceNextUp[];
   readonly quiz: QuizHint;
 }
+
+/** A core {@link TopicStanding} plus its curriculum display label (raw id when unknown). */
+export type ApiGuidanceStanding = TopicStanding & { readonly label: string };
+
+/**
+ * A core {@link NextUpItem} plus the display label of its `topicId`; `null`
+ * exactly when `topicId` is `null`.
+ */
+export type ApiGuidanceNextUp = NextUpItem & { readonly label: string | null };
 
 /** GET /api/notes/:id response shape (a saved or empty note). */
 export interface ApiNoteResponse {
@@ -1345,11 +1356,22 @@ async function buildGuidanceResponse(
     })),
     signals: canonicalizeSignals(signals),
     now: generatedAt,
+    // Core never imports the curriculum; labels are injected so reasons read
+    // "Dynamic Programming: 1/5 correct in quiz" rather than the raw id.
+    topicLabel,
   });
   return {
     state: guidance.standing.length === 0 ? 'empty' : 'ready',
     generatedAt,
-    ...guidance,
+    standing: guidance.standing.map((s) => ({
+      ...s,
+      label: topicLabel(s.topicId),
+    })),
+    nextUp: guidance.nextUp.map((item) => ({
+      ...item,
+      label: item.topicId === null ? null : topicLabel(item.topicId),
+    })),
+    quiz: guidance.quiz,
   };
 }
 
@@ -1398,6 +1420,11 @@ export function canonicalizeSignals(
   }
   const topics: Record<TopicId, CompetencySignals['topics'][TopicId]> = {};
   for (const [topicId, acc] of merged) {
+    // `lastSeen` is required on a stored entry (the storage validator rejects
+    // one without it). If no source entry carried a string `lastSeen`, the
+    // merged entry is malformed: drop it rather than emit `undefined` typed as
+    // a timestamp.
+    if (acc.lastSeen === undefined) continue;
     topics[topicId] = {
       topicId,
       correct: acc.correct,
@@ -1406,21 +1433,27 @@ export function canonicalizeSignals(
       strength: deriveTopicStrength(acc.correct, acc.incorrect),
     };
   }
+  // Pattern topics are mapped the same way. A pattern that listed topics but
+  // lost ALL of them to aliasing (e.g. only the dropped `miscellaneous`) is
+  // dropped too — it no longer belongs to any current topic. A pattern that
+  // listed no topics to begin with is kept unchanged.
   const patterns = Array.isArray(signals?.patterns)
-    ? signals.patterns.map((p) => ({
-        ...p,
-        topics: Array.isArray(p?.topics)
-          ? [
-              ...new Set(
-                (p.topics as readonly unknown[])
-                  .map((t: unknown) =>
-                    typeof t === 'string' ? canonicalTopicId(t) : null,
-                  )
-                  .filter((t: TopicId | null): t is TopicId => t !== null),
-              ),
-            ]
-          : [],
-      }))
+    ? signals.patterns.flatMap((p) => {
+        const raw: readonly unknown[] = Array.isArray(p?.topics)
+          ? (p.topics as readonly unknown[])
+          : [];
+        const mapped = [
+          ...new Set(
+            raw
+              .map((t: unknown) =>
+                typeof t === 'string' ? canonicalTopicId(t) : null,
+              )
+              .filter((t: TopicId | null): t is TopicId => t !== null),
+          ),
+        ];
+        if (raw.length > 0 && mapped.length === 0) return [];
+        return [{ ...p, topics: mapped }];
+      })
     : [];
   return { ...signals, topics, patterns };
 }
@@ -1478,6 +1511,7 @@ function toCompetencyResponse(
       id: p.id,
       description: p.description,
       topics: [...p.topics],
+      topicLabels: p.topics.map((t) => topicLabel(t)),
       occurrences: p.occurrences,
       lastObserved: p.lastObserved ?? null,
     }))

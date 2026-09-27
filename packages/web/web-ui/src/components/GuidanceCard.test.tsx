@@ -86,6 +86,28 @@ describe('GuidanceCard — where you stand', () => {
     expect(unknown).toHaveStyle({ color: STRENGTH_COLORS.unknown });
   });
 
+  it('shows the topic label, falling back to the raw id when absent', () => {
+    render(
+      <GuidanceCard
+        guidance={ready({
+          standing: [
+            {
+              ...standing('dynamic-programming', 'weak'),
+              label: 'Dynamic Programming',
+            },
+            standing('custom-topic', 'unknown'),
+          ],
+        })}
+      />,
+    );
+    const chips = screen.getAllByTestId('standing-chip');
+    expect(
+      within(chips[0]).getByText('Dynamic Programming'),
+    ).toBeInTheDocument();
+    expect(within(chips[0]).queryByText('dynamic-programming')).toBeNull();
+    expect(within(chips[1]).getByText('custom-topic')).toBeInTheDocument();
+  });
+
   it('falls back to the unknown color and label for an unrecognised band', () => {
     const odd = standing('arrays', 'mystery' as unknown as TopicStrength);
     render(<GuidanceCard guidance={ready({ standing: [odd] })} />);
