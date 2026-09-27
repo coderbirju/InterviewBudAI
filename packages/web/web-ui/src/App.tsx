@@ -4,6 +4,7 @@ import {
   MessageSquare,
   BarChart3,
   Database,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Home } from './components/Home';
@@ -11,6 +12,7 @@ import { Notes } from './components/Notes';
 import { Analytics } from './components/Analytics';
 import { Interview } from './components/Interview';
 import { DataPage } from './components/DataPage';
+import { SettingsPage } from './components/SettingsPage';
 import { DataFolderBanner } from './components/DataFolderBanner';
 import {
   analyticsHref,
@@ -19,6 +21,7 @@ import {
   interviewHref,
   isPlainClick,
   navigate,
+  settingsHref,
   useRoute,
 } from './lib/router';
 import type { Route } from './lib/router';
@@ -73,6 +76,13 @@ const NAV_LINKS: readonly NavLink[] = [
     href: dataHref(),
     spa: true,
     isCurrent: (r) => r.kind === 'data',
+  },
+  {
+    label: 'Settings',
+    icon: SettingsIcon,
+    href: settingsHref(),
+    spa: true,
+    isCurrent: (r) => r.kind === 'settings',
   },
 ];
 
@@ -146,6 +156,17 @@ export default function App(): JSX.Element {
             </p>
             <div className="mt-8">
               <DataPage />
+            </div>
+          </>
+        ) : route.kind === 'settings' ? (
+          <>
+            <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Which model InterviewBudAI is using and how to change it. Keys
+              stay in your environment — this page never asks for one.
+            </p>
+            <div className="mt-8">
+              <SettingsPage />
             </div>
           </>
         ) : route.kind === 'analytics' ? (
