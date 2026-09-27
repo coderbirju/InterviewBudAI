@@ -185,7 +185,7 @@ export function buildSettingsResponse(input: {
 
 /** Minimum gap between two tests (in-process). */
 export const TEST_MIN_INTERVAL_MS = 5_000;
-/** Per-call timeout for a provider test. */
+/** Deadline for a whole provider test (request AND body read). */
 export const TEST_TIMEOUT_MS = 5_000;
 
 export interface ProviderTesterOptions {
@@ -204,34 +204,23 @@ export type ProviderTestOutcome =
 
 class TimeoutError extends Error {}
 
-/** A fetch wrapper that aborts after `ms` and records the HTTP status. */
+/**
+ * A fetch wrapper that attaches the test's single abort signal and records the
+ * HTTP status. The deadline itself lives in the tester (it covers the whole
+ * operation, body reads included), not here.
+ */
 function guardedFetch(
   base: typeof fetch,
-  ms: number,
+  signal: AbortSignal,
   seen: { status?: number; errorType?: string },
 ): typeof fetch {
   return async (input, init) => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, rejectTimeout) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        rejectTimeout(new TimeoutError('timeout'));
-      }, ms);
-    });
-    try {
-      const res = await Promise.race([
-        base(input, { ...init, signal: controller.signal }),
-        timeout,
-      ]);
-      seen.status = res.status;
-      if (!res.ok) {
-        seen.errorType = await errorTypeOf(res.clone());
-      }
-      return res;
-    } finally {
-      clearTimeout(timer);
+    const res = await base(input, { ...init, signal });
+    seen.status = res.status;
+    if (!res.ok) {
+      seen.errorType = await errorTypeOf(res.clone());
     }
+    return res;
   };
 }
 
@@ -274,6 +263,19 @@ function describeStatus(
     return `${provider} had a server error (HTTP ${status})${suffix}. Try again later.`;
   }
   return `${provider} answered HTTP ${status}${suffix}.`;
+}
+
+/** Fixed detail when IBAI_OLLAMA_URL carries credentials (URL never echoed). */
+export const OLLAMA_USERINFO_DETAIL =
+  'Ollama URL must not contain a username/password';
+
+function hasUserinfo(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.username !== '' || url.password !== '';
+  } catch {
+    return false;
+  }
 }
 
 /** Does Ollama's `/api/tags` list the configured model? (`llama3` ≡ `llama3:latest`) */
@@ -328,7 +330,18 @@ export function createProviderTester(
     inFlight = true;
     const base = opts.fetchImpl ?? globalThis.fetch;
     const seen: { status?: number; errorType?: string } = {};
-    const fetchImpl = guardedFetch(base, timeoutMs, seen);
+    // ONE controller + deadline for the whole test (fetch AND body reads): a
+    // provider that sends headers then stalls the body still ends at the
+    // deadline, and `inFlight` is released then (outer `finally`).
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, rejectDeadline) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        rejectDeadline(new TimeoutError('timeout'));
+      }, timeoutMs);
+    });
+    const fetchImpl = guardedFetch(base, controller.signal, seen);
     const done = (ok: boolean, detail: string): ProviderTestOutcome => ({
       status: 200,
       body: {
@@ -339,11 +352,16 @@ export function createProviderTester(
     });
     const label = provider.kind === 'anthropic' ? 'Anthropic' : 'Ollama';
 
-    try {
+    const run = async (): Promise<ProviderTestOutcome> => {
       if (provider.kind === 'ollama') {
         const model = provider.model ?? '';
+        const rawUrl = resolveOllamaUrl(env);
+        if (hasUserinfo(rawUrl)) {
+          // fetch refuses such URLs (and its error text contains the URL).
+          return done(false, OLLAMA_USERINFO_DETAIL);
+        }
         // Same URL shape as OllamaProvider (`${endpoint}/api/chat`).
-        const res = await fetchImpl(`${resolveOllamaUrl(env)}/api/tags`, {
+        const res = await fetchImpl(`${rawUrl}/api/tags`, {
           method: 'GET',
           headers: { Accept: 'application/json' },
         });
@@ -379,6 +397,10 @@ export function createProviderTester(
         options: { maxTokens: 1 },
       });
       return done(true, `Anthropic accepted the key and the model "${model}".`);
+    };
+
+    try {
+      return await Promise.race([run(), deadline]);
     } catch (error) {
       if (error instanceof TimeoutError) {
         return done(
@@ -407,6 +429,7 @@ export function createProviderTester(
         `Could not reach ${label}${where}. ${provider.kind === 'ollama' ? 'Is Ollama running?' : 'Check your network connection.'}`,
       );
     } finally {
+      clearTimeout(timer);
       inFlight = false;
     }
   };
