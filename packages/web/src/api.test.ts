@@ -303,6 +303,20 @@ describe('api competency', () => {
           occurrences: 2,
           lastObserved: t2,
         },
+        {
+          id: 'miss:misc-only',
+          description: 'Missed a problem that was only miscellaneous.',
+          topics: ['miscellaneous'],
+          occurrences: 5,
+          lastObserved: t2,
+        },
+        {
+          id: 'miss:no-topics',
+          description: 'Missed a problem with no topic.',
+          topics: [],
+          occurrences: 1,
+          lastObserved: t1,
+        },
       ],
       lastUpdated: t2,
     };
@@ -320,6 +334,14 @@ describe('api competency', () => {
     expect(arrays.label).toBe('Arrays');
     expect(arrays.strength).toBe('weak');
     expect(body.patterns[0]!.topics).toEqual(['arrays']);
+    expect(body.patterns[0]!.topicLabels).toEqual(['Arrays']);
+    // A pattern that lost ALL its topics to aliasing is dropped; one that
+    // never had topics is kept unchanged.
+    expect(body.patterns.map((p) => p.id)).toEqual([
+      'miss:lc-209',
+      'miss:no-topics',
+    ]);
+    expect(body.patterns[1]!).toMatchObject({ topics: [], topicLabels: [] });
 
     // Read-time only: the stored dataset is untouched.
     expect(await adapter.readCompetencySignals()).toEqual(stored);

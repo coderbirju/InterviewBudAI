@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-25 — PRs #1–#65 merged or closed; distribution decided (GitHub Release zip, ADR 0009 D5)._
+_Last updated: 2026-09-27 — PRs #1–#70 merged or closed; Wave 2(a) done; distribution decided (GitHub Release zip, ADR 0009 D5)._
 
 ## Legend
 ✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ⏸ deferred · ✖ closed unmerged
@@ -15,7 +15,14 @@ _Last updated: 2026-09-25 — PRs #1–#65 merged or closed; distribution decide
 See `team-charter.md` §0, §9A.
 
 ## In progress
-- 🟡 Frontmatter escaping fix (complexity `"`/`\` round-trip, legacy normalize) + import nits (verbatim complexity, no-op merge → skipped `unchanged`) — #66 `fix/frontmatter-escaping`.
+- 🟡 Topic-label follow-ups (#69/#70 reviews): guidance + pattern topic labels, `canonicalizeSignals` nits, catalog importer on the 13-topic taxonomy, memfs comment — `feature/topic-labels-followup`.
+
+## Recently merged
+- ✅ #66 Frontmatter escaping fix (complexity round-trip, legacy normalize) + CSV import nits.
+- ✅ #67 Growth loop (w2a): core `deriveGuidance` + read-only `GET /api/guidance`.
+- ✅ #68 Home "Where you stand / Next up" guidance card.
+- ✅ #69 Curriculum 13-topic taxonomy: learning order, labels, read-time aliases, catalog re-tag.
+- ✅ #70 CI flake fix: frontmatter escaping tests on an in-memory fs.
 
 ## Founder decision (2026-09-25) — recorded in ADR 0008
 - **The web app is the product.** CLI frozen (compiles + tests, no features).
@@ -41,7 +48,7 @@ See `team-charter.md` §0, §9A.
 | W3 | Home catalog search + difficulty/status filters | ✅ #54 |
 | W4 | One-command start (`npm start`, first-run data dir 0700, `.env.example`) | ✅ #55 |
 | W2 | Localhost hardening (Host/Origin/CSRF/content-type) | ✅ #58 |
-| 2a | Growth loop: quiz signals → CompetencyMap/WeaknessRegister; "Where you stand / Next up" Home card | ⬜ |
+| 2a | Growth loop: read-time guidance (ADR 0007 A9) + "Where you stand / Next up" Home card | ✅ #67, #68 (topics #69) |
 | 2b | User-added custom problems | ⬜ needs storage ADR |
 | 2c | Settings / provider status (active provider, test connection) | ⬜ key storage pending founder |
 | 2d | Server-side data dir as single source of truth (legacy cookie dropped — no migration; see ADR 0009) | ✅ #60 |
@@ -53,7 +60,7 @@ See `team-charter.md` §0, §9A.
 |---|---|---|
 | ADR | ADR 0009 + root `CHANGELOG.md` (#60 breaking change recorded) | ✅ #61; D5 zip amendment ✅ #63 |
 | A | `/data` page, nav link, zero-notes banner, `/api/data-dir`, legacy-cookie / `~/.ibai/data` recovery prompt | ✅ #62; hardening ✅ #64 |
-| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ✅ #65; escaping fix 🟡 #66 |
+| B | CSV import (Notion) preview/commit + backups (`.backups/`, keep 5) | ✅ #65; escaping fix ✅ #66 |
 | C | `manifest.json` format versioning + migration framework | ⬜ after B |
 | D | Release zip (prebuilt server + SPA, `node …` start) + tag-triggered Action: verify → zip → GitHub Release from CHANGELOG (no npm) | ⏸ deferred (founder) — D5 accepted; founder pushes tags |
 
@@ -119,7 +126,7 @@ See `team-charter.md` §0, §9A.
 
 ## Next up (proposed)
 1. ADR 0009 PR C (manifest + migrations). PR D (release zip) deferred.
-2. Wave 2a growth loop.
+2. ~~Wave 2a growth loop~~ ✅ #67/#68.
 3. `architect-task` — storage-interface ADR for custom problems (Wave 2b).
 4. Wave 2c; hygiene PRs in between.
 5. `scaffold` — ESLint 9 flat-config upgrade.

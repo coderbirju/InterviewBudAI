@@ -58,7 +58,7 @@ export interface GuidanceInput {
   readonly signals: CompetencySignals;
   /** The reference time for "N days ago" and the quiz nudge. */
   readonly now: IsoTimestamp;
-  /** Display name for a topic in reasons. Default: the topic id, as the UI shows it. */
+  /** Display name for a topic in reasons (the web injects the curriculum `topicLabel`). Default: the topic id. */
   readonly topicLabel?: (topicId: TopicId) => string;
   /** How many next-up items to return. Default {@link NEXT_UP_COUNT}; clamped to 1..{@link MAX_NEXT_UP}. */
   readonly count?: number;

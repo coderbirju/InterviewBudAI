@@ -106,6 +106,8 @@ export interface CompetencyPattern {
   readonly id: string;
   readonly description: string;
   readonly topics: readonly string[];
+  /** Curriculum display labels for `topics`, index-aligned; absent → show `topics`. */
+  readonly topicLabels?: readonly string[];
   readonly occurrences: number;
   readonly lastObserved: string | null;
 }
@@ -243,6 +245,8 @@ export type GuidanceState = 'no_db' | 'empty' | 'ready';
 /** Where the user stands on one topic (mirrors core `TopicStanding`). */
 export interface GuidanceStanding {
   readonly topicId: string;
+  /** Curriculum display label (server `topicLabel`); absent → show `topicId`. */
+  readonly label?: string;
   readonly notes: {
     readonly done: number;
     readonly toRevisit: number;
@@ -270,6 +274,8 @@ export interface GuidanceNextUp {
   readonly difficulty: Difficulty;
   /** Topic the item came from; `null` when unknown (e.g. a revisit off-catalog). */
   readonly topicId: string | null;
+  /** Display label of `topicId` (`null` when `topicId` is); absent → show `topicId`. */
+  readonly label?: string | null;
   /** Count-based reason (never a hint); rendered as JSX text. */
   readonly reason: string;
 }
