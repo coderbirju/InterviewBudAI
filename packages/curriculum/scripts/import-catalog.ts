@@ -9,7 +9,7 @@
  * Location: packages/curriculum/scripts/import-catalog.ts
  * This is OUTSIDE src/ so it is excluded from:
  *   - The compiled dist/ output (tsconfig rootDir: src)
- *   - The vitest test includes (src/**/*.test.ts)
+ *   - The vitest test includes (test files under each package src dir)
  *   - The shipped npm package
  *
  * Usage:
@@ -21,54 +21,33 @@
  *   Prints derived catalog data and a summary of skips/duplicates.
  *   To update the catalog: copy the output to src/catalog.ts or pipe to file.
  *
- * Topic mapping (folder name -> topic id):
- *   Arrays 2D -> arrays-2d
- *   Binary Search -> binary-search
- *   DP -> dynamic-programming
- *   DP - HARD -> dynamic-programming
- *   Graphs -> graphs
- *   Greedy -> greedy
- *   Hashing -> hashing
- *   Heap -> heap
- *   Linked List -> linked-list
- *   Problems -> miscellaneous
- *   Recursion -> recursion
- *   Sliding Window -> sliding-window
- *   Sorting -> sorting
- *   Stack and Queue -> stack
- *   Trees -> trees
- *   Two Pointers -> two-pointers
+ * Topic mapping (13-topic taxonomy, ADR 0003 amendment 2026-09-26):
+ *   See ./topic-mapping.ts — FOLDER_TOPIC_MAP (Notion folder -> topic id) plus
+ *   PROBLEM_TOPIC_OVERRIDES (per-problem-id moves a folder cannot express,
+ *   e.g. Recursion -> backtracking for lc-17/39/46/47/77/78, lc-79 Trees ->
+ *   backtracking, and the six former `Problems`/miscellaneous re-homings).
+ *   A problem found in several folders gets their topics merged (de-duplicated).
+ *   src/import-mapping.test.ts proves the mapping reproduces the current
+ *   catalog's `topics` for all 175 problems.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-
-const TOPIC_MAP: Record<string, string> = {
-  'Arrays 2D': 'arrays-2d',
-  'Binary Search': 'binary-search',
-  'DP': 'dynamic-programming',
-  'DP - HARD': 'dynamic-programming',
-  'Graphs': 'graphs',
-  'Greedy': 'greedy',
-  'Hashing': 'hashing',
-  'Heap': 'heap',
-  'Linked List': 'linked-list',
-  'Problems': 'miscellaneous',
-  'Recursion': 'recursion',
-  'Sliding Window': 'sliding-window',
-  'Sorting': 'sorting',
-  'Stack and Queue': 'stack',
-  'Trees': 'trees',
-  'Two Pointers': 'two-pointers',
-};
+import { FOLDER_TOPIC_MAP, mapTopics } from './topic-mapping.js';
 
 const NOTION_HASH_PATTERN = /\s+[a-f0-9]{32}$/i;
 
 interface ParsedEntry {
   number: number;
   title: string;
-  topicId: string;
   folderName: string;
+}
+
+interface CatalogEntry {
+  number: number;
+  title: string;
+  folders: string[];
+  topics: readonly string[];
 }
 
 interface SkippedEntry {
@@ -97,12 +76,7 @@ function parseFilename(filename: string, folderName: string): ParsedEntry | Skip
   const number = parseInt(match[1], 10);
   const title = match[2].trim();
 
-  const topicId = TOPIC_MAP[folderName];
-  if (!topicId) {
-    return { filename, folder: folderName, reason: 'unknown-topic-folder' };
-  }
-
-  return { number, title, topicId, folderName };
+  return { number, title, folderName };
 }
 
 function main() {
@@ -127,7 +101,7 @@ function main() {
 
   for (const folder of topFolders) {
     if (!folder.isDirectory()) continue;
-    if (!TOPIC_MAP[folder.name]) {
+    if (!Object.prototype.hasOwnProperty.call(FOLDER_TOPIC_MAP, folder.name)) {
       console.warn(`Skipping unknown folder: ${folder.name}`);
       continue;
     }
@@ -147,9 +121,28 @@ function main() {
     }
   }
 
+  // Group by problem number (a problem may sit in several folders), then map
+  // its folder(s) to topics (per-id override first).
+  const byNumber = new Map<number, { title: string; folders: string[] }>();
+  for (const e of entries) {
+    const g = byNumber.get(e.number) ?? { title: e.title, folders: [] };
+    if (!g.folders.includes(e.folderName)) g.folders.push(e.folderName);
+    byNumber.set(e.number, g);
+  }
+  const catalog: CatalogEntry[] = [];
+  for (const [number, g] of byNumber) {
+    const mapped = mapTopics(`lc-${number}`, g.folders);
+    if (mapped.ok) {
+      catalog.push({ number, title: g.title, folders: g.folders, topics: mapped.topics });
+    } else {
+      skipped.push({ filename: `lc-${number} ${g.title}`, folder: mapped.folder, reason: mapped.reason });
+    }
+  }
+
   console.log('\n=== IMPORT SUMMARY ===');
   console.log(`Total files scanned: ${totalFiles}`);
   console.log(`Entries parsed: ${entries.length}`);
+  console.log(`Problems (merged by number): ${catalog.length}`);
   console.log(`Entries skipped: ${skipped.length}`);
 
   console.log('\n=== SKIPPED ENTRIES ===');
@@ -157,10 +150,11 @@ function main() {
     console.log(`  [${s.reason}] ${s.folder}/${s.filename}`);
   }
 
-  console.log('\n=== PARSED ENTRIES (sorted by number) ===');
-  entries.sort((a, b) => a.number - b.number);
-  for (const e of entries) {
-    console.log(`  lc-${e.number}: ${e.title} [${e.topicId}]`);
+  console.log('\n=== PROBLEMS (sorted by number) ===');
+  catalog.sort((a, b) => a.number - b.number);
+  for (const e of catalog) {
+    const merged = e.folders.length > 1 ? ` (merged: ${e.folders.join(', ')})` : '';
+    console.log(`  lc-${e.number}: ${e.title} [${e.topics.join(', ')}]${merged}`);
   }
 }
 
