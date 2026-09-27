@@ -121,7 +121,9 @@ function StandingChip({ s }: { s: GuidanceStanding }): JSX.Element {
       data-testid="standing-chip"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-medium text-slate-200">{s.topicId}</span>
+        <span className="truncate font-medium text-slate-200">
+          {s.label ?? s.topicId}
+        </span>
         <span className="tabular-nums font-semibold text-slate-100">
           {total > 0 ? `${done}/${total}` : done}
           <span className="sr-only"> done</span>

@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build && npm run typecheck:ui --workspace=@ibai/web",
+    "typecheck": "tsc --build && tsc -p packages/curriculum/tsconfig.scripts.json --noEmit && npm run typecheck:ui --workspace=@ibai/web",
     "typecheck:ui": "npm run typecheck:ui --workspace=@ibai/web",
     "lint": "eslint .",
     "format": "prettier --check .",

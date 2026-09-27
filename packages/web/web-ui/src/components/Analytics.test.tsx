@@ -110,7 +110,8 @@ const COMPETENCY: CompetencyResponse = {
     {
       id: 'miss:lc-322',
       description: 'Missed "Coin Change"; you reached for greedy first.',
-      topics: ['Dynamic Programming'],
+      topics: ['dynamic-programming', 'stack'],
+      topicLabels: ['Dynamic Programming', 'Stack & Queue'],
       occurrences: 3,
       lastObserved: '2026-09-24T12:00:00.000Z',
     },
@@ -261,6 +262,11 @@ describe('Analytics page', () => {
     ).toBeInTheDocument();
     // Occurrence count badge.
     expect(within(section).getByText('×3')).toBeInTheDocument();
+    // Pattern topics show curriculum labels, not raw ids.
+    expect(
+      within(section).getByText('Dynamic Programming · Stack & Queue'),
+    ).toBeInTheDocument();
+    expect(within(section).queryByText(/dynamic-programming/)).toBeNull();
   });
 
   it('shows the competency empty state (with a quiz link) when there are no signals', async () => {
