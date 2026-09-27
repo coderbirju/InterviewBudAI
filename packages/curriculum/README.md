@@ -104,7 +104,7 @@ npx tsx packages/curriculum/scripts/import-catalog.ts /path/to/notion/export
 The import script:
 - Reads ONLY filenames (never file contents)
 - Parses problem numbers and titles
-- Maps folders to topic IDs
+- Maps folders to the 13 topic IDs via `scripts/topic-mapping.ts`, with per-problem-id overrides for moves a folder cannot express (e.g. Recursion -> backtracking); a problem in several folders gets their topics merged. `src/import-mapping.test.ts` checks the mapping reproduces every catalog problem's `topics`
 - Outputs derived catalog data
 
 **Note:** The import script is in `scripts/` (outside `src/`) and is NOT shipped with the library. It's a development-only tool for catalog maintenance.

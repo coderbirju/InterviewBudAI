@@ -51,8 +51,10 @@ Founder-approved change to `topics` only; ids, titles, urls and difficulty are u
 
 Kept deliberately: lc-212 (trees, trie), lc-132 (dynamic-programming), lc-36 (hashing).
 
-Note: `scripts/import-catalog.ts` maps Notion folders to the original 15 ids;
-re-running it would need this re-tag re-applied.
+`scripts/import-catalog.ts` reproduces this re-tag: `scripts/topic-mapping.ts` maps Notion
+folders to the 13 topics (Arrays 2D / Two Pointers / Sliding Window -> arrays; `Problems` has no
+topic) and `PROBLEM_TOPIC_OVERRIDES` carries the per-id moves above. `src/import-mapping.test.ts`
+checks the mapping reproduces all 175 catalog `topics`.
 
 ## Merged Duplicates
 

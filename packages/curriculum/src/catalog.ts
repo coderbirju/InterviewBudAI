@@ -6,6 +6,11 @@
  * NO user progress data per charter §6.1.
  *
  * Generated from founder's curated Notion export via scripts/import-catalog.ts.
+ * Topics follow the 13-topic taxonomy (ADR 0003 amendment 2026-09-26): the
+ * importer maps Notion folders via scripts/topic-mapping.ts (FOLDER_TOPIC_MAP
+ * plus per-problem-id PROBLEM_TOPIC_OVERRIDES for moves a folder cannot
+ * express). src/import-mapping.test.ts checks that mapping reproduces every
+ * problem's `topics` here, so a re-run does not need the re-tag re-applied.
  * To regenerate: run the importer script and replace this file.
  */
 
