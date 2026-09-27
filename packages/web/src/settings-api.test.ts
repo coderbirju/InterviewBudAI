@@ -4,7 +4,7 @@
  * response. All provider calls go to an injected fake fetch (no real network).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -16,7 +16,12 @@ import type {
   HandlerRequest,
   HandlerResponse,
 } from './handler.js';
-import { createProviderTester, sanitizeEndpoint } from './settings.js';
+import {
+  OLLAMA_USERINFO_DETAIL,
+  TEST_TIMEOUT_MS,
+  createProviderTester,
+  sanitizeEndpoint,
+} from './settings.js';
 import type {
   ApiProviderTestResponse,
   ApiSettingsResponse,
@@ -232,6 +237,17 @@ describe('GET /api/settings', () => {
     expect(body.app.version.length).toBeGreaterThan(0);
   });
 
+  it('foreign Host (DNS rebinding) → 421', async () => {
+    const handler = makeHandler(ANTHROPIC_ENV);
+    const res = await handler({
+      method: 'GET',
+      url: '/api/settings',
+      headers: { host: 'evil.example:4173' },
+    });
+    expect(res.status).toBe(421);
+    assertNoSecrets(res);
+  });
+
   it('wrong method → 405', async () => {
     const res = await makeHandler({})({
       method: 'POST',
@@ -303,21 +319,36 @@ describe('POST /api/settings/test-provider', () => {
     expect(body.detail).toMatch(/ollama pull llama3/);
   });
 
-  it('ollama connection refused → sanitized detail (no userinfo / query)', async () => {
+  it('ollama connection refused → sanitized detail (no path / query)', async () => {
+    const env = {
+      IBAI_OLLAMA_MODEL: 'llama3',
+      IBAI_OLLAMA_URL: `http://127.0.0.1:11434/base?token=${OLLAMA_PASS}`,
+    };
     const fake = fakeFetch(() => {
       throw new TypeError(
-        `fetch failed: connect ECONNREFUSED ${OLLAMA_ENV.IBAI_OLLAMA_URL}`,
+        `fetch failed: connect ECONNREFUSED ${env.IBAI_OLLAMA_URL}`,
       );
     });
-    const res = await postTest(
-      makeHandler(OLLAMA_ENV, { fetchImpl: fake.fetchImpl }),
-    );
+    const res = await postTest(makeHandler(env, { fetchImpl: fake.fetchImpl }));
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as ApiProviderTestResponse;
     expect(body.ok).toBe(false);
     expect(body.detail).toBe(
       'Could not reach Ollama at http://127.0.0.1:11434. Is Ollama running?',
     );
+    assertNoSecrets(res);
+  });
+
+  it('ollama URL with userinfo → fixed detail, no call, URL never echoed', async () => {
+    const fake = fakeFetch(() => jsonResponse(200, { models: [] }));
+    const res = await postTest(
+      makeHandler(OLLAMA_ENV, { fetchImpl: fake.fetchImpl }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe(OLLAMA_USERINFO_DETAIL);
+    expect(fake.calls).toHaveLength(0);
     assertNoSecrets(res);
   });
 
@@ -433,6 +464,100 @@ describe('POST /api/settings/test-provider', () => {
     t = 5_000;
     expect((await postTest(handler)).status).toBe(200);
     expect(fake.calls).toHaveLength(2);
+  });
+
+  describe('stalled response body (headers sent, body never ends)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const stalled = (): Response =>
+      new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    for (const [label, env] of [
+      ['Ollama', { IBAI_OLLAMA_MODEL: 'llama3' }],
+      ['Anthropic', ANTHROPIC_ENV],
+    ] as const) {
+      it(`${label}: "did not answer" at the deadline; a retry is not 429`, async () => {
+        vi.useFakeTimers();
+        let stall = true;
+        const fake = fakeFetch(() =>
+          stall
+            ? stalled()
+            : jsonResponse(200, {
+                models: [{ name: 'llama3' }],
+                content: [{ type: 'text', text: 'Hi' }],
+              }),
+        );
+        const test = createProviderTester({
+          env,
+          fetchImpl: fake.fetchImpl,
+          clock: () => Date.now(),
+        });
+        const pending = test();
+        await vi.advanceTimersByTimeAsync(TEST_TIMEOUT_MS);
+        const outcome = await pending;
+        expect(outcome.status).toBe(200);
+        const body = outcome.body as ApiProviderTestResponse;
+        expect(body.ok).toBe(false);
+        expect(body.detail).toBe(
+          `${label} did not answer within ${TEST_TIMEOUT_MS / 1000} s.`,
+        );
+        expect(fake.calls[0]?.init?.signal?.aborted).toBe(true);
+
+        stall = false;
+        const retry = await test();
+        expect(retry.status).toBe(200);
+        expect((retry.body as ApiProviderTestResponse).ok).toBe(true);
+      });
+    }
+  });
+
+  it('single flight: two concurrent tests → one 200 and one 429', async () => {
+    let release: (res: Response) => void = () => undefined;
+    const fake = fakeFetch(
+      () =>
+        new Promise<Response>((resolveFetch) => {
+          release = resolveFetch;
+        }),
+    );
+    let t = 0;
+    const handler = makeHandler(
+      { IBAI_OLLAMA_MODEL: 'llama3' },
+      { fetchImpl: fake.fetchImpl, clock: () => t },
+    );
+    const first = postTest(handler);
+    t = 60_000; // past the min interval: only the in-flight guard applies
+    const second = await postTest(handler);
+    release(jsonResponse(200, { models: [{ name: 'llama3' }] }));
+    const statuses = [(await first).status, second.status].sort();
+    expect(statuses).toEqual([200, 429]);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('request body {endpoint, model} is ignored: target stays the env one', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, { models: [{ name: 'llama3' }] }),
+    );
+    const handler = makeHandler(
+      { IBAI_OLLAMA_MODEL: 'llama3' },
+      { fetchImpl: fake.fetchImpl },
+    );
+    const res = await handler({
+      method: 'POST',
+      url: '/api/settings/test-provider',
+      body: JSON.stringify({ endpoint: 'http://169.254.169.254', model: 'x' }),
+      contentType: 'application/json',
+    });
+    expect(res.status).toBe(200);
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0]?.url).toBe('http://127.0.0.1:11434/api/tags');
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.detail).toContain('"llama3"');
+    expect(body.detail).not.toContain('"x"');
   });
 
   it('prechecks: cross-site Origin → 403, text/plain → 415, GET → 405; no call made', async () => {
