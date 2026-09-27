@@ -19,6 +19,7 @@ import { LocalFileStorageAdapter } from './local-file-adapter.js';
 import type { IntuitionNote } from './index.js';
 
 /** Minimal in-memory `node:fs/promises` (utf-8 strings, flat path map). */
+// Supports ONLY the note read/write paths (readdir/mkdir semantics are simplified) — do not reuse for session/quiz paths.
 const memfs = vi.hoisted(() => {
   const files = new Map<string, string>();
   let seq = 0;
