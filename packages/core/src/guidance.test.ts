@@ -389,6 +389,53 @@ describe('deriveGuidance — next up', () => {
     expect(g.nextUp.map((x) => x.problemId)).toEqual(['x1', 'x2', 'x3']);
   });
 
+  it('a second same-topic revisit is kept over a lower-priority kind', () => {
+    // Both revisits are in `arrays`; the distinct-topic preference must not
+    // drop the second-oldest one in favour of a `start` elsewhere.
+    const g = deriveGuidance(
+      input({
+        notes: [n('a-e2', 'to_revisit', 3), n('a-e1', 'to_revisit', 9)],
+      }),
+    );
+    expect(g.nextUp.map((x) => [x.kind, x.problemId])).toEqual([
+      ['revisit', 'a-e1'],
+      ['revisit', 'a-e2'],
+      ['start', 'g-e1'],
+    ]);
+  });
+
+  it('orders nextUp by kind after relaxed passes (stable within a kind)', () => {
+    // Distinct pass: weak x1, start y1; relaxed pass appends weak x2. The
+    // result is re-ordered revisit → weak_topic → continue → start.
+    const catalog = [
+      p('x1', 'easy', ['x']),
+      p('x2', 'easy', ['x']),
+      p('y1', 'easy', ['y']),
+    ];
+    const g = deriveGuidance(
+      input({ problems: catalog, signals: sig({ x: [0, 3] }) }),
+    );
+    expect(g.nextUp.map((x) => [x.kind, x.problemId])).toEqual([
+      ['weak_topic', 'x1'],
+      ['weak_topic', 'x2'],
+      ['start', 'y1'],
+    ]);
+  });
+
+  it('a revisit problem with no topics has topicId null', () => {
+    const g = deriveGuidance(
+      input({
+        problems: [...CATALOG, p('lone', 'easy', [])],
+        notes: [n('lone', 'to_revisit', 2)],
+      }),
+    );
+    expect(g.nextUp[0]).toMatchObject({
+      kind: 'revisit',
+      problemId: 'lone',
+      topicId: null,
+    });
+  });
+
   it('caps the count at MAX_NEXT_UP and at least 1', () => {
     expect(deriveGuidance(input({ count: 99 })).nextUp).toHaveLength(
       MAX_NEXT_UP,

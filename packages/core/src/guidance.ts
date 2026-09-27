@@ -16,7 +16,7 @@
  * satisfies it).
  */
 
-import { deriveTopicStrength } from '@ibai/storage';
+import { deriveTopicStrength } from '@ibai/storage/competency';
 import type {
   CompetencySignals,
   IsoTimestamp,
@@ -86,6 +86,14 @@ export interface TopicStanding {
 /** Why a problem is in next-up. */
 export type NextUpKind = 'revisit' | 'weak_topic' | 'continue' | 'start';
 
+/** Order of {@link NextUpKind}s in `nextUp` (lower first). */
+const KIND_PRIORITY: Readonly<Record<NextUpKind, number>> = {
+  revisit: 0,
+  weak_topic: 1,
+  continue: 2,
+  start: 3,
+};
+
 /** One concrete problem to do next. */
 export interface NextUpItem {
   readonly kind: NextUpKind;
@@ -93,8 +101,11 @@ export interface NextUpItem {
   readonly title: string;
   readonly url: string;
   readonly difficulty: GuidanceDifficulty;
-  /** The topic this item was picked for. */
-  readonly topicId: TopicId;
+  /**
+   * The topic this item was picked for. `null` only for a `revisit` whose
+   * catalog problem lists no topics.
+   */
+  readonly topicId: TopicId | null;
   /** Mechanical, count-based reason (never a hint or solution). */
   readonly reason: string;
 }
@@ -335,7 +346,7 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
   const add = (
     kind: NextUpKind,
     problem: GuidanceProblem,
-    topicId: TopicId,
+    topicId: TopicId | null,
     reason: string,
   ): void => {
     nextUp.push({
@@ -348,7 +359,7 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
       reason,
     });
     usedProblems.add(problem.id);
-    usedTopics.add(topicId);
+    if (topicId !== null) usedTopics.add(topicId);
     for (const t of problem.topics) usedTopics.add(t);
   };
   const full = (): boolean => nextUp.length >= limit;
@@ -434,9 +445,8 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
     )
     .map((u) => u.topicId);
 
-  /** One pass over every source in priority order; returns items added. */
-  const runPass = (distinct: boolean): number => {
-    const before = nextUp.length;
+  /** One pass over the revisit candidates (oldest first). */
+  const revisitPass = (distinct: boolean): void => {
     for (const r of revisits) {
       if (full() || revisitSlots >= MAX_REVISIT_SLOTS) break;
       const problem = r.entry.problem;
@@ -448,9 +458,14 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
         r.ms === null
           ? `Marked ${what}`
           : `Marked ${what} ${agoPhrase(daysBetween(r.ms, nowMs))}`;
-      add('revisit', problem, problem.topics[0] ?? '', reason);
+      add('revisit', problem, problem.topics[0] ?? null, reason);
       revisitSlots++;
     }
+  };
+
+  /** One pass over the other sources in priority order; returns items added. */
+  const otherPass = (distinct: boolean): number => {
+    const before = nextUp.length;
     for (const s of weakTopics) {
       if (full()) break;
       const problem = pick(s.topicId, distinct);
@@ -483,13 +498,20 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
     return nextUp.length - before;
   };
 
-  // Distinct-topic pass first, then relaxed passes until full or exhausted
-  // (each relaxed pass adds at most one problem per topic, so a single topic
-  // can still fill every slot).
-  runPass(true);
-  while (!full() && runPass(false) > 0) {
+  // Revisits claim their slots first (distinct topics preferred, then
+  // relaxed), so a second revisit is never dropped for a lower-priority kind.
+  // Then the other sources: a distinct-topic pass, then relaxed passes until
+  // full or exhausted (each relaxed pass adds at most one problem per topic,
+  // so a single topic can still fill every slot).
+  revisitPass(true);
+  revisitPass(false);
+  otherPass(true);
+  while (!full() && otherPass(false) > 0) {
     // keep filling
   }
+  // Relaxed passes append after the distinct pass; restore kind priority
+  // (stable within a kind, so each kind keeps its own pick order).
+  nextUp.sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
 
   // ---- Quiz hint ---------------------------------------------------------
   const lastQuizAt =
