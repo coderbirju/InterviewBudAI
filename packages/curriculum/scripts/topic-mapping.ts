@@ -42,7 +42,9 @@ export const FOLDER_TOPIC_MAP: Readonly<Record<string, string | null>> = {
  * (founder-approved re-tag, PR #69). An override REPLACES the folder-derived
  * topics for that problem.
  */
-export const PROBLEM_TOPIC_OVERRIDES: Readonly<Record<string, readonly string[]>> = {
+export const PROBLEM_TOPIC_OVERRIDES: Readonly<
+  Record<string, readonly string[]>
+> = {
   // Recursion folder -> backtracking.
   'lc-17': ['backtracking'],
   'lc-39': ['backtracking'],
