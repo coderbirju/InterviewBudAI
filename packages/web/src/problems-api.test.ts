@@ -696,12 +696,13 @@ describe('quiz on custom problems', () => {
       deck[1],
     );
 
-    // Delete the card after it: answering skips straight to completion.
+    // Delete the card after it: answering the card the client was shown
+    // (named via problemId) grades it and skips straight to completion.
     await del(deck[2]!);
     const answered = await call(
       'POST',
       '/api/quiz/answer',
-      { answer: 'idea' },
+      { answer: 'idea', problemId: deck[1] },
       d,
     );
     expect(answered.status).toBe(200);
@@ -719,6 +720,116 @@ describe('quiz on custom problems', () => {
     expect(stored.status).toBe('complete');
     // Only the answered card has an outcome; skipped cards record nothing.
     expect(stored.answered.map((r) => r.problemId)).toEqual([deck[1]]);
+  });
+
+  it('answering a deleted current card (no GET in between) is 409, never graded against the next card', async () => {
+    await doneCustom('Delta one');
+    await doneCustom('Epsilon two');
+    const provider = new RecordingProvider();
+    const d = deps({ provider });
+    const start = await call('POST', '/api/quiz/start', {}, d);
+    const sessionFile = path.join(
+      dir,
+      'quiz-sessions',
+      `${(start.body.session as { sessionId: string }).sessionId}.json`,
+    );
+    const readStored = () =>
+      JSON.parse(fs.readFileSync(sessionFile, 'utf8')) as {
+        deck: string[];
+        currentIndex: number;
+        status: string;
+        answered: { problemId: string }[];
+        transcript: { role: string; content: string }[];
+      };
+    const deck = readStored().deck;
+    const signalsBefore = await new LocalFileStorageAdapter(
+      dir,
+    ).readCompetencySignals();
+
+    await call('DELETE', `/api/problems/${deck[0]}`, { deleteNote: true }, d);
+    const answered = await call(
+      'POST',
+      '/api/quiz/answer',
+      { answer: 'an answer written for the deleted card' },
+      d,
+    );
+    expect(answered.status).toBe(409);
+    expect(answered.body).toMatchObject({
+      error: 'question changed',
+      skipped: true,
+      complete: false,
+      session: { index: 1, answered: 0 },
+    });
+    expect(answered.body.verdict).toBeUndefined();
+    expect((answered.body.question as { problemId: string }).problemId).toBe(
+      deck[1],
+    );
+    // No model call, no outcome, no competency signal for the next card.
+    expect(provider.prompts).toHaveLength(0);
+    const stored = readStored();
+    expect(stored.currentIndex).toBe(1);
+    expect(stored.answered).toEqual([]);
+    expect(
+      stored.transcript.some((t) => t.content.includes('Epsilon two')),
+    ).toBe(true);
+    expect(
+      await new LocalFileStorageAdapter(dir).readCompetencySignals(),
+    ).toEqual(signalsBefore);
+    expect(
+      (await new LocalFileStorageAdapter(dir).readIntuitionNote(deck[1]!))
+        ?.status,
+    ).toBe('done');
+
+    // Naming a card other than the current one is also 409 (nothing written).
+    const stale = await call(
+      'POST',
+      '/api/quiz/answer',
+      { answer: 'idea', problemId: deck[0] },
+      d,
+    );
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ skipped: false, complete: false });
+    expect(provider.prompts).toHaveLength(0);
+    expect(
+      (await call('POST', '/api/quiz/answer', { answer: 'x', problemId: 7 }, d))
+        .status,
+    ).toBe(400);
+
+    // The next answer is graded against the (now current) next card.
+    const next = await call('POST', '/api/quiz/answer', { answer: 'idea' }, d);
+    expect(next.status).toBe(200);
+    expect(provider.prompts).toHaveLength(1);
+    expect(provider.prompts[0]).toContain('Epsilon two');
+    expect(readStored().answered.map((r) => r.problemId)).toEqual([deck[1]]);
+  });
+
+  it('answering a deleted last card is 409 complete and persists completion', async () => {
+    const id = await doneCustom('Only card');
+    const provider = new RecordingProvider();
+    const d = deps({ provider });
+    const start = await call('POST', '/api/quiz/start', {}, d);
+    await call('DELETE', `/api/problems/${id}`, { deleteNote: true }, d);
+    const answered = await call('POST', '/api/quiz/answer', { answer: 'x' }, d);
+    expect(answered.status).toBe(409);
+    expect(answered.body).toMatchObject({
+      skipped: true,
+      complete: true,
+      question: null,
+      session: { status: 'complete', answered: 0 },
+    });
+    expect(provider.prompts).toHaveLength(0);
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          dir,
+          'quiz-sessions',
+          `${(start.body.session as { sessionId: string }).sessionId}.json`,
+        ),
+        'utf8',
+      ),
+    ) as { status: string; answered: unknown[] };
+    expect(stored.status).toBe('complete');
+    expect(stored.answered).toEqual([]);
   });
 
   it('answer skips a deleted next card to the following resolvable one', async () => {

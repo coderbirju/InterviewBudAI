@@ -56,7 +56,9 @@ import { DifficultyBadge } from './DifficultyBadge';
  *     "mark some problems as Done first" state with a link Home.
  *  3. NO PROVIDER: a provider-required `400 (no model configured)` shows the
  *     "configure a model" state (same env-var guidance as the old chat).
- *  4. On submit it POSTs `/api/quiz/answer { answer }` and reflects the VERDICT:
+ *  4. On submit it POSTs `/api/quiz/answer { answer, problemId }` and reflects the VERDICT
+ *     (a 409 means the shown card changed — the answer was not graded — so it
+ *     re-reads the session and shows the next card with a notice):
  *     `correct` (emerald ✓ + optional optimal nudge) → advance; `incorrect`
  *     (amber "Marked for revisit" + feedback + nudge) → advance; `on_track` →
  *     show the probe and let them answer the SAME question again.
@@ -240,7 +242,10 @@ export function Interview(): JSX.Element {
     setError(null);
 
     try {
-      const result: QuizAnswerResult = await answerQuiz(answer);
+      const result: QuizAnswerResult = await answerQuiz(
+        answer,
+        question.problemId,
+      );
       setSession(result.session);
 
       if (result.verdict === 'on_track') {
@@ -277,6 +282,29 @@ export function Interview(): JSX.Element {
       setVerdictCard(null);
       setQuestion(result.question);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // The shown card changed (e.g. it was deleted): the answer was NOT
+        // graded. Show the server's current card (or completion) + a notice.
+        try {
+          const current = await getQuizSession();
+          setVerdictCard(null);
+          if (current.active && current.question) {
+            setSession(current.session);
+            setQuestion(current.question);
+            setTranscript(current.transcript);
+            setVerdictCard(probeCard(current.question));
+          } else {
+            setQuestion(null);
+            setPhase({ kind: 'complete' });
+          }
+          setError(
+            'That problem was removed, so your answer was not graded. Moved on to the next question.',
+          );
+        } catch (reloadErr) {
+          setError(describeError(reloadErr));
+        }
+        return;
+      }
       // Preserve the session + transcript; surface an inline message.
       setError(describeError(err));
     } finally {
