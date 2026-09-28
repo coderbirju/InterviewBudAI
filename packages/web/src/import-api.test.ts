@@ -584,6 +584,252 @@ describe('POST /api/import/csv/commit', () => {
   });
 });
 
+describe('CSV "Add as custom problem" (ADR 0010 D4)', () => {
+  const CUSTOM_CSV =
+    'Problem,Intuition,Last Visited on,URL\n' +
+    'Book Puzzle 7,Use a <b>stack</b>,2024-02-03,https://example.com/p/7\n' +
+    'Whiteboard Question,Greedy,,javascript:alert(1)\n' +
+    '11. Container With Most Water,Two pointers,,\n';
+  const files = [{ name: 'Custom.csv', text: CUSTOM_CSV }];
+
+  function problemsOnDisk(): string[] {
+    const dir = path.join(dataDir, 'problems');
+    return fs.existsSync(dir) ? fs.readdirSync(dir).sort() : [];
+  }
+
+  function commit(
+    handler: Handler,
+    previewHash: string,
+    decisions: unknown,
+  ): Promise<HandlerResponse> {
+    return post(handler, '/api/import/csv/commit', {
+      files,
+      previewHash,
+      defaultStatus: 'done',
+      decisions,
+    });
+  }
+
+  it('preview → commit creates the problem (row title/url, chosen difficulty/topics), then its note', async () => {
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    expect(p.unmatched.map((u) => [u.key, u.title])).toEqual([
+      ['0:2', 'Book Puzzle 7'],
+      ['0:3', 'Whiteboard Question'],
+    ]);
+    const res = await commit(handler, p.previewHash, {
+      '0:2': {
+        action: 'add-custom',
+        difficulty: 'hard',
+        topics: ['stack', 'arrays'],
+        status: 'to_revisit',
+      },
+      '0:3': { action: 'add-custom', difficulty: 'easy', topics: ['greedy'] },
+      'lc-11': { action: 'skip' },
+    });
+    expect(res.status).toBe(200);
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result).toMatchObject({ created: 2, skipped: 1, unmatched: 0 });
+    expect(result.failed).toEqual([]);
+    expect(result.customCreated.map((c) => [c.rowKey, c.title])).toEqual([
+      ['0:2', 'Book Puzzle 7'],
+      ['0:3', 'Whiteboard Question'],
+    ]);
+    expect(backups()).toHaveLength(1);
+
+    const storage = new LocalFileStorageAdapter(dataDir);
+    const [first, second] = result.customCreated;
+    expect(first?.problemId).toMatch(/^u-book-puzzle-7-[a-z0-9]{6}$/);
+    expect(await storage.readCustomProblem(first!.problemId)).toMatchObject({
+      title: 'Book Puzzle 7',
+      url: 'https://example.com/p/7',
+      difficulty: 'hard',
+      topics: ['stack', 'arrays'],
+    });
+    // A non-http(s) url cell is dropped, never stored.
+    expect(
+      (await storage.readCustomProblem(second!.problemId))?.url,
+    ).toBeUndefined();
+    expect(await storage.readIntuitionNote(first!.problemId)).toMatchObject({
+      content: 'Use a <b>stack</b>',
+      status: 'to_revisit',
+      lastUpdated: '2024-02-03T00:00:00.000Z',
+    });
+    expect((await storage.readIntuitionNote(second!.problemId))?.status).toBe(
+      'done',
+    );
+
+    // The new problems are in the catalog, flagged custom.
+    const catalog = JSON.parse(
+      (await handler({ method: 'GET', url: '/api/catalog' })).body,
+    ) as {
+      topics: { topic: string; problems: { id: string; custom?: true }[] }[];
+    };
+    const greedy = catalog.topics.find((t) => t.topic === 'greedy');
+    expect(
+      greedy?.problems.find((q) => q.id === second!.problemId),
+    ).toMatchObject({ custom: true });
+  });
+
+  it('unmatched rows without a decision are still not written', async () => {
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    const res = await commit(handler, p.previewHash, {});
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result).toMatchObject({ created: 1, unmatched: 2 });
+    expect(result.customCreated).toEqual([]);
+    expect(problemsOnDisk()).toEqual([]);
+  });
+
+  it('previewHash covers unmatched rows: an edited unmatched row → 409, nothing written', async () => {
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    const edited = CUSTOM_CSV.replace('Use a <b>stack</b>', 'Use a queue');
+    const res = await post(handler, '/api/import/csv/commit', {
+      files: [{ name: 'Custom.csv', text: edited }],
+      previewHash: p.previewHash,
+      defaultStatus: 'done',
+      decisions: {
+        '0:2': { action: 'add-custom', difficulty: 'hard', topics: ['stack'] },
+      },
+    });
+    expect(res.status).toBe(409);
+    expect(problemsOnDisk()).toEqual([]);
+    expect(notesOnDisk()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
+  it('a row that starts matching a new custom problem after the preview → 409', async () => {
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    const created = await post(handler, '/api/problems', {
+      title: 'Book Puzzle 7',
+      difficulty: 'easy',
+      topics: ['arrays'],
+    });
+    expect(created.status).toBe(201);
+    const res = await commit(handler, p.previewHash, {
+      '0:2': { action: 'add-custom', difficulty: 'hard', topics: ['stack'] },
+    });
+    expect(res.status).toBe(409);
+    expect(problemsOnDisk()).toHaveLength(1);
+    expect(backups()).toEqual([]);
+  });
+
+  it('bad add-custom decisions → 400 before any backup or write', async () => {
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    const bad: unknown[] = [
+      { '0:2': { action: 'add-custom', topics: ['stack'] } },
+      { '0:2': { action: 'add-custom', difficulty: 'hard' } },
+      { '0:2': { action: 'add-custom', difficulty: 'hard', topics: [] } },
+      {
+        '0:2': {
+          action: 'add-custom',
+          difficulty: 'hard',
+          topics: ['arrays', 'stack', 'heap', 'trees'],
+        },
+      },
+      {
+        '0:2': { action: 'add-custom', difficulty: 'hard', topics: ['nope'] },
+      },
+      // A matched problem id or a made-up row key cannot be added as custom.
+      {
+        'lc-11': {
+          action: 'add-custom',
+          difficulty: 'hard',
+          topics: ['stack'],
+        },
+      },
+      {
+        '9:9': { action: 'add-custom', difficulty: 'hard', topics: ['stack'] },
+      },
+      { 'lc-11': { action: 'create', difficulty: 'hard' } },
+    ];
+    for (const decisions of bad) {
+      const res = await commit(handler, p.previewHash, decisions);
+      expect(res.status, JSON.stringify(decisions)).toBe(400);
+    }
+    expect(problemsOnDisk()).toEqual([]);
+    expect(notesOnDisk()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
+  it('per-row failures (duplicate within the commit, over-long title) go to failed[]; other rows still import', async () => {
+    const csv =
+      'Problem,Intuition\n' +
+      'Twin Puzzle,first\n' +
+      'Twin  Puzzle!,second\n' +
+      `${'x'.repeat(201)},too long\n`;
+    const twinFiles = [{ name: 'Twins.csv', text: csv }];
+    const handler = makeHandler();
+    const p = await preview(handler, twinFiles);
+    expect(p.unmatched).toHaveLength(3);
+    const decide = {
+      action: 'add-custom',
+      difficulty: 'medium',
+      topics: ['arrays'],
+    };
+    const res = await post(handler, '/api/import/csv/commit', {
+      files: twinFiles,
+      previewHash: p.previewHash,
+      decisions: { '0:2': decide, '0:3': decide, '0:4': decide },
+    });
+    expect(res.status).toBe(200);
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result.created).toBe(1);
+    expect(result.customCreated.map((c) => c.rowKey)).toEqual(['0:2']);
+    expect(result.failed).toEqual([
+      {
+        problemId: '',
+        rowKey: '0:3',
+        error: expect.stringContaining('similar title') as string,
+      },
+      {
+        problemId: '',
+        rowKey: '0:4',
+        error: expect.stringContaining('1–200') as string,
+      },
+    ]);
+    expect(problemsOnDisk()).toHaveLength(1);
+    expect(notesOnDisk()).toHaveLength(1);
+  });
+
+  it('the 1,000 custom-problem cap fails the row, not the import', async () => {
+    const dir = path.join(dataDir, 'problems');
+    fs.mkdirSync(dir);
+    for (let i = 0; i < 1000; i++) {
+      const id = `u-seed-${i.toString(36).padStart(6, '0')}`;
+      fs.writeFileSync(
+        path.join(dir, `${id}.json`),
+        JSON.stringify({
+          id,
+          title: `Seed ${i}`,
+          difficulty: 'easy',
+          topics: ['arrays'],
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      );
+    }
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    const res = await commit(handler, p.previewHash, {
+      '0:2': { action: 'add-custom', difficulty: 'hard', topics: ['stack'] },
+    });
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result.created).toBe(1); // lc-11 still imported
+    expect(result.failed).toEqual([
+      {
+        problemId: '',
+        rowKey: '0:2',
+        error: expect.stringContaining('at most 1000') as string,
+      },
+    ]);
+    expect(problemsOnDisk()).toHaveLength(1000);
+  });
+});
+
 describe('createBackup (ADR 0009 D3)', () => {
   it('copies everything except .backups, skips symlinks, dirs 0700', async () => {
     fs.mkdirSync(path.join(dataDir, 'notes'));

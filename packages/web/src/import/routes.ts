@@ -10,11 +10,28 @@
  * a status per id the preview produced. Before any write the data dir is
  * snapshotted (D3); if that fails nothing is written. Writes go only through
  * the storage adapter's `writeIntuitionNote`.
+ *
+ * ADR 0010 D4: an unmatched row may carry `{ action: 'add-custom',
+ * difficulty, topics, status? }` keyed by its preview row key — commit
+ * creates the custom problem (server id, the `POST /api/problems` cap and
+ * duplicate rules) and then its note; per-row failures go to `failed[]`.
  */
 
+import type { CurriculumSource } from '@ibai/curriculum';
 import type { NoteStatus, StorageAdapter } from '@ibai/storage';
-import { isNoteStatus } from '@ibai/storage';
+import {
+  isNoteStatus,
+  normalizeCustomTitle,
+  normalizeCustomTopics,
+  normalizeCustomUrl,
+  CUSTOM_PROBLEM_LIMITS,
+} from '@ibai/storage';
+import { curriculumTopic } from '../problems.js';
 import type { ProblemSource } from '../problems.js';
+import {
+  createCustomProblemRecord,
+  serializedProblemWrite,
+} from '../problems-routes.js';
 import type { HandlerResponse } from '../handler.js';
 import { createBackup } from './backup.js';
 import { createCatalogMatcher } from './match.js';
@@ -29,7 +46,11 @@ import {
   parseImportFiles,
   planCommit,
 } from './plan.js';
-import type { ImportAnalysis, ImportPreview } from './plan.js';
+import type {
+  CustomImportOperation,
+  ImportAnalysis,
+  ImportPreview,
+} from './plan.js';
 
 export const IMPORT_PREVIEW_PATH = '/api/import/csv/preview';
 export const IMPORT_COMMIT_PATH = '/api/import/csv/commit';
@@ -38,6 +59,14 @@ export const IMPORT_COMMIT_PATH = '/api/import/csv/commit';
 export interface ImportRouteDeps {
   /** The merged source (catalog + custom problems, ADR 0010 D4). */
   readonly catalog: ProblemSource;
+  /**
+   * The shipped catalog alone — the duplicate check of "Add as custom
+   * problem" merges it with the custom problems it re-reads under the
+   * problem-write lock (ADR 0010 D4).
+   */
+  readonly baseCatalog: CurriculumSource;
+  /** Randomness for custom-problem ids (defaults to `crypto.randomInt`). */
+  readonly randomInt?: (max: number) => number;
   /** Active data dir (server state). */
   readonly dataDir: string;
   /** Storage for `dataDir`, or null when the folder does not exist. */
@@ -65,8 +94,19 @@ export interface ImportCommitResult {
     readonly reason: SkipReason;
   }[];
   readonly unmatched: number;
+  /** Custom problems created from unmatched rows (ADR 0010 D4, additive). */
+  readonly customCreated: readonly {
+    readonly rowKey: string;
+    readonly problemId: string;
+    readonly title: string;
+  }[];
+  /**
+   * Per-problem (or, for add-custom, per-row: `rowKey` set, `problemId` the
+   * created id or `''` when the problem itself could not be created).
+   */
   readonly failed: readonly {
     readonly problemId: string;
+    readonly rowKey?: string;
     readonly error: string;
   }[];
   /** Absolute path of the pre-import snapshot. */
@@ -207,6 +247,27 @@ export async function handleImportRoute(
   }
   const plan = planCommit(analysis, existing, decisions.decisions);
   if (!plan.ok) return json(plan.status, { error: plan.error });
+  // Topics are checked before the backup: a bad choice rejects the request.
+  const customOps: CustomImportOperation[] = [];
+  for (const op of plan.customOperations) {
+    const topics = op.topics.every((t) => curriculumTopic(t) !== null)
+      ? normalizeCustomTopics(op.topics, curriculumTopic)
+      : null;
+    if (topics === null) {
+      return json(400, {
+        error: `add-custom for ${op.row.key}: choose ${CUSTOM_PROBLEM_LIMITS.topicsMin}–${CUSTOM_PROBLEM_LIMITS.topicsMax} of the known topics`,
+      });
+    }
+    customOps.push({ ...op, topics });
+  }
+  if (
+    customOps.length > 0 &&
+    (!storage.createCustomProblem || !storage.listCustomProblems)
+  ) {
+    return json(400, {
+      error: 'this storage cannot hold custom problems',
+    });
+  }
 
   const now = (deps.now ?? (() => new Date()))();
   let backup: string;
@@ -223,7 +284,7 @@ export async function handleImportRoute(
   let overwritten = 0;
   let merged = 0;
   const skippedDetails: { problemId: string; reason: SkipReason }[] = [];
-  const failed: { problemId: string; error: string }[] = [];
+  const failed: { problemId: string; rowKey?: string; error: string }[] = [];
   for (const op of plan.operations) {
     if (op.action === 'skip') {
       skippedDetails.push({ problemId: op.problemId, reason: 'decision' });
@@ -255,13 +316,96 @@ export async function handleImportRoute(
       });
     }
   }
+
+  // "Add as custom problem": create the problem (server id; same cap and
+  // duplicate rules as POST /api/problems, under its write lock), then its
+  // note. A failure affects only that row.
+  const customCreated: { rowKey: string; problemId: string; title: string }[] =
+    [];
+  for (const op of customOps) {
+    const rowKey = op.row.key;
+    const title = normalizeCustomTitle(op.row.title);
+    if (title === null) {
+      failed.push({
+        problemId: '',
+        rowKey,
+        error: `the title must be 1–${CUSTOM_PROBLEM_LIMITS.titleMax} characters`,
+      });
+      continue;
+    }
+    const url = op.row.url === '' ? null : normalizeCustomUrl(op.row.url);
+    let problemId = '';
+    try {
+      const made = await serializedProblemWrite(() =>
+        createCustomProblemRecord(
+          {
+            catalog: deps.baseCatalog,
+            storage: {
+              createCustomProblem: storage.createCustomProblem!.bind(storage),
+              listCustomProblems: storage.listCustomProblems!.bind(storage),
+            },
+            now: () => now,
+            ...(deps.randomInt !== undefined && { randomInt: deps.randomInt }),
+          },
+          {
+            title,
+            ...(url !== null && { url }),
+            difficulty: op.difficulty,
+            topics: op.topics,
+          },
+          false,
+        ),
+      );
+      if (!made.ok) {
+        const payload = JSON.parse(made.response.body) as {
+          error?: string;
+          duplicate?: { title?: string };
+        };
+        failed.push({
+          problemId: '',
+          rowKey,
+          error:
+            payload.duplicate?.title !== undefined
+              ? `${payload.error ?? 'duplicate'}: ${payload.duplicate.title}`
+              : payload.error ?? 'could not create the problem',
+        });
+        continue;
+      }
+      problemId = made.problem.id;
+      customCreated.push({ rowKey, problemId, title: made.problem.title });
+      await storage.writeIntuitionNote(
+        buildImportedNote(
+          {
+            problemId,
+            action: 'create',
+            ...(op.status !== undefined && { status: op.status }),
+            row: op.row,
+          },
+          null,
+          defaultStatus,
+          now,
+        ),
+      );
+      created++;
+    } catch (err) {
+      failed.push({
+        problemId,
+        rowKey,
+        error: err instanceof Error ? err.message : 'write failed',
+      });
+    }
+  }
+
   const result: ImportCommitResult = {
     created,
     overwritten,
     merged,
     skipped: skippedDetails.length,
     skippedDetails,
-    unmatched: analysis.candidates.filter((c) => c.match === null).length,
+    unmatched:
+      analysis.candidates.filter((c) => c.match === null).length -
+      customCreated.length,
+    customCreated,
     failed,
     backup,
   };

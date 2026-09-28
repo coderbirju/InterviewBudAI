@@ -872,6 +872,7 @@ export async function handleApiRoute(
         pathname,
         {
           catalog: await loadProblemSource(deps.catalog, storage),
+          baseCatalog: deps.catalog,
           dataDir: deps.dataDir,
           storage,
           ...(deps.now !== undefined && { now: deps.now }),
