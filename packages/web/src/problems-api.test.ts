@@ -667,6 +667,53 @@ describe('the merged source', () => {
     const rows = res.body.rows as { match: { problemId: string } | null }[];
     expect(rows[0]?.match?.problemId).toBe(a);
   });
+
+  it('CSV import commit: a custom match deleted after the preview → previewHash 409, nothing written', async () => {
+    const { a } = await seedCustom();
+    const files = [
+      { name: 'n.csv', text: 'Problem,Intuition\nEarlier arrays one,idea\n' },
+    ];
+    const preview = await call('POST', '/api/import/csv/preview', { files });
+    expect(preview.status).toBe(200);
+    const previewHash = preview.body.previewHash as string;
+    expect(
+      (await call('DELETE', `/api/problems/${a}`, { deleteNote: true })).status,
+    ).toBe(200);
+    const notesBefore = fs.existsSync(path.join(dir, 'notes'))
+      ? fs.readdirSync(path.join(dir, 'notes')).sort()
+      : [];
+    const commit = await call('POST', '/api/import/csv/commit', {
+      files,
+      previewHash,
+      defaultStatus: 'done',
+      decisions: {},
+    });
+    expect(commit.status).toBe(409);
+    const notesAfter = fs.existsSync(path.join(dir, 'notes'))
+      ? fs.readdirSync(path.join(dir, 'notes')).sort()
+      : [];
+    expect(notesAfter).toEqual(notesBefore);
+    expect(notesAfter).not.toContain(`${a}.md`);
+  });
+
+  it('CSV import commit writes the note for a matched custom problem', async () => {
+    const { a } = await seedCustom();
+    const files = [
+      { name: 'n.csv', text: 'Problem,Intuition\nEarlier arrays one,idea\n' },
+    ];
+    const preview = await call('POST', '/api/import/csv/preview', { files });
+    const commit = await call('POST', '/api/import/csv/commit', {
+      files,
+      previewHash: preview.body.previewHash,
+      defaultStatus: 'done',
+      decisions: {},
+    });
+    expect(commit.status).toBe(200);
+    expect(commit.body).toMatchObject({ created: 1 });
+    expect(
+      (await createLocalStorage(dir).readIntuitionNote(a))?.content,
+    ).toContain('idea');
+  });
 });
 
 describe('quiz on custom problems', () => {
