@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Database, Loader2, SearchX } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Database,
+  Loader2,
+  Plus,
+  SearchX,
+  X,
+} from 'lucide-react';
 import {
   fetchCatalog,
   fetchConfig,
@@ -9,6 +17,7 @@ import {
 } from '../lib/api';
 import type {
   CatalogResponse,
+  CustomProblem,
   ConfigResponse,
   GuidanceResponse,
   NoteStatus,
@@ -18,6 +27,9 @@ import { ProgressBanner } from './ProgressBanner';
 import { CategoryAccordion } from './CategoryAccordion';
 import { CatalogFilterBar } from './CatalogFilterBar';
 import { GuidanceCard } from './GuidanceCard';
+import { ProblemForm } from './ProblemForm';
+import type { TopicOption } from './ProblemForm';
+import { takeFlash } from '../lib/flash';
 import {
   EMPTY_FILTER,
   filterCatalog,
@@ -29,6 +41,8 @@ import {
 import type { CatalogFilter } from '../lib/home';
 import {
   currentSearch,
+  navigate,
+  notesHref,
   parseRoute,
   rememberHomeSearch,
   replaceSearch,
@@ -55,6 +69,12 @@ import {
  * returning from Notes, so that refetches too. A guidance error never affects
  * the catalog: a failed first fetch shows no card, a failed refetch keeps the
  * last good card.
+ *
+ * w2b (ADR 0010 D5): "Add problem" above the catalog and a "+" on each topic
+ * header (pre-selects that topic) open the custom-problem form. After a
+ * create the catalog is refetched, the problem's topics expand, and a notice
+ * links to its Notes. A one-shot flash (e.g. "Deleted …" from Notes) shows
+ * as a dismissible notice.
  */
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -135,6 +155,15 @@ export function Home(): JSX.Element {
   const [collapsedWhileFiltering, setCollapsedWhileFiltering] = useState<
     ReadonlySet<string>
   >(new Set());
+  // The add-problem form: closed, or open with the pre-selected topics.
+  const [adding, setAdding] = useState<readonly string[] | null>(null);
+  const [notice, setNotice] = useState<{
+    readonly text: string;
+    readonly problemId?: string;
+  } | null>(() => {
+    const flash = takeFlash();
+    return flash === null ? null : { text: flash };
+  });
 
   // Latest filter, read by the popstate listener without re-subscribing.
   const filterRef = useRef(filter);
@@ -281,6 +310,40 @@ export function Home(): JSX.Element {
     [catalog, filterActive, loadGuidance],
   );
 
+  const topicOptions: readonly TopicOption[] = useMemo(
+    () =>
+      catalog
+        ? catalog.topics.map((t) => ({
+            id: t.topic,
+            label: t.label ?? t.topic,
+          }))
+        : [],
+    [catalog],
+  );
+
+  /** After a create: refetch, expand its topics, and link to its Notes. */
+  const onProblemAdded = useCallback(
+    async (problem: CustomProblem): Promise<void> => {
+      setAdding(null);
+      setNotice({ text: `Added “${problem.title}”.`, problemId: problem.id });
+      setOpenTopics((prev) => new Set([...prev, ...problem.topics]));
+      loadGuidance();
+      try {
+        const [cat, prog] = await Promise.all([
+          fetchCatalog(),
+          fetchProgress(),
+        ]);
+        setCatalog(cat);
+        setProgress(prog);
+      } catch {
+        setToggleError(
+          'The problem was added, but the list could not refresh. Reload the page to see it.',
+        );
+      }
+    },
+    [loadGuidance],
+  );
+
   const toggleTopic = useCallback(
     (name: string): void => {
       const flip = (prev: ReadonlySet<string>): ReadonlySet<string> => {
@@ -364,6 +427,41 @@ export function Home(): JSX.Element {
 
       {guidance && <GuidanceCard guidance={guidance} />}
 
+      {notice && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-slate-200"
+        >
+          <CheckCircle2
+            className="h-4 w-4 shrink-0 text-emerald-400"
+            aria-hidden
+          />
+          <span className="min-w-0 flex-1 break-words">
+            {notice.text}{' '}
+            {notice.problemId !== undefined && (
+              <a
+                href={notesHref(notice.problemId)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(notesHref(notice.problemId ?? ''));
+                }}
+                className="font-medium text-emerald-400 underline hover:text-emerald-300"
+              >
+                Open its notes
+              </a>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="rounded p-0.5 text-slate-400 hover:text-slate-100"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      )}
+
       {toggleError && (
         <div
           role="alert"
@@ -372,6 +470,29 @@ export function Home(): JSX.Element {
           <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
           {toggleError}
         </div>
+      )}
+
+      {catalog && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setAdding([])}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-emerald-500 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Add problem
+          </button>
+        </div>
+      )}
+
+      {adding !== null && (
+        <ProblemForm
+          mode="create"
+          topics={topicOptions}
+          initial={{ topics: adding }}
+          onClose={() => setAdding(null)}
+          onSaved={(p) => void onProblemAdded(p)}
+        />
       )}
 
       {catalog && filtered && (
@@ -412,6 +533,7 @@ export function Home(): JSX.Element {
                   : openTopics.has(topic.topic)
               }
               onToggle={() => toggleTopic(topic.topic)}
+              onAdd={() => setAdding([topic.topic])}
               matches={filterActive ? matches : undefined}
               busyIds={busyIds}
               onStatusChange={onStatusChange}
