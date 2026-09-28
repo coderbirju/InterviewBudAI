@@ -15,6 +15,7 @@ vi.mock('../lib/api', async () => {
     ...actual,
     previewCsvImport: vi.fn(),
     commitCsvImport: vi.fn(),
+    fetchCatalog: vi.fn(),
   };
 });
 
@@ -100,8 +101,20 @@ async function pickAndPreview(
   await screen.findByRole('table');
 }
 
+const CATALOG: api.CatalogResponse = {
+  topics: [
+    { topic: 'arrays', label: 'Arrays & Hashing', problems: [] },
+    { topic: 'stack', label: 'Stack', problems: [] },
+  ],
+  totals: {
+    total: 0,
+    byStatus: { none: 0, done: 0, to_revisit: 0, did_not_understand: 0 },
+  },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
 });
 
 describe('CsvImport', () => {
@@ -343,5 +356,164 @@ describe('CsvImport', () => {
     await screen.findByText('a.csv');
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/too many rows/);
+  });
+
+  describe('Add as custom problem (ADR 0010 D4)', () => {
+    it('tick → difficulty + required topic → commit sends add-custom keyed by row key; summary counts it', async () => {
+      const user = userEvent.setup();
+      mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+      mockedApi.commitCsvImport.mockResolvedValue({
+        ...RESULT,
+        created: 2,
+        unmatched: 0,
+        customCreated: [
+          { rowKey: '0:4', problemId: 'u-img-abc123', title: XSS },
+        ],
+      });
+      const { container } = render(<CsvImport folderExists />);
+      await pickAndPreview(user);
+
+      const row = screen.getByTestId('unmatched-row-0:4');
+      const tick = within(row).getByRole('checkbox', {
+        name: `Add “${XSS}” as a custom problem`,
+      });
+      await waitFor(() => expect(tick).toBeEnabled());
+      await user.click(tick);
+      // A topic is required: Import waits for it.
+      const importBtn = screen.getByRole('button', { name: /^Import \d/ });
+      expect(importBtn).toBeDisabled();
+      expect(
+        screen.getByText(/choose a topic for every row/i),
+      ).toBeInTheDocument();
+      const difficulty = within(row).getByLabelText(`Difficulty for ${XSS}`);
+      expect(difficulty).toHaveValue('medium');
+      await user.selectOptions(difficulty, 'hard');
+      await user.selectOptions(
+        within(row).getByLabelText(`Topic for ${XSS}`),
+        'stack',
+      );
+      expect(
+        within(screen.getByLabelText('Preview summary')).getByText(
+          'Unmatched rows',
+        ).nextSibling,
+      ).toHaveTextContent('0');
+      expect(importBtn).toBeEnabled();
+      await user.click(importBtn);
+
+      expect(mockedApi.commitCsvImport).toHaveBeenCalledWith(
+        expect.any(Array),
+        PREVIEW.previewHash,
+        'done',
+        expect.objectContaining({
+          'lc-3': { action: 'create', rowKey: '0:2' },
+          '0:4': {
+            action: 'add-custom',
+            difficulty: 'hard',
+            topics: ['stack'],
+          },
+        }),
+      );
+      const done = await screen.findByLabelText('Import summary');
+      expect(
+        within(done).getByText('Custom problems added').nextSibling,
+      ).toHaveTextContent('1');
+      // The row title is text, never HTML.
+      expect(container.querySelector('img')).toBeNull();
+    });
+
+    it('unticking removes the decision; nothing custom is sent', async () => {
+      const user = userEvent.setup();
+      mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+      mockedApi.commitCsvImport.mockResolvedValue(RESULT);
+      render(<CsvImport folderExists />);
+      await pickAndPreview(user);
+      const tick = within(screen.getByTestId('unmatched-row-0:4')).getByRole(
+        'checkbox',
+      );
+      await waitFor(() => expect(tick).toBeEnabled());
+      await user.click(tick);
+      await user.click(tick);
+      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
+      const decisions = mockedApi.commitCsvImport.mock.calls[0]?.[3] ?? {};
+      expect(Object.keys(decisions)).not.toContain('0:4');
+    });
+
+    it('a 409 keeps the custom choice through "Re-run preview"', async () => {
+      const user = userEvent.setup();
+      mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+      mockedApi.commitCsvImport.mockRejectedValueOnce(
+        new ApiError(
+          'your notes or the data folder changed since the preview: re-run preview',
+          409,
+        ),
+      );
+      render(<CsvImport folderExists />);
+      await pickAndPreview(user);
+      const row = screen.getByTestId('unmatched-row-0:4');
+      const tick = within(row).getByRole('checkbox');
+      await waitFor(() => expect(tick).toBeEnabled());
+      await user.click(tick);
+      await user.selectOptions(
+        within(row).getByLabelText(`Topic for ${XSS}`),
+        'arrays',
+      );
+      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
+      await user.click(
+        await screen.findByRole('button', { name: /re-run preview/i }),
+      );
+      await waitFor(() =>
+        expect(mockedApi.previewCsvImport).toHaveBeenCalledTimes(2),
+      );
+      const again = await screen.findByTestId('unmatched-row-0:4');
+      expect(within(again).getByRole('checkbox')).toBeChecked();
+      expect(within(again).getByLabelText(`Topic for ${XSS}`)).toHaveValue(
+        'arrays',
+      );
+    });
+
+    it('per-row failures are listed by file and line', async () => {
+      const user = userEvent.setup();
+      mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+      mockedApi.commitCsvImport.mockResolvedValue({
+        ...RESULT,
+        customCreated: [],
+        failed: [
+          {
+            problemId: '',
+            rowKey: '0:4',
+            error: 'a problem with a similar title already exists: Twin',
+          },
+        ],
+      });
+      render(<CsvImport folderExists />);
+      await pickAndPreview(user);
+      const row = screen.getByTestId('unmatched-row-0:4');
+      const tick = within(row).getByRole('checkbox');
+      await waitFor(() => expect(tick).toBeEnabled());
+      await user.click(tick);
+      await user.selectOptions(
+        within(row).getByLabelText(`Topic for ${XSS}`),
+        'arrays',
+      );
+      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
+      const done = await screen.findByLabelText('Import summary');
+      expect(within(done).getByRole('alert')).toHaveTextContent(
+        `Arrays.csv line 4: ${XSS}: a problem with a similar title already exists: Twin`,
+      );
+    });
+
+    it('if the topic list cannot load, rows cannot be ticked (and say why)', async () => {
+      const user = userEvent.setup();
+      mockedApi.fetchCatalog.mockRejectedValue(new ApiError('boom', 500));
+      mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+      render(<CsvImport folderExists />);
+      await pickAndPreview(user);
+      expect(
+        await screen.findByText(/couldn't load the topic list/i),
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('unmatched-row-0:4')).getByRole('checkbox'),
+      ).toBeDisabled();
+    });
   });
 });
