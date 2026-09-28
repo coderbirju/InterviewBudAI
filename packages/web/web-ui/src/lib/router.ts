@@ -32,7 +32,8 @@ export type Route =
   | { readonly kind: 'notes'; readonly problemId: string }
   | { readonly kind: 'analytics' }
   | { readonly kind: 'interview' }
-  | { readonly kind: 'data' };
+  | { readonly kind: 'data' }
+  | { readonly kind: 'settings' };
 
 /**
  * Parse a full pathname (e.g. `/notes/two-sum`) into a `Route`. Anything that
@@ -56,6 +57,9 @@ export function parseRoute(pathname: string): Route {
   if (segments[0] === 'data' && segments.length === 1) {
     return { kind: 'data' };
   }
+  if (segments[0] === 'settings' && segments.length === 1) {
+    return { kind: 'settings' };
+  }
   return { kind: 'home' };
 }
 
@@ -77,6 +81,11 @@ export function interviewHref(): string {
 /** The SPA "Your data" (data folder) URL. */
 export function dataHref(): string {
   return '/data';
+}
+
+/** The SPA settings (model / provider status) URL. */
+export function settingsHref(): string {
+  return '/settings';
 }
 
 /** The SPA home (catalog) URL. */
