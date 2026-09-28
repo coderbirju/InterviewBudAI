@@ -68,6 +68,10 @@ export type {
   ApiDataDirResponse,
 } from './api.js';
 
+// Custom problems (ADR 0010): merged view + /api/problems wire shape
+export type { ProblemView, ProblemSource } from './problems.js';
+export type { ApiCustomProblem } from './problems-routes.js';
+
 // Server-owned data dir + legacy-cookie recovery (ADR 0009 D1)
 export { DataDirControl, countNotes } from './data-dir-control.js';
 export type {
