@@ -24,6 +24,10 @@
  *   POST /api/data-dir    — { path, dryRun? } → dry run: report what is there;
  *                           else validate, create, persist, switch
  *   POST /api/data-dir/legacy/dismiss — stop offering previous-data folders
+ *   GET  /api/settings    — active provider (no secrets), data dir, app/Node
+ *                           versions, env vars read (set ✓/✗) — ADR 0008 W2c
+ *   POST /api/settings/test-provider — one rate-limited health check against
+ *                           the user-configured provider ({ ok, latencyMs, detail })
  *   POST /api/import/csv/preview — parse + match CSV files, no writes
  *   POST /api/import/csv/commit  — re-check the preview hash, back up the data
  *                                  dir, then write the chosen notes (ADR 0009 D2/D3)
@@ -90,6 +94,8 @@ import type {
 } from './data-dir-control.js';
 import type { HandlerResponse } from './handler.js';
 import { handleImportRoute } from './import/routes.js';
+import { buildSettingsResponse } from './settings.js';
+import type { ProviderTestOutcome } from './settings.js';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 
@@ -299,6 +305,15 @@ export interface ApiDeps {
    * defaults to `() => new Date()`.
    */
   readonly now?: () => Date;
+  /**
+   * Settings routes (ADR 0008 W2c). `env` is read for presence/labels only;
+   * `testProvider` owns the rate limit and the one outbound check. Absent →
+   * the `/api/settings*` routes 404.
+   */
+  readonly settings?: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly testProvider: () => Promise<ProviderTestOutcome>;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -778,6 +793,38 @@ export async function handleApiRoute(
         ...(dbConfigured ? { dataDir } : {}),
       };
       return json(200, response);
+    }
+
+    // ----- /api/settings (GET) + /api/settings/test-provider (POST) -----
+    if (
+      pathname === '/api/settings' ||
+      pathname === '/api/settings/test-provider'
+    ) {
+      if (deps.settings === undefined) {
+        return json(404, { error: 'not found' });
+      }
+      if (pathname === '/api/settings') {
+        if (method !== 'GET') {
+          return json(405, { error: 'method not allowed' });
+        }
+        const control = deps.dataDirControl;
+        return json(
+          200,
+          buildSettingsResponse({
+            env: deps.settings.env,
+            dataDir: {
+              path: deps.dataDir,
+              source: control?.source ?? 'default',
+              pinned: control?.pinned ?? false,
+            },
+          }),
+        );
+      }
+      if (method !== 'POST') {
+        return json(405, { error: 'method not allowed' });
+      }
+      const outcome = await deps.settings.testProvider();
+      return json(outcome.status, outcome.body);
     }
 
     // ----- /api/data-dir (GET, POST) + legacy accept/dismiss (POST) -----

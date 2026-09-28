@@ -151,6 +151,9 @@ describe('Quickfire Quiz Master', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeInTheDocument();
     expect(screen.getByText(/IBAI_OLLAMA_MODEL/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /open settings/i }),
+    ).toHaveAttribute('href', '/settings');
   });
 
   it('submitting a correct answer shows Correct + advances to the next question + increments progress', async () => {

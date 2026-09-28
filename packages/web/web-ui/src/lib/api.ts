@@ -698,6 +698,61 @@ export function dismissLegacyData(): Promise<DataDirStatus> {
 }
 
 // ---------------------------------------------------------------------------
+// Settings / provider status (ADR 0008 Wave 2c). Keys stay env-only: these
+// shapes carry presence booleans, never a secret value.
+// ---------------------------------------------------------------------------
+
+export type ProviderKind = 'anthropic' | 'ollama' | 'none';
+
+export interface SettingsProvider {
+  readonly kind: ProviderKind;
+  readonly model: string | null;
+  /** Ollama origin (scheme://host:port) only; null otherwise. */
+  readonly endpoint: string | null;
+  readonly keyConfigured: boolean;
+  readonly hint?: string;
+}
+
+export interface SettingsEnvVar {
+  readonly var: string;
+  readonly purpose: string;
+  readonly set: boolean;
+}
+
+/** GET /api/settings response shape. */
+export interface SettingsResponse {
+  readonly provider: SettingsProvider;
+  readonly dataDir: {
+    readonly path: string;
+    readonly source: DataDirSource;
+    readonly pinned: boolean;
+  };
+  readonly app: { readonly version: string; readonly node: string };
+  readonly envHelp: readonly SettingsEnvVar[];
+}
+
+/** POST /api/settings/test-provider response shape. */
+export interface ProviderTestResult {
+  readonly ok: boolean;
+  readonly latencyMs: number;
+  readonly detail: string;
+}
+
+/** GET /api/settings — active provider (no secrets), data dir, versions. */
+export function fetchSettings(): Promise<SettingsResponse> {
+  return getJson<SettingsResponse>('/api/settings');
+}
+
+/**
+ * POST /api/settings/test-provider — one health check against the configured
+ * provider. Throws `ApiError` (400 no model, 429 too soon) with the server's
+ * message.
+ */
+export function testProviderConnection(): Promise<ProviderTestResult> {
+  return postJson<ProviderTestResult>('/api/settings/test-provider', {});
+}
+
+// ---------------------------------------------------------------------------
 // CSV import (ADR 0009 D2)
 // ---------------------------------------------------------------------------
 

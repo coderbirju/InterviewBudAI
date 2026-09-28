@@ -19,6 +19,7 @@ import {
 } from './data-dir-control.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { isApiRoute, handleApiRoute } from './api.js';
+import { createProviderTester } from './settings.js';
 import {
   allowedHostsFor,
   checkSameOrigin,
@@ -89,6 +90,13 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly port?: number;
   /** Sink for one-time warnings (default: console.warn). */
   readonly warn?: (line: string) => void;
+  /**
+   * fetch for POST /api/settings/test-provider (tests inject a fake; no real
+   * network in CI). Default: global fetch, resolved at call time.
+   */
+  readonly fetchImpl?: typeof fetch;
+  /** ms clock for the test-provider rate limit + latency (default Date.now). */
+  readonly clock?: () => number;
 }
 
 /**
@@ -265,6 +273,18 @@ export function createCoachHandler(
     })(),
   });
 
+  // Settings (ADR 0008 W2c): env is read for presence only; one tester per
+  // handler holds the in-process rate limit.
+  const settingsEnv = deps.env ?? process.env;
+  const settings = {
+    env: settingsEnv,
+    testProvider: createProviderTester({
+      env: settingsEnv,
+      ...(deps.fetchImpl !== undefined && { fetchImpl: deps.fetchImpl }),
+      ...(deps.clock !== undefined && { clock: deps.clock }),
+    }),
+  };
+
   const route = async (req: HandlerRequest): Promise<HandlerResponse> => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
@@ -311,6 +331,7 @@ export function createCoachHandler(
           dataDirControl: state,
           provider: deps.provider,
           providerLabel: deps.providerLabel,
+          settings,
         },
         req.body,
       );
