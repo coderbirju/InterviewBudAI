@@ -125,7 +125,7 @@ describe('POST /api/problems', () => {
     });
     expect(status).toBe(201);
     expect(problem).toMatchObject({
-      title: 'Rotatethe ring buffer',
+      title: 'Rotate the ring buffer',
       url: 'https://example.com/ring',
       statement: 'Rotate by k.',
       difficulty: 'medium',
@@ -135,7 +135,7 @@ describe('POST /api/problems', () => {
       updatedAt: NOW.toISOString(),
       custom: true,
     });
-    expect(problem.id).toMatch(/^u-rotatethe-ring-buffer-[a-z0-9]{6}$/);
+    expect(problem.id).toMatch(/^u-rotate-the-ring-buffer-[a-z0-9]{6}$/);
     expect(fs.readdirSync(path.join(dir, 'problems'))).toEqual([
       `${problem.id}.json`,
     ]);
@@ -1096,6 +1096,40 @@ describe('downgrade safety', () => {
     expect(Object.keys(after).filter((f) => !(f in before))).toEqual([
       path.join('problems', `${problem.id}.json`),
     ]);
+  });
+});
+
+describe('concurrent creates are serialized', () => {
+  it('two creates at cap − 1: exactly one succeeds', async () => {
+    fs.mkdirSync(path.join(dir, 'problems'), { recursive: true });
+    for (let i = 0; i < 999; i++) {
+      const id = `u-filler-${String(i).padStart(6, '0')}`;
+      fs.writeFileSync(
+        path.join(dir, 'problems', `${id}.json`),
+        JSON.stringify({
+          id,
+          title: `Filler ${i}`,
+          difficulty: 'easy',
+          topics: ['arrays'],
+          createdAt: NOW.toISOString(),
+          updatedAt: NOW.toISOString(),
+        }),
+      );
+    }
+    const results = await Promise.all([
+      create({ ...BASE, title: 'Racer one' }),
+      create({ ...BASE, title: 'Racer two' }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 400]);
+    expect(fs.readdirSync(path.join(dir, 'problems'))).toHaveLength(1000);
+  });
+
+  it('two creates with the same title: one 201, one 409', async () => {
+    const results = await Promise.all([
+      create({ ...BASE, title: 'Same racer' }),
+      create({ ...BASE, title: 'Same racer' }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
   });
 });
 

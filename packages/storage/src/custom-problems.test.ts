@@ -105,7 +105,12 @@ describe('custom problem rules', () => {
   });
 
   it('titles: controls (incl. newlines) stripped, trimmed, 1–200', () => {
-    expect(normalizeCustomTitle('  a\nb\r\tc\u0000 ')).toBe('abc');
+    expect(normalizeCustomTitle('  a\nb\r\tc\u0000 ')).toBe('a b c');
+    expect(normalizeCustomTitle('Ring\nbuffer')).toBe('Ring buffer');
+    expect(normalizeCustomTitle('Ring \r\n  buffer\u0007!')).toBe(
+      'Ring buffer!',
+    );
+    expect(normalizeCustomTitle('a\u0000b')).toBe('ab');
     expect(normalizeCustomTitle('   ')).toBeNull();
     expect(normalizeCustomTitle('x'.repeat(200))).toHaveLength(200);
     expect(normalizeCustomTitle('x'.repeat(201))).toBeNull();
@@ -332,7 +337,7 @@ describe('LocalFileStorageAdapter custom problems', () => {
     );
     const read = await adapter.readCustomProblem('u-edited-000001');
     expect(read?.url).toBeUndefined();
-    expect(read?.title).toBe('ab');
+    expect(read?.title).toBe('a b');
     // The file itself is never rewritten by a read.
     const raw = JSON.parse(
       await readFile(join(dir, 'problems', 'u-edited-000001.json'), 'utf-8'),

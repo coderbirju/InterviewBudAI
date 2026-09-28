@@ -256,8 +256,38 @@ function checkEditableId(id: string, catalog: CurriculumSource): Fail | null {
   return null;
 }
 
+/**
+ * In-process mutex for custom-problem writes: each create/edit/delete runs
+ * alone, so the 1,000 cap and the duplicate checks (read, then write) cannot
+ * race another request. The `wx` create still guarantees no overwrite.
+ */
+let problemWrites: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = problemWrites.then(task, task);
+  problemWrites = run.catch(() => undefined);
+  return run;
+}
+
 /** Handle an `/api/problems*` request (null → not a problems route). */
 export async function handleProblemsRoute(
+  method: string,
+  pathname: string,
+  deps: ProblemRouteDeps,
+  rawBody: string | undefined,
+): Promise<HandlerResponse | null> {
+  if (
+    (pathname === PROBLEMS_PATH || pathname.startsWith(`${PROBLEMS_PATH}/`)) &&
+    (method === 'POST' || method === 'PATCH' || method === 'DELETE')
+  ) {
+    return serialized(() =>
+      handleProblemsRouteUnlocked(method, pathname, deps, rawBody),
+    );
+  }
+  return handleProblemsRouteUnlocked(method, pathname, deps, rawBody);
+}
+
+async function handleProblemsRouteUnlocked(
   method: string,
   pathname: string,
   deps: ProblemRouteDeps,
