@@ -19,7 +19,7 @@ import {
 } from '../lib/problemForm';
 import type { ProblemFormErrors, ProblemFormValues } from '../lib/problemForm';
 import { navigate, notesHref } from '../lib/router';
-import { Modal } from './Modal';
+import { Modal, confirmDiscard } from './Modal';
 
 /** A topic choice: id + curriculum label (from `/api/catalog`). */
 export interface TopicOption {
@@ -57,13 +57,14 @@ export function ProblemForm({
   onClose: () => void;
   onSaved: (problem: CustomProblem) => void;
 }): JSX.Element {
-  const [values, setValues] = useState<ProblemFormValues>({
+  const [start] = useState<ProblemFormValues>(() => ({
     title: initial?.title ?? '',
     url: initial?.url ?? '',
     statement: initial?.statement ?? '',
     difficulty: initial?.difficulty ?? 'medium',
     topics: initial?.topics ?? [],
-  });
+  }));
+  const [values, setValues] = useState<ProblemFormValues>(start);
   const [errors, setErrors] = useState<ProblemFormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<{
@@ -144,12 +145,25 @@ export function ProblemForm({
   const titleLength = normalizeTitleInput(values.title).length;
   const statementLength = normalizeStatementInput(values.statement).length;
   const atTopicMax = values.topics.length >= CUSTOM_PROBLEM_LIMITS.topicsMax;
+  const dirty =
+    values.title !== start.title ||
+    values.url !== start.url ||
+    values.statement !== start.statement ||
+    values.difficulty !== start.difficulty ||
+    values.topics.length !== start.topics.length ||
+    values.topics.some((t) => !start.topics.includes(t));
+
+  function cancel(): void {
+    if (dirty && !confirmDiscard()) return;
+    onClose();
+  }
 
   return (
     <Modal
       title={mode === 'create' ? 'Add a problem' : 'Edit problem'}
       onClose={onClose}
       initialFocus={titleRef}
+      dirty={dirty}
     >
       <form
         noValidate
@@ -344,7 +358,7 @@ export function ProblemForm({
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={cancel}
             className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition-all duration-200 hover:bg-slate-800"
           >
             Cancel

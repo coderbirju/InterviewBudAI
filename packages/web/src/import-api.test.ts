@@ -49,11 +49,14 @@ afterEach(() => {
 
 type Handler = (req: HandlerRequest) => Promise<HandlerResponse>;
 
-function makeHandler(): Handler {
+function makeHandler(
+  makeStorage: (dir: string) => LocalFileStorageAdapter = (dir) =>
+    new LocalFileStorageAdapter(dir),
+): Handler {
   const inner = createCoachHandler({
-    storage: new LocalFileStorageAdapter(dataDir),
+    storage: makeStorage(dataDir),
     catalog: CATALOG,
-    createStorage: (dir: string) => new LocalFileStorageAdapter(dir),
+    createStorage: makeStorage,
     dataDir,
     dataDirSource: 'default',
     homeDir: home,
@@ -793,6 +796,63 @@ describe('CSV "Add as custom problem" (ADR 0010 D4)', () => {
     ]);
     expect(problemsOnDisk()).toHaveLength(1);
     expect(notesOnDisk()).toHaveLength(1);
+  });
+
+  it('a non-http(s) url cell (javascript:) → the problem is created without a url', async () => {
+    const handler = makeHandler();
+    const p = await preview(handler, files);
+    const res = await commit(handler, p.previewHash, {
+      '0:3': { action: 'add-custom', difficulty: 'easy', topics: ['greedy'] },
+    });
+    expect(res.status).toBe(200);
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result.failed).toEqual([]);
+    expect(result.customCreated).toHaveLength(1);
+    const id = result.customCreated[0]!.problemId;
+    const stored = await new LocalFileStorageAdapter(dataDir).readCustomProblem(
+      id,
+    );
+    expect(stored).toMatchObject({ title: 'Whiteboard Question' });
+    expect(stored).not.toHaveProperty('url');
+    const raw = fs.readFileSync(
+      path.join(dataDir, 'problems', `${id}.json`),
+      'utf8',
+    );
+    expect(raw).not.toContain('javascript');
+  });
+
+  it('problem created but its note write fails → in customCreated AND failed[] with its id', async () => {
+    class NoteFails extends LocalFileStorageAdapter {
+      override async writeIntuitionNote(
+        ...args: Parameters<LocalFileStorageAdapter['writeIntuitionNote']>
+      ): ReturnType<LocalFileStorageAdapter['writeIntuitionNote']> {
+        if (args[0].problemId.startsWith('u-')) {
+          throw new Error('EACCES: permission denied');
+        }
+        return super.writeIntuitionNote(...args);
+      }
+    }
+    const handler = makeHandler((dir) => new NoteFails(dir));
+    const p = await preview(handler, files);
+    const res = await commit(handler, p.previewHash, {
+      '0:2': { action: 'add-custom', difficulty: 'hard', topics: ['stack'] },
+    });
+    expect(res.status).toBe(200);
+    const result = JSON.parse(res.body) as ImportCommitResult;
+    expect(result.created).toBe(1); // lc-11 only; the custom note did not land
+    expect(result.customCreated).toHaveLength(1);
+    const made = result.customCreated[0]!;
+    expect(made).toMatchObject({ rowKey: '0:2', title: 'Book Puzzle 7' });
+    expect(result.failed).toEqual([
+      {
+        problemId: made.problemId,
+        rowKey: '0:2',
+        error: 'EACCES: permission denied',
+      },
+    ]);
+    expect(result.unmatched).toBe(1); // 0:3 had no decision
+    expect(problemsOnDisk()).toEqual([`${made.problemId}.json`]);
+    expect(notesOnDisk().some((n) => n.startsWith(made.problemId))).toBe(false);
   });
 
   it('the 1,000 custom-problem cap fails the row, not the import', async () => {

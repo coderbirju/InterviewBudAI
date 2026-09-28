@@ -26,7 +26,7 @@ import type {
   WireDifficulty,
 } from '../lib/api';
 import { STATUS_LABELS, STATUS_ORDER } from '../lib/home';
-import { homeHref, isPlainClick, navigate } from '../lib/router';
+import { homeHref, isPlainClick, navigate, notesHref } from '../lib/router';
 
 /**
  * "Import notes from CSV" (ADR 0009 D2) — the CSV section of `/data`.
@@ -1069,16 +1069,50 @@ function ImportSummary({
         <div role="alert" className="text-status-blocked">
           <p>These notes could not be written:</p>
           <ul className="list-disc pl-5">
-            {result.failed.map((f, i) => (
-              <li key={`${i}:${f.rowKey ?? f.problemId}`}>
-                <span className="font-mono">
-                  {f.rowKey !== undefined
-                    ? rowLabels[f.rowKey] ?? f.rowKey
-                    : f.problemId}
-                </span>
-                : {f.error}
-              </li>
-            ))}
+            {result.failed.map((f, i) => {
+              // The problem was created but its note write failed: say so,
+              // so the row is not mistaken for "nothing happened".
+              const made =
+                f.rowKey !== undefined && f.problemId !== ''
+                  ? result.customCreated?.find(
+                      (c) =>
+                        c.rowKey === f.rowKey && c.problemId === f.problemId,
+                    )
+                  : undefined;
+              return (
+                <li key={`${i}:${f.rowKey ?? f.problemId}`}>
+                  {made ? (
+                    <>
+                      Added <span className="font-semibold">{made.title}</span>{' '}
+                      as a custom problem, but its note couldn&apos;t be written
+                      —{' '}
+                      <a
+                        href={notesHref(made.problemId)}
+                        onClick={(e) => {
+                          if (isPlainClick(e)) {
+                            e.preventDefault();
+                            navigate(notesHref(made.problemId));
+                          }
+                        }}
+                        className="underline"
+                      >
+                        open it
+                      </a>{' '}
+                      and add your notes
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono">
+                        {f.rowKey !== undefined
+                          ? rowLabels[f.rowKey] ?? f.rowKey
+                          : f.problemId}
+                      </span>
+                      : {f.error}
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
