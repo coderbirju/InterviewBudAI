@@ -76,6 +76,9 @@ export function formatStartupBanner(input: {
 }
 
 /** Server timeouts: whole request, headers, idle keep-alive (ms). */
+/** Methods whose request body is read (capped at `MAX_BODY_BYTES`). */
+const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PATCH', 'DELETE']);
+
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const HEADERS_TIMEOUT_MS = 10_000;
 export const KEEP_ALIVE_TIMEOUT_MS = 5_000;
@@ -217,13 +220,14 @@ export async function startServer(
         headers: req.headers as Record<string, string | string[] | undefined>,
       };
 
-      // Read the body only for POST, and only after the header-only checks
-      // (Host / Origin / Content-Type) pass and the declared length fits.
+      // Read the body only for POST / PATCH / DELETE (ADR 0010 D5), and only
+      // after the header-only checks (Host / Origin / Content-Type) pass and
+      // the declared length fits.
       let body: string | undefined;
       let bodyTooLarge = false;
       // The body was not (fully) read: don't reuse the connection.
       let closeAfter = false;
-      if (req.method === 'POST') {
+      if (BODY_METHODS.has(req.method ?? '')) {
         if (precheckRequest(base, allowedHosts) !== null) {
           closeAfter = true;
         } else if (declaresTooLarge(req)) {

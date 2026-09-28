@@ -32,11 +32,15 @@ import type {
 /** Coarse difficulty, ordered easy < medium < hard. */
 export type GuidanceDifficulty = 'easy' | 'medium' | 'hard';
 
-/** The subset of a catalog problem guidance needs (structural, core-owned). */
+/**
+ * The subset of a problem guidance needs (structural, core-owned): a catalog
+ * problem or a user-added one (the web passes its merged source, ADR 0010 D4).
+ */
 export interface GuidanceProblem {
   readonly id: string;
   readonly title: string;
-  readonly url: string;
+  /** External link; absent for a user-added problem without one (ADR 0010). */
+  readonly url?: string;
   readonly difficulty: GuidanceDifficulty;
   readonly topics: readonly TopicId[];
 }
@@ -50,7 +54,7 @@ export interface GuidanceNote {
 
 /** Everything {@link deriveGuidance} reads. */
 export interface GuidanceInput {
-  /** The catalog, in catalog order (the final tie-break). */
+  /** Catalog then custom problems, in that order (the final tie-break). */
   readonly problems: readonly GuidanceProblem[];
   /** Resolved note statuses. Ids not in `problems` are ignored. */
   readonly notes: readonly GuidanceNote[];
@@ -71,7 +75,7 @@ export interface TopicStanding {
     readonly done: number;
     readonly toRevisit: number;
     readonly didNotUnderstand: number;
-    /** Catalog problems tagged with this topic (0 for a non-catalog topic). */
+    /** Problems (catalog + custom) tagged with this topic (0 for an unknown topic). */
     readonly total: number;
   };
   readonly quiz: { readonly correct: number; readonly incorrect: number };
@@ -99,7 +103,8 @@ export interface NextUpItem {
   readonly kind: NextUpKind;
   readonly problemId: string;
   readonly title: string;
-  readonly url: string;
+  /** Present when the problem has a link. */
+  readonly url?: string;
   readonly difficulty: GuidanceDifficulty;
   /**
    * The topic this item was picked for. `null` only for a `revisit` whose
@@ -353,7 +358,7 @@ export function deriveGuidance(input: GuidanceInput): Guidance {
       kind,
       problemId: problem.id,
       title: problem.title,
-      url: problem.url,
+      ...(problem.url !== undefined && { url: problem.url }),
       difficulty: problem.difficulty,
       topicId,
       reason,

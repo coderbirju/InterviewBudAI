@@ -10,7 +10,12 @@
  *  3. Normalized title equality.
  */
 
-import type { Problem } from '@ibai/curriculum';
+/** What the matcher needs of a problem (catalog or custom, ADR 0010 D4). */
+export interface MatchableProblem {
+  readonly id: string;
+  readonly title: string;
+  readonly url?: string;
+}
 
 /** How a row was matched. */
 export type MatchedBy = 'url' | 'number' | 'title';
@@ -79,19 +84,19 @@ export interface CatalogMatcher {
 
 /** Build a matcher (indexes built once) over the catalog's problems. */
 export function createCatalogMatcher(
-  problems: readonly Problem[],
+  problems: readonly MatchableProblem[],
 ): CatalogMatcher {
-  const bySlug = new Map<string, Problem>();
-  const byId = new Map<string, Problem>();
-  const byTitle = new Map<string, Problem>();
+  const bySlug = new Map<string, MatchableProblem>();
+  const byId = new Map<string, MatchableProblem>();
+  const byTitle = new Map<string, MatchableProblem>();
   for (const p of problems) {
     byId.set(p.id, p);
-    const slug = leetcodeSlug(p.url);
+    const slug = p.url === undefined ? null : leetcodeSlug(p.url);
     if (slug !== null && !bySlug.has(slug)) bySlug.set(slug, p);
     const key = normalizeTitle(p.title);
     if (key !== '' && !byTitle.has(key)) byTitle.set(key, p);
   }
-  const hit = (p: Problem, by: MatchedBy): CatalogMatch => ({
+  const hit = (p: MatchableProblem, by: MatchedBy): CatalogMatch => ({
     problemId: p.id,
     title: p.title,
     by,
