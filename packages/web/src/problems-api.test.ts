@@ -29,7 +29,7 @@ import type {
 } from './api.js';
 import { createCoachHandler } from './handler.js';
 import { countNotes } from './data-dir-control.js';
-import { createKnownProblemIdCheck } from './problems.js';
+import { createKnownProblemIdCheck, createLocalStorage } from './problems.js';
 import { buildQuizPrompt, seededRandom } from './quiz.js';
 import { startServer } from './server.js';
 import { MAX_BODY_BYTES } from './security.js';
@@ -58,8 +58,8 @@ class RecordingProvider implements LlmProvider {
 function deps(extra: Partial<ApiDeps> = {}): ApiDeps {
   return {
     catalog: CATALOG,
-    createStorage: (d: string) => new LocalFileStorageAdapter(d),
-    storage: new LocalFileStorageAdapter(dir),
+    createStorage: (d: string) => createLocalStorage(d),
+    storage: createLocalStorage(dir),
     dataDir: dir,
     now: () => NOW,
     random: seededRandom(3),
@@ -436,6 +436,71 @@ describe('PATCH / DELETE /api/problems/:id', () => {
     expect(
       fs.existsSync(path.join(dir, 'problems', `${problem.id}.json`)),
     ).toBe(false);
+  });
+
+  it('DELETE counts an unparsable note file as a note (never orphaned)', async () => {
+    const { problem } = await create(BASE);
+    fs.mkdirSync(path.join(dir, 'notes'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'notes', `${problem.id}.md`), '');
+    const refused = await call('DELETE', `/api/problems/${problem.id}`, {});
+    expect(refused.status).toBe(409);
+    const res = await call('DELETE', `/api/problems/${problem.id}`, {
+      deleteNote: true,
+    });
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(path.join(dir, 'notes', `${problem.id}.md`))).toBe(
+      false,
+    );
+  });
+
+  it('DELETE goes through the adapter: 501 without deleteIntuitionNote; readIntuitionNote fallback', async () => {
+    const { problem } = await create(BASE);
+    await note(problem.id, 'done', 'keep me');
+    const without = (...hidden: string[]): ApiDeps => {
+      const limited = (d: string) => {
+        const base = createLocalStorage(d);
+        return new Proxy(base, {
+          get(target, key, receiver) {
+            if (typeof key === 'string' && hidden.includes(key)) {
+              return undefined;
+            }
+            const value: unknown = Reflect.get(target, key, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+      };
+      return deps({ storage: limited(dir), createStorage: limited });
+    };
+    const refused = await call(
+      'DELETE',
+      `/api/problems/${problem.id}`,
+      { deleteNote: true },
+      without('deleteIntuitionNote'),
+    );
+    expect(refused.status).toBe(501);
+    expect(
+      fs.existsSync(path.join(dir, 'problems', `${problem.id}.json`)),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'notes', `${problem.id}.md`))).toBe(
+      true,
+    );
+
+    // No hasIntuitionNote → the readable note still guards the delete.
+    const d = without('hasIntuitionNote');
+    expect(
+      (await call('DELETE', `/api/problems/${problem.id}`, {}, d)).status,
+    ).toBe(409);
+    const res = await call(
+      'DELETE',
+      `/api/problems/${problem.id}`,
+      { deleteNote: true },
+      d,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ noteDeleted: true });
+    expect(fs.existsSync(path.join(dir, 'notes', `${problem.id}.md`))).toBe(
+      false,
+    );
   });
 
   it('a failed backup deletes nothing', async () => {
@@ -930,6 +995,29 @@ describe('known-id check (id, dir)', () => {
     } finally {
       fs.rmSync(other, { recursive: true, force: true });
     }
+  });
+
+  it('a hand-edited 4-topic file with one unknown topic: listed AND counted (filter before the 1–3 count)', async () => {
+    const known = createKnownProblemIdCheck(CATALOG);
+    const id = 'u-four-000000';
+    writeNoteFile(dir, id);
+    writeProblemFile(dir, id, {
+      topics: ['arrays', 'bogus', 'heap', 'graphs'],
+    });
+    expect(countNotes(dir, known)).toBe(1);
+    const listed = await createLocalStorage(dir).listCustomProblems();
+    expect(listed.map((p) => [p.id, p.topics])).toEqual([
+      [id, ['arrays', 'heap', 'graphs']],
+    ]);
+    const catalog = await call('GET', '/api/catalog');
+    expect(JSON.stringify(catalog.body)).toContain(id);
+
+    // Four KNOWN topics: rejected by both.
+    writeProblemFile(dir, id, {
+      topics: ['arrays', 'heap', 'graphs', 'trees'],
+    });
+    expect(countNotes(dir, known)).toBe(0);
+    expect(await createLocalStorage(dir).listCustomProblems()).toEqual([]);
   });
 
   it('GET /api/data-dir and a dry run count a folder of only u-* notes', async () => {

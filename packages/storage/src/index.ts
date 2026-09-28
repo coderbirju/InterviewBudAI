@@ -635,6 +635,19 @@ export interface StorageAdapter {
 
   /** Delete a custom problem. Missing (or not a `u-` id) ⇒ no-op. */
   deleteCustomProblem?(id: string): Promise<void>;
+
+  /**
+   * True when a note exists for `problemId` — ANY stored entry, even one that
+   * `readIntuitionNote` cannot parse — so deleting a problem never orphans a
+   * note (ADR 0010 D3 amendment). Never throws.
+   */
+  hasIntuitionNote?(problemId: string): Promise<boolean>;
+
+  /**
+   * Delete the intuition note for `problemId`. Missing ⇒ no-op (ADR 0010 D3
+   * amendment). Used when a custom problem is deleted together with its note.
+   */
+  deleteIntuitionNote?(problemId: string): Promise<void>;
 }
 
 export * from './custom-problems.js';

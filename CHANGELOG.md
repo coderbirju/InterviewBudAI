@@ -53,8 +53,12 @@ and is listed there with what you need to do (ADR 0009 D4).
   `problems/`: your custom notes are hidden (not deleted, and not counted — a
   folder with only custom notes shows 0), and an active quiz whose next card
   is custom ends early. Upgrading again restores everything. Also: a quiz
-  now skips a card whose problem was deleted instead of ending, and `"""` in
+  now skips a card whose problem was deleted instead of ending (an answer
+  typed for the deleted card is not graded: `409`, and the next card is
+  shown), and `"""` in
   a note or answer can no longer close its block in the grading prompt.
+  Storage adapters gain optional `hasIntuitionNote` / `deleteIntuitionNote`
+  (ADR 0010 D3 amendment).
 
 - **Settings page** (`/settings`, gear in the nav): shows the active model
   (provider, model, Ollama endpoint, whether an Anthropic key is configured),

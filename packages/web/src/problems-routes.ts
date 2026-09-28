@@ -15,8 +15,6 @@
  * (#65) over the catalog AND existing custom problems.
  */
 
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { CurriculumSource } from '@ibai/curriculum';
 import type {
   CustomProblem,
@@ -402,12 +400,16 @@ export async function handleProblemsRoute(
   if (deleteNote !== undefined && typeof deleteNote !== 'boolean') {
     return json(400, { error: 'deleteNote must be a boolean' });
   }
-  // `id` passed the strict `u-` regex, so this path stays inside notes/.
-  const notePath = path.join(deps.dataDir, 'notes', `${id}.md`);
-  const hasNote = await fs.lstat(notePath).then(
-    () => true,
-    () => false,
-  );
+  // The adapter owns the note layout (ADR 0010 D3 amendment). Without a way
+  // to delete notes, refuse outright rather than risk orphaning one.
+  if (!storage.deleteIntuitionNote) {
+    return json(501, {
+      error: 'this storage cannot delete notes, so the problem was not deleted',
+    });
+  }
+  const hasNote = storage.hasIntuitionNote
+    ? await storage.hasIntuitionNote(id)
+    : ((await storage.readIntuitionNote?.(id)) ?? null) !== null;
   if (!hasNote) {
     await storage.deleteCustomProblem(id);
     return json(200, { deleted: true, noteDeleted: false });
@@ -430,7 +432,7 @@ export async function handleProblemsRoute(
       error: `could not back up the data folder, so nothing was deleted: ${reason}`,
     });
   }
-  await fs.rm(notePath, { force: true });
+  await storage.deleteIntuitionNote(id);
   await storage.deleteCustomProblem(id);
   return json(200, { deleted: true, noteDeleted: true, backup });
 }

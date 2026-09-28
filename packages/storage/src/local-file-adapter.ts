@@ -25,6 +25,7 @@ import {
   writeFile,
   readdir,
   unlink,
+  lstat,
 } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { join, dirname, normalize, isAbsolute } from 'node:path';
@@ -56,6 +57,7 @@ import type {
 } from './index.js';
 import { resolveNoteStatus, isNoteStatus } from './index.js';
 import { isCustomProblemId, parseCustomProblem } from './custom-problems.js';
+import type { CustomTopicMapper } from './custom-problems.js';
 
 // ---------------------------------------------------------------------------
 // Type Guards (validate untrusted JSON)
@@ -276,13 +278,27 @@ function safeJoin(basePath: string, ...parts: string[]): string {
 // LocalFileStorageAdapter
 // ---------------------------------------------------------------------------
 
+/** Options for {@link LocalFileStorageAdapter}. */
+export interface LocalFileStorageOptions {
+  /**
+   * Topic rule for custom problems (ADR 0010, deviation b): applied BEFORE
+   * the 1–3 topic count on read and write, so unknown topics are dropped
+   * first and the adapter agrees with the caller's own validation. Default:
+   * any well-formed topic slug.
+   */
+  readonly customTopic?: CustomTopicMapper;
+}
+
 export class LocalFileStorageAdapter implements StorageAdapter {
   /**
    * Create a new LocalFileStorageAdapter.
    * @param basePath - The root directory for storing progress files.
    *                   Must be an absolute path or will be resolved relative to cwd.
    */
-  constructor(private readonly basePath: string) {
+  constructor(
+    private readonly basePath: string,
+    private readonly options: LocalFileStorageOptions = {},
+  ) {
     // Normalize the base path
     this.basePath = isAbsolute(basePath) ? basePath : normalize(basePath);
   }
@@ -417,6 +433,45 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       }
       // Other errors -> return null (never throw)
       return null;
+    }
+  }
+
+  /** `<basePath>/notes/<id>.md`, or `null` if it would leave `notes/`. */
+  private notePath(problemId: string): string | null {
+    const dir = safeJoin(this.basePath, 'notes');
+    const file = safeJoin(
+      this.basePath,
+      'notes',
+      `${sanitizeProblemId(problemId)}.md`,
+    );
+    return dirname(file) === dir ? file : null;
+  }
+
+  /**
+   * True when ANY entry exists at the note's path — even an empty or
+   * unparsable file, or a symlink — so a caller never deletes a problem while
+   * leaving a note file behind (ADR 0010 D3 amendment). Never throws.
+   */
+  async hasIntuitionNote(problemId: string): Promise<boolean> {
+    const filePath = this.notePath(problemId);
+    if (filePath === null) return false;
+    return lstat(filePath).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /**
+   * Delete a problem's intuition note (the link itself for a symlink, never
+   * its target). Missing ⇒ no-op (ADR 0010 D3 amendment).
+   */
+  async deleteIntuitionNote(problemId: string): Promise<void> {
+    const filePath = this.notePath(problemId);
+    if (filePath === null) return;
+    try {
+      await unlink(filePath);
+    } catch (err) {
+      if (!(isNodeError(err) && err.code === 'ENOENT')) throw err;
     }
   }
 
@@ -738,7 +793,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     if (filePath === null) return null;
     try {
       const parsed: unknown = JSON.parse(await readFile(filePath, 'utf-8'));
-      return parseCustomProblem(parsed, { expectedId: id });
+      return parseCustomProblem(parsed, {
+        expectedId: id,
+        topic: this.options.customTopic,
+      });
     } catch {
       return null;
     }
@@ -750,7 +808,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     content: string;
   } {
     const filePath = this.customProblemPath(problem.id);
-    const valid = parseCustomProblem(problem, { expectedId: problem.id });
+    const valid = parseCustomProblem(problem, {
+      expectedId: problem.id,
+      topic: this.options.customTopic,
+    });
     if (filePath === null || valid === null) {
       throw new RangeError('invalid custom problem');
     }
