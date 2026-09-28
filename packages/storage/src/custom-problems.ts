@@ -62,13 +62,18 @@ export function generateCustomProblemId(
 }
 
 /**
- * Normalise a title: strip every C0 control (incl. newlines) and DEL, trim.
- * Returns `null` if the result is empty or longer than 200 chars.
+ * Normalise a title (single line): tab, CR and LF become a space, every other
+ * C0 control and DEL is stripped, whitespace runs collapse to one space, then
+ * trim. Returns `null` if the result is empty or longer than 200 chars.
  */
 export function normalizeCustomTitle(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  // eslint-disable-next-line no-control-regex
-  const title = raw.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const title = raw
+    .replace(/[\t\r\n]/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (title.length === 0 || title.length > CUSTOM_PROBLEM_LIMITS.titleMax) {
     return null;
   }
