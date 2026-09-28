@@ -371,7 +371,9 @@ describe('Quickfire Quiz Master', () => {
     await user.click(screen.getByRole('button', { name: /submit answer/i }));
 
     expect(mockedApi.answerQuiz).toHaveBeenCalledWith('my approach', 'lc-1');
-    expect(await screen.findByRole('alert')).toHaveTextContent(/not graded/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "That question changed — your answer wasn't graded. Here's the current one.",
+    );
     expect(
       await screen.findByText('Find two numbers that sum to a target.'),
     ).toBeInTheDocument();

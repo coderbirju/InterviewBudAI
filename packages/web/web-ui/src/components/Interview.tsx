@@ -288,18 +288,21 @@ export function Interview(): JSX.Element {
         try {
           const current = await getQuizSession();
           setVerdictCard(null);
+          // Neutral wording: the card may have been edited, deleted or moved
+          // on in another tab — the UI cannot tell which.
           if (current.active && current.question) {
             setSession(current.session);
             setQuestion(current.question);
             setTranscript(current.transcript);
             setVerdictCard(probeCard(current.question));
+            setError(
+              "That question changed — your answer wasn't graded. Here's the current one.",
+            );
           } else {
             setQuestion(null);
             setPhase({ kind: 'complete' });
+            setError("That question changed — your answer wasn't graded.");
           }
-          setError(
-            'That problem was removed, so your answer was not graded. Moved on to the next question.',
-          );
         } catch (reloadErr) {
           setError(describeError(reloadErr));
         }
