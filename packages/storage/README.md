@@ -19,7 +19,46 @@ ${basePath}/
   quiz-sessions/${sessionId}.json -> QuizSession (ADR 0007)
   quiz-sessions/active.json       -> active-session pointer (ADR 0007)
   competency-signals.json         -> CompetencySignals (ADR 0007)
+  problems/${id}.json             -> CustomProblem (ADR 0010)
 ```
+
+## Custom problems (ADR 0010)
+
+User-added problems (progress layer, never shipped or committed), one
+pretty-printed JSON file per problem under `problems/` (dir 0700, files 0600):
+
+```json
+{
+  "id": "u-rotate-the-ring-buffer-k3x9q1",
+  "title": "Rotate the ring buffer",
+  "url": "https://example.com/ring",
+  "statement": "Plain text, the user's own problem statement.",
+  "difficulty": "medium",
+  "topics": ["arrays"],
+  "createdAt": "2026-09-27T12:00:00.000Z",
+  "updatedAt": "2026-09-27T12:00:00.000Z"
+}
+```
+
+Optional `StorageAdapter` methods: `listCustomProblems()` (sorted by
+`createdAt`, `id`), `readCustomProblem(id)`, `createCustomProblem(p)`,
+`writeCustomProblem(p)`, `deleteCustomProblem(id)`.
+
+- **Ids** `u-<slug>-<rand6>` (`crypto.randomInt`), `^u-[a-z0-9]+(-[a-z0-9]+)*$`,
+  ≤ 64 chars: path-safe by construction; anything else is refused / reads
+  `null`. No catalog id starts with `u-` (curriculum test).
+- **Create never overwrites:** the id is reserved with an exclusive `'wx'`
+  open (`EEXIST` ⇒ throws; the caller picks a new id), then the content is
+  written to a temp file and renamed over it. `writeCustomProblem` replaces
+  an existing file the same atomic way (`ENOENT` if missing).
+- **Files are untrusted:** every read applies the write rules
+  (`parseCustomProblem`, exported with the field helpers): id regex and
+  filename = id, title 1–200 (C0 controls stripped), statement ≤ 2000, `url`
+  `http(s)` only ≤ 2048 (a `javascript:` url is dropped), difficulty enum,
+  1–3 slug topics, parseable timestamps; unknown fields dropped. An invalid
+  required field skips the file (never throws). Topic membership (the 13
+  curriculum topics) is applied by the web layer, which passes its topic rule
+  to the same parser.
 
 ## Intuition Notes
 
