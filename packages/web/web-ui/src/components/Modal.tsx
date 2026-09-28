@@ -1,6 +1,11 @@
 import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 
+/** Ask before discarding unsaved input; `true` = discard. */
+export function confirmDiscard(): boolean {
+  return window.confirm('Discard your unsaved changes?');
+}
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -9,7 +14,9 @@ const FOCUSABLE =
  * `aria-modal`, labelled by its title; focus moves inside on open (the
  * `initialFocus` element, else the first focusable), Tab / Shift+Tab stay
  * inside, Escape and the close button call `onClose`, and on unmount focus
- * returns to whatever was focused before it opened.
+ * returns to whatever was focused before it opened. A backdrop click closes
+ * it too, unless `dirty` (unsaved input): then backdrop clicks are ignored
+ * and Escape / the close button ask before discarding (`confirmDiscard`).
  */
 export function Modal({
   title,
@@ -17,6 +24,7 @@ export function Modal({
   children,
   initialFocus,
   role = 'dialog',
+  dirty = false,
 }: {
   title: string;
   onClose: () => void;
@@ -24,11 +32,20 @@ export function Modal({
   initialFocus?: React.RefObject<HTMLElement>;
   /** `alertdialog` for confirmations. */
   role?: 'dialog' | 'alertdialog';
+  /** The dialog holds unsaved input: guard against silent discards. */
+  dirty?: boolean;
 }): JSX.Element {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  function requestClose(): void {
+    if (dirtyRef.current && !confirmDiscard()) return;
+    onCloseRef.current();
+  }
 
   useEffect(() => {
     const opener =
@@ -51,7 +68,7 @@ export function Modal({
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     if (e.key === 'Escape') {
       e.stopPropagation();
-      onCloseRef.current();
+      requestClose();
       return;
     }
     if (e.key !== 'Tab' || !panel.current) return;
@@ -78,7 +95,11 @@ export function Modal({
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/70 p-4 sm:items-center"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCloseRef.current();
+        if (e.target !== e.currentTarget) return;
+        // Never silently drop typed input on a stray backdrop click; keep
+        // focus in the dialog so Escape still works.
+        if (dirtyRef.current) e.preventDefault();
+        else onCloseRef.current();
       }}
     >
       <div
@@ -96,7 +117,7 @@ export function Modal({
           </h2>
           <button
             type="button"
-            onClick={() => onCloseRef.current()}
+            onClick={requestClose}
             aria-label="Close"
             className="rounded-md p-1 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >

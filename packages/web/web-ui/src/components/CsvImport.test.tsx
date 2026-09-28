@@ -502,6 +502,37 @@ describe('CsvImport', () => {
       );
     });
 
+    it('created but note write failed: says the problem was added and to open it', async () => {
+      const user = userEvent.setup();
+      mockedApi.previewCsvImport.mockResolvedValue(PREVIEW);
+      mockedApi.commitCsvImport.mockResolvedValue({
+        ...RESULT,
+        customCreated: [
+          { rowKey: '0:4', problemId: 'u-img-abc123', title: XSS },
+        ],
+        failed: [{ problemId: 'u-img-abc123', rowKey: '0:4', error: 'EACCES' }],
+      });
+      render(<CsvImport folderExists />);
+      await pickAndPreview(user);
+      const row = screen.getByTestId('unmatched-row-0:4');
+      const tick = within(row).getByRole('checkbox');
+      await waitFor(() => expect(tick).toBeEnabled());
+      await user.click(tick);
+      await user.selectOptions(
+        within(row).getByLabelText(`Topic for ${XSS}`),
+        'arrays',
+      );
+      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
+      const done = await screen.findByLabelText('Import summary');
+      const alert = within(done).getByRole('alert');
+      expect(alert).toHaveTextContent(
+        `Added ${XSS} as a custom problem, but its note couldn't be written — open it and add your notes`,
+      );
+      expect(
+        within(alert).getByRole('link', { name: 'open it' }),
+      ).toHaveAttribute('href', expect.stringContaining('u-img-abc123'));
+    });
+
     it('if the topic list cannot load, rows cannot be ticked (and say why)', async () => {
       const user = userEvent.setup();
       mockedApi.fetchCatalog.mockRejectedValue(new ApiError('boom', 500));

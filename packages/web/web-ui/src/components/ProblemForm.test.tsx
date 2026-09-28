@@ -106,6 +106,41 @@ describe('ProblemForm', () => {
     expect(screen.getByRole('button', { name: 'Open form' })).toHaveFocus();
   });
 
+  it('an untouched form closes on a backdrop click', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const dialog = await openForm(user);
+    await user.pointer({ keys: '[MouseLeft>]', target: dialog.parentElement! });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('a dirty form ignores backdrop clicks and confirms before Escape / Cancel discard it', async () => {
+    const confirm = vi.spyOn(window, 'confirm');
+    const user = userEvent.setup();
+    render(<Harness />);
+    const dialog = await openForm(user);
+    await user.type(within(dialog).getByLabelText('Title'), 'Half typed');
+
+    // Backdrop click: ignored, no prompt, input kept.
+    await user.pointer({ keys: '[MouseLeft>]', target: dialog.parentElement! });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(within(dialog).getByLabelText('Title')).toHaveValue('Half typed');
+    expect(within(dialog).getByLabelText('Title')).toHaveFocus();
+
+    // Escape asks; declining keeps the form.
+    confirm.mockReturnValueOnce(false);
+    await user.keyboard('{Escape}');
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // Cancel asks; accepting closes.
+    confirm.mockReturnValueOnce(true);
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
   it('client-side validation mirrors the server and blocks the request', async () => {
     const user = userEvent.setup();
     render(<Harness />);
