@@ -353,6 +353,33 @@ describe('Quickfire Quiz Master', () => {
     ).toBeInTheDocument();
   });
 
+  it('on a 409 (shown card deleted) sends problemId, shows the next card and a not-graded notice', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    mockedApi.answerQuiz.mockRejectedValue(
+      new api.ApiError('question changed', 409),
+    );
+
+    render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    );
+    await screen.findByText('A wrapped question about arrays.');
+    mockedApi.getQuizSession.mockResolvedValue(ACTIVE_SESSION);
+
+    await user.type(screen.getByLabelText(/your answer/i), 'my approach');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+
+    expect(mockedApi.answerQuiz).toHaveBeenCalledWith('my approach', 'lc-1');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not graded/i);
+    expect(
+      await screen.findByText('Find two numbers that sum to a target.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('A wrapped question about arrays.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('renders model text as plain text (XSS-safe via JSX, no HTML injection)', async () => {
     const user = userEvent.setup();
     const payload = '<img src=x onerror="alert(1)">';

@@ -539,11 +539,19 @@ export function newQuiz(): Promise<QuizStartResult> {
  * POST /api/quiz/answer — submit the user's typed approach for the current
  * question. Resolves with the verdict, model feedback, optional optimal nudge,
  * and either the next question or a completion marker. Throws
- * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 502
- * provider/verdict failure) — the caller preserves the transcript.
+ * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 409
+ * the shown card changed — e.g. it was deleted — so the answer was not graded,
+ * 502 provider/verdict failure) — the caller preserves the transcript.
+ * `problemId` names the card the user was shown.
  */
-export function answerQuiz(answer: string): Promise<QuizAnswerResult> {
-  return postJson<QuizAnswerResult>('/api/quiz/answer', { answer });
+export function answerQuiz(
+  answer: string,
+  problemId?: string,
+): Promise<QuizAnswerResult> {
+  return postJson<QuizAnswerResult>('/api/quiz/answer', {
+    answer,
+    ...(problemId !== undefined && { problemId }),
+  });
 }
 
 // ---------------------------------------------------------------------------

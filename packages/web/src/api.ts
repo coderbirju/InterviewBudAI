@@ -1234,6 +1234,12 @@ export async function handleApiRoute(
         return json(400, { error: 'answer must be a non-empty string' });
       }
       const answer = rawAnswer.trim();
+      // Optional: the card the client was showing. Lets a client that already
+      // saw the skipped-to card (GET /api/quiz/session) answer it directly.
+      const rawProblemId = (parsed as Record<string, unknown>).problemId;
+      if (rawProblemId !== undefined && typeof rawProblemId !== 'string') {
+        return json(400, { error: 'problemId must be a string' });
+      }
 
       const stored = await storage.readActiveQuizSession();
       if (!stored || stored.status !== 'active') {
@@ -1243,6 +1249,47 @@ export async function handleApiRoute(
       // question — the same one GET /api/quiz/session presented. The repair is
       // only persisted together with this turn's write (fail-closed intact).
       const source = await loadProblemSource(deps.catalog, storage);
+      // The stored current card no longer resolves (a deleted custom problem,
+      // ADR 0010 D4), or the client names a different card: the typed answer
+      // was written for another card, so it is never graded against the
+      // current one. Persist any skip (with the next card's presentation
+      // turn) and report the change — no model call, no verdict, no note /
+      // competency writes. A client that names the skipped-to card (it saw it
+      // via GET /api/quiz/session) is graded normally.
+      const { session: skippedSession, skipped } = skipToResolvable(
+        stored,
+        (id) => source.getById(id) !== undefined,
+      );
+      const currentId = currentProblemId(skippedSession);
+      const changed =
+        rawProblemId !== undefined ? rawProblemId !== currentId : skipped > 0;
+      if (changed) {
+        const next = presentCurrent(deps, source, stored);
+        if (!next && skipped === 0) {
+          return json(404, { error: 'no current question' });
+        }
+        if (!next) {
+          const done: QuizSession = { ...skippedSession, status: 'complete' };
+          await storage.writeQuizSession(done);
+          return json(409, {
+            error: 'question changed',
+            skipped: true,
+            complete: true,
+            session: toQuizState(done),
+            question: null,
+          });
+        }
+        if (skipped > 0) {
+          await storage.writeQuizSession(next.session);
+        }
+        return json(409, {
+          error: 'question changed',
+          skipped: skipped > 0,
+          complete: false,
+          session: toQuizState(next.session),
+          question: next.question,
+        });
+      }
       const presented = presentCurrent(deps, source, stored);
       if (!presented) {
         return json(404, { error: 'no current question' });
