@@ -63,11 +63,10 @@ import type {
 import {
   isNoteStatus,
   resolveNoteStatus,
-  LocalFileStorageAdapter,
   deriveTopicStrength,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
-import { loadProblemSource } from './problems.js';
+import { createLocalStorage, loadProblemSource } from './problems.js';
 import type { ProblemSource, ProblemView } from './problems.js';
 import { handleProblemsRoute } from './problems-routes.js';
 import { canonicalTopicId, compareTopics, topicLabel } from '@ibai/curriculum';
@@ -393,7 +392,7 @@ function resolveActiveStorage(deps: ApiDeps): {
   }
   const storage = deps.createStorage
     ? deps.createStorage(dataDir)
-    : new LocalFileStorageAdapter(dataDir);
+    : createLocalStorage(dataDir);
   return { dataDir, storage };
 }
 

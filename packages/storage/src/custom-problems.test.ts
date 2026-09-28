@@ -176,6 +176,68 @@ describe('custom problem rules', () => {
   });
 });
 
+describe('LocalFileStorageAdapter intuition-note presence / delete', () => {
+  it('hasIntuitionNote sees any entry (even unparsable); deleteIntuitionNote removes it', async () => {
+    const id = 'u-noted-abc123';
+    expect(await adapter.hasIntuitionNote(id)).toBe(false);
+    await mkdir(join(dir, 'notes'), { recursive: true });
+    await writeFile(join(dir, 'notes', `${id}.md`), '');
+    expect(await adapter.readIntuitionNote(id)).toBeNull();
+    expect(await adapter.hasIntuitionNote(id)).toBe(true);
+    await adapter.deleteIntuitionNote(id);
+    expect(await adapter.hasIntuitionNote(id)).toBe(false);
+    await adapter.deleteIntuitionNote(id); // missing → no-op
+  });
+
+  it('deletes a symlinked note as a link, never its target; traversal ids stay in notes/', async () => {
+    const target = join(dir, 'outside.txt');
+    await writeFile(target, 'keep');
+    await mkdir(join(dir, 'notes'), { recursive: true });
+    await symlink(target, join(dir, 'notes', 'u-link-abc123.md'));
+    expect(await adapter.hasIntuitionNote('u-link-abc123')).toBe(true);
+    await adapter.deleteIntuitionNote('u-link-abc123');
+    expect(await readFile(target, 'utf-8')).toBe('keep');
+    expect(await readdir(join(dir, 'notes'))).toEqual([]);
+
+    await adapter.deleteIntuitionNote('../outside');
+    await adapter.deleteIntuitionNote('../../outside.txt');
+    expect(await readFile(target, 'utf-8')).toBe('keep');
+    expect(await adapter.hasIntuitionNote('../outside')).toBe(false);
+  });
+});
+
+describe('LocalFileStorageAdapter customTopic option', () => {
+  it('filters topics with the injected rule BEFORE the 1–3 count, on read and write', async () => {
+    const known = new Set(['arrays', 'heap', 'graphs', 'trees']);
+    const scoped = new LocalFileStorageAdapter(dir, {
+      customTopic: (t) => (known.has(t) ? (t as never) : null),
+    });
+    const p = problem({
+      topics: ['arrays', 'bogus', 'heap', 'graphs'] as never,
+    });
+    await writeRaw(`${p.id}.json`, p);
+    // Default rule: 4 slugs > 3 → skipped.
+    expect(await adapter.listCustomProblems()).toEqual([]);
+    // Injected rule: bogus dropped first → 3 → listed.
+    expect((await scoped.readCustomProblem(p.id))?.topics).toEqual([
+      'arrays',
+      'heap',
+      'graphs',
+    ]);
+    expect(await scoped.listCustomProblems()).toHaveLength(1);
+    await writeRaw(`${p.id}.json`, {
+      ...p,
+      topics: ['arrays', 'heap', 'graphs', 'trees'],
+    });
+    expect(await scoped.listCustomProblems()).toEqual([]);
+    await expect(
+      scoped.createCustomProblem(
+        problem({ id: 'u-x-abc123', topics: ['bogus'] as never }),
+      ),
+    ).rejects.toThrow(RangeError);
+  });
+});
+
 describe('LocalFileStorageAdapter custom problems', () => {
   it('round-trips create → read → list → write → delete', async () => {
     const p = problem();

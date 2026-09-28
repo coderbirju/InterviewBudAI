@@ -22,7 +22,11 @@ import type {
   CustomTopicMapper,
   StorageAdapter,
 } from '@ibai/storage';
-import { isCustomProblemId, parseCustomProblem } from '@ibai/storage';
+import {
+  LocalFileStorageAdapter,
+  isCustomProblemId,
+  parseCustomProblem,
+} from '@ibai/storage';
 
 /** A catalog problem or a custom one (`custom: true`, optional `url`). */
 export type ProblemView = Omit<Problem, 'url'> & {
@@ -48,6 +52,15 @@ export const curriculumTopic: CustomTopicMapper = (topic) => {
   const id = canonicalTopicId(topic);
   return id !== null && TOPIC_ORDER.includes(id) ? id : null;
 };
+
+/**
+ * The web's local storage adapter: custom-problem topics are filtered with
+ * the curriculum rule BEFORE the 1–3 count, so the stored list and the
+ * known-id check ({@link customProblemFileIsValid}) always agree.
+ */
+export function createLocalStorage(dir: string): LocalFileStorageAdapter {
+  return new LocalFileStorageAdapter(dir, { customTopic: curriculumTopic });
+}
 
 /**
  * A stored custom problem as a view, re-checked with the curriculum topic

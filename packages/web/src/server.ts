@@ -1,5 +1,5 @@
 import * as http from 'node:http';
-import { LocalFileStorageAdapter } from '@ibai/storage';
+import { createLocalStorage } from './problems.js';
 import { AnthropicProvider, OllamaProvider } from '@ibai/providers';
 import type { LlmProvider } from '@ibai/providers';
 import {
@@ -170,10 +170,10 @@ export async function startServer(
   const ollamaModel = resolveOllamaModel(env);
 
   // Storage adapter for the boot data dir (the handler requires one).
-  const storage = new LocalFileStorageAdapter(dataDir);
+  const storage = createLocalStorage(dataDir);
 
   // Storage factory for the server's CURRENT data dir (/setup can switch it).
-  const createStorage = (dir: string) => new LocalFileStorageAdapter(dir);
+  const createStorage = (dir: string) => createLocalStorage(dir);
 
   // Create provider: Anthropic if key+model, else Ollama if model, else undefined (NO demo fallback)
   let provider: LlmProvider | undefined;
