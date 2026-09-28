@@ -37,6 +37,23 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Custom problems in the app** (ADR 0010, PR 2): **Add problem** on Home
+  (and a **+** on each topic to pre-select it) opens a small form — title,
+  optional link, difficulty, 1–3 topics, optional plain-text statement; if it
+  already exists you get a link to open it instead (or **Add anyway** for a
+  similar title). Custom problems show a **Custom** badge (no link ⇒ plain
+  title). On a custom problem's Notes page you see its statement and can
+  **Edit** or **Delete** it (deleting one with a note asks twice and backs up
+  your data folder first; Home then shows the backup path). **CSV import:**
+  rows that match no catalog problem can now be ticked **Add as custom
+  problem** (pick a difficulty and a topic) — the problem is created and the
+  row's note imported into it, after the usual pre-import backup; a failing
+  row is listed and the rest still import. The commit `previewHash` now also
+  covers unmatched rows (a preview from an older build must be re-run: `409`).
+  Additive — no migration. The quiz's "question changed" notice is now
+  neutral ("That question changed — your answer wasn't graded. Here's the
+  current one.").
+
 - **Custom problems API** (ADR 0010, PR 1 — the UI follows in PR 2): add your
   own problems (a book, an interview) with `POST /api/problems`, edit them
   with `PATCH /api/problems/:id`, delete them with `DELETE /api/problems/:id`
