@@ -6,16 +6,31 @@ import {
   Database,
   ExternalLink,
   Loader2,
+  Pencil,
   Save,
+  Trash2,
 } from 'lucide-react';
-import { ApiError, fetchCatalog, fetchNote, saveNote } from '../lib/api';
+import {
+  ApiError,
+  ProblemApiError,
+  deleteProblem,
+  fetchCatalog,
+  fetchNote,
+  saveNote,
+} from '../lib/api';
 import type {
   CatalogProblem,
   CatalogResponse,
   FullNote,
   NoteStatus,
+  WireDifficulty,
 } from '../lib/api';
+import { setFlash } from '../lib/flash';
 import { lastHomeHref, navigate } from '../lib/router';
+import { CustomBadge } from './CustomBadge';
+import { Modal } from './Modal';
+import { ProblemForm } from './ProblemForm';
+import type { TopicOption } from './ProblemForm';
 import { StatusControl } from './StatusControl';
 
 /**
@@ -29,7 +44,19 @@ import { StatusControl } from './StatusControl';
  *
  * All values render via JSX (auto-escaped) — no dangerouslySetInnerHTML. The
  * server stays the storage owner; this view only calls the same-origin M1 API.
+ *
+ * w2b (ADR 0010 D5): for a custom problem the header shows a "Custom" badge,
+ * its plain-text statement (escaped, line breaks kept) and Edit / Delete.
+ * Delete confirms first; if the problem has a note (409 `hasNote`) a second,
+ * explicit confirm deletes both (the server backs the folder up first), then
+ * Home shows a notice with the backup path.
  */
+
+/** The delete flow: closed, first confirm, or the note-too confirm. */
+type DeleteStep =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'confirm' }
+  | { readonly kind: 'confirm-note' };
 
 /** Top-level load outcome for the page. */
 type LoadState =
@@ -88,6 +115,13 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
   const [spaceComplexity, setSpaceComplexity] = useState('');
 
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<DeleteStep>({
+    kind: 'closed',
+  });
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +152,7 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
           if (cancelled) {
             return;
           }
+          setCatalog(catalog);
           setProblem(findProblem(catalog, problemId));
         } catch {
           // Leave `problem` null; the page shows the id as the title.
@@ -171,6 +206,67 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
   const title = useMemo(
     () => problem?.title ?? problemId,
     [problem, problemId],
+  );
+
+  const topicOptions: readonly TopicOption[] = useMemo(
+    () =>
+      catalog?.topics.map((t) => ({
+        id: t.topic,
+        label: t.label ?? t.topic,
+      })) ?? [],
+    [catalog],
+  );
+  const problemTopics = useMemo(
+    () =>
+      catalog?.topics
+        .filter((t) => t.problems.some((p) => p.id === problemId))
+        .map((t) => t.topic) ?? [],
+    [catalog, problemId],
+  );
+
+  /** Reload the catalog after an edit (title/url/statement/topics). */
+  const refreshProblem = useCallback(async (): Promise<void> => {
+    try {
+      const next = await fetchCatalog();
+      setCatalog(next);
+      setProblem(findProblem(next, problemId));
+    } catch {
+      // Keep the current header; a reload will pick the edit up.
+    }
+  }, [problemId]);
+
+  const closeDelete = useCallback((): void => {
+    setDeleteStep({ kind: 'closed' });
+    setDeleteError(null);
+  }, []);
+
+  const onDelete = useCallback(
+    async (deleteNote: boolean): Promise<void> => {
+      setDeleteBusy(true);
+      setDeleteError(null);
+      try {
+        const result = await deleteProblem(problemId, { deleteNote });
+        setFlash(
+          result.noteDeleted && result.backup
+            ? `Deleted “${title}” and its note. A backup was saved at ${result.backup}.`
+            : `Deleted “${title}”.`,
+        );
+        navigate(lastHomeHref());
+      } catch (err) {
+        if (err instanceof ProblemApiError && err.hasNote && !deleteNote) {
+          setDeleteStep({ kind: 'confirm-note' });
+        } else {
+          setDeleteError(
+            err instanceof ApiError
+              ? err.message
+              : 'Could not reach the local API. Please try again.',
+          );
+        }
+      } finally {
+        setDeleteBusy(false);
+      }
+    },
+    [problemId, title],
   );
 
   if (load.kind === 'loading') {
@@ -268,7 +364,7 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
   return (
     <PageShell>
       {/* Problem title (links out to LeetCode when we know the url). */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {problem?.url ? (
           <a
             href={problem.url}
@@ -284,7 +380,120 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
             {title}
           </h1>
         )}
+        {problem?.custom && <CustomBadge />}
+        {problem?.custom && (
+          <span className="ml-auto flex gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-emerald-500 hover:text-emerald-400"
+            >
+              <Pencil className="h-4 w-4" aria-hidden />
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeleteStep({ kind: 'confirm' })}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-status-blocked hover:text-status-blocked"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+              Delete
+            </button>
+          </span>
+        )}
       </div>
+
+      {problem?.custom && problem.statement && (
+        <section
+          aria-label="Problem statement"
+          className="mt-4 rounded-md border border-slate-800 bg-slate-800/30 px-4 py-3"
+        >
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Problem statement
+          </h2>
+          {/* Plain text via JSX (escaped); line breaks kept by CSS. */}
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-200">
+            {problem.statement}
+          </p>
+        </section>
+      )}
+
+      {editing && problem && (
+        <ProblemForm
+          mode="edit"
+          problemId={problemId}
+          topics={topicOptions}
+          initial={{
+            title: problem.title,
+            url: problem.url ?? '',
+            statement: problem.statement ?? '',
+            difficulty: problem.difficulty.toLowerCase() as WireDifficulty,
+            topics: problemTopics,
+          }}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            void refreshProblem();
+          }}
+        />
+      )}
+
+      {deleteStep.kind !== 'closed' && (
+        <Modal
+          role="alertdialog"
+          title={
+            deleteStep.kind === 'confirm'
+              ? 'Delete this problem?'
+              : 'This problem has a note'
+          }
+          onClose={closeDelete}
+        >
+          <p className="text-sm text-slate-300">
+            {deleteStep.kind === 'confirm' ? (
+              <>
+                “{title}” will be removed from your problem list. Quiz history
+                is kept.
+              </>
+            ) : (
+              <>
+                Deleting “{title}” also deletes your note for it. A backup of
+                your data folder is made first.
+              </>
+            )}
+          </p>
+          {deleteError && (
+            <p
+              role="alert"
+              className="mt-3 flex items-center gap-1.5 text-sm text-status-blocked"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+              {deleteError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeDelete}
+              className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition-all duration-200 hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={deleteBusy}
+              onClick={() => void onDelete(deleteStep.kind === 'confirm-note')}
+              className="inline-flex items-center gap-2 rounded-md bg-status-blocked px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleteBusy && (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              )}
+              {deleteStep.kind === 'confirm'
+                ? 'Delete problem'
+                : 'Delete the problem AND its note (a backup is made first)'}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       <form
         className="mt-6 space-y-6"

@@ -134,7 +134,7 @@ function guidanceWithDone(done: number) {
 }
 
 async function setDone(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
+  await user.click(screen.getByRole('button', { name: /^Arrays & Hashing/ }));
   await user.click(
     screen.getByRole('button', { name: /Status: Not started/i }),
   );
