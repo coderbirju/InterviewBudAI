@@ -919,12 +919,11 @@ describe('PATCH / DELETE over a real socket', () => {
     urlPath: string,
     headers: Record<string, string>,
     body?: string,
-    streamed = false,
   ): Promise<{ status: number; body: string }> {
     // Like a browser `fetch`, frame the body with Content-Length (Node does
-    // not chunk DELETE bodies by default); `streamed` sends it chunked.
+    // not chunk DELETE bodies by default). Streamed uploads use `rawStream`.
     const framed =
-      body !== undefined && !streamed
+      body !== undefined
         ? { ...headers, 'content-length': String(Buffer.byteLength(body)) }
         : headers;
     return new Promise((resolve, reject) => {
@@ -954,6 +953,45 @@ describe('PATCH / DELETE over a real socket', () => {
       socket.on('error', () => undefined);
       socket.on('close', () => resolve(Buffer.concat(chunks).toString('utf8')));
       socket.write(head);
+    });
+  }
+
+  /**
+   * Stream `body` chunked over a raw socket and return the response head.
+   * The server answers 413 and destroys the socket while the upload is still
+   * in flight, so write errors (EPIPE / ECONNRESET) are expected and ignored:
+   * only the bytes received decide the result. Writing stops as soon as any
+   * response bytes arrive.
+   */
+  function rawStream(
+    port: number,
+    head: string,
+    body: string,
+  ): Promise<string> {
+    return new Promise((resolve) => {
+      const socket = net.connect(port, '127.0.0.1');
+      const chunks: Buffer[] = [];
+      let answered = false;
+      socket.on('data', (c: Buffer) => {
+        answered = true;
+        chunks.push(c);
+      });
+      socket.on('error', () => undefined);
+      socket.on('close', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      const payload = Buffer.from(body, 'utf8');
+      const step = 64 * 1024;
+      const writeFrom = (offset: number): void => {
+        if (answered || socket.destroyed) return;
+        if (offset >= payload.length) {
+          socket.write('0\r\n\r\n');
+          return;
+        }
+        const part = payload.subarray(offset, offset + step);
+        socket.write(`${part.length.toString(16)}\r\n`);
+        socket.write(part);
+        socket.write('\r\n', () => writeFrom(offset + step));
+      };
+      socket.write(head, () => writeFrom(0));
     });
   }
 
@@ -1041,15 +1079,15 @@ describe('PATCH / DELETE over a real socket', () => {
         expect(response.startsWith('HTTP/1.1 413')).toBe(true);
       }
       // Streamed over the cap (chunked, no Content-Length) → 413.
-      const big = await request(
-        port,
-        'PATCH',
-        url,
-        good,
-        JSON.stringify({ title: 'x'.repeat(MAX_BODY_BYTES) }),
-        true,
-      );
-      expect(big.status).toBe(413);
+      for (const method of ['PATCH', 'DELETE']) {
+        const big = await rawStream(
+          port,
+          `${method} ${url} HTTP/1.1\r\nHost: ${host}\r\nOrigin: http://${host}\r\n` +
+            `Content-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n`,
+          JSON.stringify({ title: 'x'.repeat(MAX_BODY_BYTES) }),
+        );
+        expect(big.startsWith('HTTP/1.1 413')).toBe(true);
+      }
 
       const stored = () =>
         new LocalFileStorageAdapter(dir).readCustomProblem(id);

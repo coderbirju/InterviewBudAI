@@ -75,10 +75,10 @@ export function formatStartupBanner(input: {
   ];
 }
 
-/** Server timeouts: whole request, headers, idle keep-alive (ms). */
 /** Methods whose request body is read (capped at `MAX_BODY_BYTES`). */
 const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PATCH', 'DELETE']);
 
+/** Server timeouts: whole request, headers, idle keep-alive (ms). */
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const HEADERS_TIMEOUT_MS = 10_000;
 export const KEEP_ALIVE_TIMEOUT_MS = 5_000;
