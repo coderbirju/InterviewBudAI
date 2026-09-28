@@ -29,7 +29,7 @@ import { CatalogFilterBar } from './CatalogFilterBar';
 import { GuidanceCard } from './GuidanceCard';
 import { ProblemForm } from './ProblemForm';
 import type { TopicOption } from './ProblemForm';
-import { takeFlash } from '../lib/flash';
+import { clearFlash, peekFlash } from '../lib/flash';
 import {
   EMPTY_FILTER,
   filterCatalog,
@@ -161,9 +161,10 @@ export function Home(): JSX.Element {
     readonly text: string;
     readonly problemId?: string;
   } | null>(() => {
-    const flash = takeFlash();
+    const flash = peekFlash();
     return flash === null ? null : { text: flash };
   });
+  useEffect(() => clearFlash(), []);
 
   // Latest filter, read by the popstate listener without re-subscribing.
   const filterRef = useRef(filter);
