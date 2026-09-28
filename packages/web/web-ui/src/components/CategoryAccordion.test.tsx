@@ -81,4 +81,31 @@ describe('CategoryAccordion', () => {
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
+
+  it('renders a custom problem without a url as plain text (no anchor)', async () => {
+    const user = userEvent.setup();
+    render(
+      <CategoryAccordion
+        topic={{
+          ...topic,
+          problems: [
+            {
+              id: 'u-book-abc123',
+              title: 'Book problem',
+              difficulty: 'Medium',
+              status: 'none',
+              completed: false,
+            },
+          ],
+        }}
+        busyIds={new Set()}
+        onStatusChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
+    expect(screen.getByText('Book problem')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Book problem' }),
+    ).not.toBeInTheDocument();
+  });
 });

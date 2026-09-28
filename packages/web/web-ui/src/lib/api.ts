@@ -49,7 +49,8 @@ export interface StatusCounts {
 export interface CatalogProblem {
   readonly id: string;
   readonly title: string;
-  readonly url: string;
+  /** Absent for a custom problem without a link (ADR 0010): show plain text. */
+  readonly url?: string;
   readonly difficulty: Difficulty;
   readonly status: NoteStatus;
   readonly completed: boolean;
@@ -269,7 +270,8 @@ export interface GuidanceNextUp {
   readonly kind: NextUpKind;
   readonly problemId: string;
   readonly title: string;
-  readonly url: string;
+  /** Absent for a custom problem without a link (ADR 0010): show plain text. */
+  readonly url?: string;
   /** Display-cased at the client boundary (see {@link normalizeDifficulty}). */
   readonly difficulty: Difficulty;
   /** Topic the item came from; `null` when unknown (e.g. a revisit off-catalog). */
