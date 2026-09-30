@@ -3,7 +3,8 @@
 InterviewBudAI (pronounced "Interview Buddy") is an open-source, local-first,
 AI-assisted interview-prep coach. It tracks what you have practised, quizzes you
 on it, and builds a personal competency map that stays on your machine. Bring
-your own LLM (Anthropic or local Ollama today).
+your own LLM (Anthropic, any OpenAI-compatible server such as Docker Model
+Runner, or local Ollama).
 
 The project ships a problem catalog as links + difficulty only — no answers.
 Your notes and progress live in your own local data directory, never in this repo.
@@ -13,7 +14,7 @@ Your notes and progress live in your own local data directory, never in this rep
 | Package | What it is |
 |---|---|
 | `packages/core` | Engine: assess / plan / coach. Depends on interfaces only. |
-| `packages/providers` | LLM provider interface + `AnthropicProvider`, `OllamaProvider`. |
+| `packages/providers` | LLM provider interface + `AnthropicProvider`, `OpenAICompatibleProvider`, `OllamaProvider`. |
 | `packages/storage` | Storage interface + `LocalFileStorageAdapter` (local files). |
 | `packages/curriculum` | Curated, read-only problem catalog (links + difficulty). |
 | `packages/cli` | `ibai` CLI: `assess`, `plan`, `coach` (frozen — the web app is the product). |
@@ -53,15 +54,29 @@ work without one. Copy `.env.example` to `.env` at the repo root and fill it in
 export ANTHROPIC_API_KEY=sk-ant-...        # or IBAI_ANTHROPIC_API_KEY
 export IBAI_ANTHROPIC_MODEL=<model-name>
 
+# or any OpenAI-compatible server, e.g. Docker Model Runner (local)
+export IBAI_OPENAI_BASE_URL=http://localhost:12434/engines/v1
+export IBAI_OPENAI_MODEL=<model-id>
+export IBAI_OPENAI_API_KEY=...             # optional; only if the server needs one
+
 # or Ollama (local)
 export IBAI_OLLAMA_MODEL=llama3
 export IBAI_OLLAMA_URL=http://127.0.0.1:11434   # optional
 ```
 
+**Precedence** (first match wins): Anthropic (key + model) → OpenAI-compatible
+(base URL + model) → Ollama (model) → none. With an OpenAI-compatible key the
+base URL must be `https` or loopback `http`; otherwise that provider is skipped
+and Settings shows a hint.
+
 | Variable | Purpose | Default |
 |---|---|---|
 | `ANTHROPIC_API_KEY` (or `IBAI_ANTHROPIC_API_KEY`) | Anthropic API key — never commit | — |
 | `IBAI_ANTHROPIC_MODEL` | Anthropic model name | — |
+| `IBAI_OPENAI_BASE_URL` | OpenAI-compatible base URL (ends in `/v1`, e.g. `http://localhost:12434/engines/v1` for Docker Model Runner) | — |
+| `IBAI_OPENAI_MODEL` | OpenAI-compatible model id | — |
+| `IBAI_OPENAI_API_KEY` (or `OPENAI_API_KEY`, used only for `https://api.openai.com`) | Optional OpenAI-compatible bearer key — never commit | — |
+| `IBAI_OPENAI_TIMEOUT_MS` | OpenAI-compatible request timeout (clamped 5 000–600 000) | `120000` |
 | `IBAI_OLLAMA_MODEL` | Ollama model name | — |
 | `IBAI_OLLAMA_URL` | Ollama endpoint | `http://127.0.0.1:11434` |
 | `IBAI_DATA_DIR` | Your private progress directory (not auto-created when you set it) | web: `~/.interviewbudai/data` (auto-created on first run) |

@@ -554,3 +554,31 @@ describe('AnthropicProvider', () => {
     });
   });
 });
+
+describe('AnthropicProvider — responseFormat (additive JSON hint)', () => {
+  it('ignores responseFormat (no vendor field sent)', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ content: [{ type: 'text', text: '{}' }] }),
+          { status: 200 },
+        ),
+    );
+    await new AnthropicProvider({
+      apiKey: 'test-key',
+      model: 'm',
+      fetchImpl,
+    }).complete({
+      messages: [{ role: 'user', content: 'x' }],
+      options: { responseFormat: 'json' },
+    });
+    const init = (
+      fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    )[1];
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: 'm',
+      messages: [{ role: 'user', content: 'x' }],
+      max_tokens: 1024,
+    });
+  });
+});

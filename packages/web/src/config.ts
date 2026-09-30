@@ -3,6 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  OPENAI_DEFAULT_TIMEOUT_MS,
+  normalizeOpenAIBaseUrl,
+  openAIKeyTransportAllowed,
+} from '@ibai/providers';
 
 /**
  * Resolve the data directory path.
@@ -265,28 +270,119 @@ export function prepareBootDataDir(
   return { ...base, created: true, exists: true };
 }
 
+/**
+ * `hint` on an ACTIVE provider explains an OpenAI-compatible config that is
+ * set but not used (ignored because Anthropic wins, or rejected); on `none`
+ * it explains why no provider is active.
+ */
 export type ProviderStatus =
-  | { readonly kind: 'anthropic'; readonly model: string }
-  | { readonly kind: 'ollama'; readonly model: string }
+  | {
+      readonly kind: 'anthropic';
+      readonly model: string;
+      readonly hint?: string;
+    }
+  | { readonly kind: 'openai'; readonly model: string }
+  | { readonly kind: 'ollama'; readonly model: string; readonly hint?: string }
   | { readonly kind: 'none'; readonly hint?: string };
 
+/** Hint when an OpenAI-compatible key would travel over plain HTTP. */
+export const OPENAI_INSECURE_KEY_HINT =
+  'IBAI_OPENAI_API_KEY is set but IBAI_OPENAI_BASE_URL is plain http to a non-loopback host; use https (or drop the key)';
+
+/** Hint when `IBAI_OPENAI_BASE_URL` carries credentials (URL never echoed). */
+export const OPENAI_USERINFO_HINT =
+  'IBAI_OPENAI_BASE_URL must not contain a username/password (use IBAI_OPENAI_API_KEY)';
+
+/** Hint when an OpenAI-compatible config is set but Anthropic wins (ADR 0011 D1). */
+export const OPENAI_IGNORED_HINT =
+  'IBAI_OPENAI_* is also set; ignored because Anthropic is configured';
+
+/** True when a (parseable) URL carries a username or password. */
+function hasUserinfo(raw: string): boolean {
+  try {
+    const url = new URL(raw.trim());
+    return url.username !== '' || url.password !== '';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Describe which provider the server will use, WITHOUT exposing secrets (the
- * API key is only checked for presence). Mirrors the selection order in
- * startServer: Anthropic (key + model) first, then Ollama (model).
+ * Why a fully set OpenAI-compatible config (base URL + model) is rejected, or
+ * undefined when it is usable: userinfo in the base URL, or a key that would
+ * travel over plain http to a non-loopback host (ADR 0011 D1 key-transport
+ * rule).
+ */
+function openAIRejection(
+  env: NodeJS.ProcessEnv,
+  baseUrl: string,
+): string | undefined {
+  if (hasUserinfo(baseUrl)) return OPENAI_USERINFO_HINT;
+  if (!openAIKeyTransportAllowed(baseUrl, Boolean(resolveOpenAIApiKey(env)))) {
+    return OPENAI_INSECURE_KEY_HINT;
+  }
+  return undefined;
+}
+
+/**
+ * Describe which provider the server will use, WITHOUT exposing secrets (API
+ * keys are only checked for presence). The ONE shared precedence (ADR 0011
+ * D1) used by startServer (`selectProvider`), `/api/config` and settings —
+ * first match wins:
+ *
+ *  1. Anthropic — an API key AND `IBAI_ANTHROPIC_MODEL`
+ *  2. OpenAI-compatible — `IBAI_OPENAI_BASE_URL` AND `IBAI_OPENAI_MODEL`
+ *     (key optional; with a key the URL must be https or loopback http; no
+ *     username/password in the URL)
+ *  3. Ollama — `IBAI_OLLAMA_MODEL`
+ *  4. none — with a hint when a config is half-set (or the key rule fails)
  */
 export function resolveProviderStatus(
   env: NodeJS.ProcessEnv = process.env,
 ): ProviderStatus {
   const hasKey = Boolean(resolveAnthropicApiKey(env));
   const anthropicModel = resolveAnthropicModel(env);
+  const openaiBaseUrl = resolveOpenAIBaseUrl(env);
+  const openaiModel = resolveOpenAIModel(env);
   const ollamaModel = resolveOllamaModel(env);
 
   if (hasKey && anthropicModel) {
-    return { kind: 'anthropic', model: anthropicModel };
+    return {
+      kind: 'anthropic',
+      model: anthropicModel,
+      ...((openaiBaseUrl || openaiModel) && { hint: OPENAI_IGNORED_HINT }),
+    };
+  }
+  const rejection =
+    openaiBaseUrl && openaiModel
+      ? openAIRejection(env, openaiBaseUrl)
+      : undefined;
+  if (openaiBaseUrl && openaiModel && rejection === undefined) {
+    return { kind: 'openai', model: openaiModel };
   }
   if (ollamaModel) {
-    return { kind: 'ollama', model: ollamaModel };
+    return {
+      kind: 'ollama',
+      model: ollamaModel,
+      ...(rejection !== undefined && {
+        hint: `${rejection}; using Ollama instead`,
+      }),
+    };
+  }
+  if (rejection !== undefined) {
+    return { kind: 'none', hint: rejection };
+  }
+  if (openaiBaseUrl) {
+    return {
+      kind: 'none',
+      hint: 'IBAI_OPENAI_BASE_URL is set but IBAI_OPENAI_MODEL is missing',
+    };
+  }
+  if (openaiModel) {
+    return {
+      kind: 'none',
+      hint: 'IBAI_OPENAI_MODEL is set but IBAI_OPENAI_BASE_URL is missing',
+    };
   }
   if (hasKey) {
     return {
@@ -301,6 +397,81 @@ export function resolveProviderStatus(
     };
   }
   return { kind: 'none' };
+}
+
+/** OpenAI-compatible base URL (`IBAI_OPENAI_BASE_URL`, trimmed); undefined if unset/blank. */
+export function resolveOpenAIBaseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return env.IBAI_OPENAI_BASE_URL?.trim() || undefined;
+}
+
+/** OpenAI-compatible model id (`IBAI_OPENAI_MODEL`, trimmed); undefined if unset/blank. */
+export function resolveOpenAIModel(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return env.IBAI_OPENAI_MODEL?.trim() || undefined;
+}
+
+/** The official OpenAI API host — the only one `OPENAI_API_KEY` is sent to. */
+export const OFFICIAL_OPENAI_HOST = 'api.openai.com';
+
+/**
+ * True when the NORMALIZED base URL is `https://api.openai.com…` (exact host,
+ * default port, no userinfo). Unparseable → false.
+ */
+export function isOfficialOpenAIBaseUrl(raw: string): boolean {
+  try {
+    const url = new URL(normalizeOpenAIBaseUrl(raw));
+    return (
+      url.protocol === 'https:' &&
+      url.host === OFFICIAL_OPENAI_HOST &&
+      url.username === '' &&
+      url.password === ''
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * OPTIONAL OpenAI-compatible bearer key. `IBAI_OPENAI_API_KEY` is the
+ * explicit opt-in and is used for any base URL. The ambient `OPENAI_API_KEY`
+ * is used ONLY when the base URL is `https://api.openai.com` — a shell-wide
+ * OpenAI key must never reach Docker Model Runner, LM Studio or any other
+ * server. A secret: only ever passed to the adapter or checked for presence —
+ * never logged or returned.
+ */
+export function resolveOpenAIApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env.IBAI_OPENAI_API_KEY) return env.IBAI_OPENAI_API_KEY;
+  const baseUrl = resolveOpenAIBaseUrl(env);
+  if (env.OPENAI_API_KEY && baseUrl && isOfficialOpenAIBaseUrl(baseUrl)) {
+    return env.OPENAI_API_KEY;
+  }
+  return undefined;
+}
+
+/** Bounds for `IBAI_OPENAI_TIMEOUT_MS` (ADR 0011 D1). */
+export const OPENAI_TIMEOUT_MIN_MS = 5_000;
+export const OPENAI_TIMEOUT_MAX_MS = 600_000;
+
+/**
+ * OpenAI-compatible request deadline: `IBAI_OPENAI_TIMEOUT_MS` (integer ms,
+ * clamped to 5 000–600 000); unset or not a number → the adapter default
+ * (120 000).
+ */
+export function resolveOpenAITimeoutMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env.IBAI_OPENAI_TIMEOUT_MS?.trim();
+  const n = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return OPENAI_DEFAULT_TIMEOUT_MS;
+  return Math.min(
+    OPENAI_TIMEOUT_MAX_MS,
+    Math.max(OPENAI_TIMEOUT_MIN_MS, Math.round(n)),
+  );
 }
 
 /**
