@@ -375,6 +375,10 @@ function describeStatus(
   if (status === 429) {
     return `${provider} is rate limiting or out of credit (HTTP 429)${suffix}.`;
   }
+  if (status === 503) {
+    // ADR 0011 D4 loading state: a local model may still be loading.
+    return `${provider} is starting or unavailable (HTTP 503)${suffix}. Try again in a moment.`;
+  }
   if (status >= 500) {
     return `${provider} had a server error (HTTP ${status})${suffix}. Try again later.`;
   }

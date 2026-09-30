@@ -46,6 +46,18 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Quiz: "The model isn't ready yet" state** (ADR 0011 PR C). When the
+  model is starting, loading or unreachable (connection refused, unknown
+  host, timeout, HTTP 503, or a "loading" error), the Interview page shows a
+  friendly state with a hint and a **Retry** button; your question and typed
+  answer are kept and nothing is graded or saved. With Docker Model Runner
+  the hint mentions the first-run download (~2.5 GB for the default model)
+  and how to enable Docker Model Runner. Settings → Test connection reports
+  HTTP 503 as "starting or unavailable — try again in a moment".
+- **Quiz: one retry on an unreadable verdict** (ADR 0011 PR C). If the model's
+  verdict cannot be parsed, the app asks once more with a short "reply with
+  only the JSON object" reminder; if that also fails, it fails closed as
+  before (no writes). Never more than 2 model calls per answer.
 - **Run with local AI: `docker compose up`** (ADR 0011 PR B). A `Dockerfile`
   and `compose.yaml` start the app plus a local model through Docker Model
   Runner (default `ai/qwen3:4b-instruct-2507-q4_K_M`, ~2.5 GB, change it in
@@ -160,6 +172,23 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Quiz prompts fit small local models** (ADR 0011 PR C). The Quiz Master
+  instructions are shorter (same rules: never reveal the answer, at most one
+  nudge, strict verdict JSON), the verdict is requested in JSON mode with at
+  most 512 reply tokens, and long text is capped with a visible marker: your
+  note at 4000 characters (its start is kept), a custom statement at 2000,
+  your answer at 2000 (start and end kept). The worst-case prompt is now
+  ~2650 estimated tokens (was ~840 fixed plus uncapped note/answer), so it
+  fits a 4096-token context. Your own note stays the main reference; no
+  answers are shipped.
+- **Quiz API: "model unavailable" is `503`** (was `502` with a "Could not
+  reach…" message): `POST /api/quiz/answer` answers `503 { error: "model
+  unavailable", code: "model_unavailable", detail, hint }`. Auth errors and
+  unreadable verdicts stay `502`.
+- **Docker data-folder banner wording** (#78 review). It now says "Your
+  `/setup` choice outside Docker is …" and notes that `npm start` ignores that
+  choice when `IBAI_DATA_DIR` is set, instead of claiming your non-Docker
+  setup uses it.
 - **Topics are regrouped into 13 and always listed in learning order**
   (Arrays, Binary Search, Sorting, Hashing, Linked List, Stack & Queue, Heap, Recursion, Backtracking, Trees, Graphs, Greedy, Dynamic
   Programming) with readable labels on Home and Analytics. `arrays-2d`,

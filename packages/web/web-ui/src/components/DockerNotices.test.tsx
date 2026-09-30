@@ -69,7 +69,7 @@ describe('under Docker (ADR 0011 D3)', () => {
     expect(
       await screen.findByRole('region', { name: 'Docker data folder' }),
     ).toHaveTextContent(
-      'Your non-Docker setup uses /Users/me/Desktop/testBuai. To use the same notes in Docker, set IBAI_HOST_DATA_DIR=/Users/me/Desktop/testBuai in .env and restart.',
+      'Your /setup choice outside Docker is /Users/me/Desktop/testBuai (saved in ~/.interviewbudai/config.json; npm start ignores it when IBAI_DATA_DIR is set). To use that folder in Docker, set IBAI_HOST_DATA_DIR=/Users/me/Desktop/testBuai in .env and restart.',
     );
     unmount();
 

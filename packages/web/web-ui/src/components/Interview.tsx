@@ -22,6 +22,7 @@ import {
   deleteQuizSession,
   endQuiz,
   getQuizSession,
+  isModelUnavailable,
   listQuizSessions,
   newQuiz,
   normalizeDifficulty,
@@ -115,6 +116,12 @@ export function Interview(): JSX.Element {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ADR 0011 D4: the model is starting / unreachable (503 model unavailable).
+  // Shown as a friendly state with Retry; the question and draft are kept.
+  const [unavailable, setUnavailable] = useState<{
+    readonly detail?: string;
+    readonly hint?: string;
+  } | null>(null);
 
   // Session management (quiz-fix-b): the list of past + active sessions shown
   // in the idle / complete states, plus per-row busy tracking for Resume/Delete.
@@ -210,6 +217,7 @@ export function Interview(): JSX.Element {
       }
       setBusy(true);
       setError(null);
+      setUnavailable(null);
       try {
         const result = await loader();
         if (result.empty) {
@@ -240,6 +248,7 @@ export function Interview(): JSX.Element {
     }
     setBusy(true);
     setError(null);
+    setUnavailable(null);
 
     try {
       const result: QuizAnswerResult = await answerQuiz(
@@ -308,6 +317,14 @@ export function Interview(): JSX.Element {
         }
         return;
       }
+      if (isModelUnavailable(err)) {
+        // Nothing was graded or written; keep the question + draft for Retry.
+        setUnavailable({
+          ...(err.extra.detail !== undefined && { detail: err.extra.detail }),
+          ...(err.extra.hint !== undefined && { hint: err.extra.hint }),
+        });
+        return;
+      }
       // Preserve the session + transcript; surface an inline message.
       setError(describeError(err));
     } finally {
@@ -326,6 +343,7 @@ export function Interview(): JSX.Element {
     }
     setBusy(true);
     setError(null);
+    setUnavailable(null);
     try {
       await endQuiz();
       // Reset per-session view state and return to idle + list.
@@ -354,6 +372,7 @@ export function Interview(): JSX.Element {
       }
       setRowBusyId(sessionId);
       setError(null);
+      setUnavailable(null);
       try {
         const result = await resumeQuiz(sessionId);
         setSession(result.session);
@@ -403,6 +422,7 @@ export function Interview(): JSX.Element {
       }
       setRowBusyId(sessionId);
       setError(null);
+      setUnavailable(null);
       // Optimistic removal for immediate feedback.
       setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
       try {
@@ -651,6 +671,16 @@ export function Interview(): JSX.Element {
       {/* Inline error (preserves the session/transcript). */}
       {error && <InlineError message={error} />}
 
+      {/* The model is starting / unavailable: friendly state + Retry. */}
+      {unavailable && !busy && (
+        <ModelUnavailable
+          detail={unavailable.detail}
+          hint={unavailable.hint}
+          canRetry={draft.trim().length > 0}
+          onRetry={() => void onSubmit()}
+        />
+      )}
+
       {/* Evaluating indicator. */}
       {busy && (
         <div
@@ -860,6 +890,53 @@ function TranscriptHistory({
         ))}
       </ol>
     </details>
+  );
+}
+
+/**
+ * The "model isn't ready yet" state (ADR 0011 D4): the model is starting,
+ * loading, or unreachable. Server text renders as JSX text (auto-escaped).
+ * Retry re-sends the same answer; nothing was graded or saved.
+ */
+function ModelUnavailable({
+  detail,
+  hint,
+  canRetry,
+  onRetry,
+}: {
+  readonly detail?: string;
+  readonly hint?: string;
+  readonly canRetry: boolean;
+  readonly onRetry: () => void;
+}): JSX.Element {
+  return (
+    <div
+      role="status"
+      aria-label="Model not ready"
+      className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-slate-200"
+    >
+      <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
+      <div className="space-y-2">
+        <p className="font-semibold">The model isn&apos;t ready yet</p>
+        <p className="text-sm text-slate-300">
+          {detail ??
+            'The model is starting or unavailable — try again in a moment.'}
+        </p>
+        {hint && <p className="text-sm text-slate-400">{hint}</p>}
+        <p className="text-sm text-slate-400">
+          Your answer was not graded and is still in the box below.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={!canRetry}
+          className="inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden />
+          Retry
+        </button>
+      </div>
+    </div>
   );
 }
 

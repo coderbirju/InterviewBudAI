@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleApiRoute } from './api.js';
+import {
+  DMR_UNAVAILABLE_HINT,
+  GENERIC_UNAVAILABLE_HINT,
+  MODEL_UNAVAILABLE_DETAIL,
+  handleApiRoute,
+  isModelUnavailableError,
+} from './api.js';
 import type { ApiDeps } from './api.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
@@ -12,7 +18,11 @@ import type {
   CompletionRequest,
   CompletionResponse,
 } from '@ibai/providers';
-import { seededRandom } from './quiz.js';
+import {
+  QUIZ_VERDICT_MAX_TOKENS,
+  VERDICT_RETRY_REMINDER,
+  seededRandom,
+} from './quiz.js';
 
 let tmpDir: string;
 
@@ -367,6 +377,8 @@ describe('POST /api/quiz/answer', () => {
     );
     expect(res.status).toBe(502);
     expect(JSON.parse(res.body)).toHaveProperty('error');
+    // One retry, then fail closed (ADR 0011 D4): exactly 2 model calls.
+    expect(provider.evalCalls).toBe(2);
 
     const adapter = new LocalFileStorageAdapter(tmpDir);
     // No outcome recorded — session still at index 0, no answers.
@@ -380,7 +392,126 @@ describe('POST /api/quiz/answer', () => {
     expect(signals.patterns).toHaveLength(0);
   });
 
-  it('provider connection error → 502, no writes', async () => {
+  describe('JSON mode + one retry on a malformed verdict (ADR 0011 D4)', () => {
+    /** Returns queued contents in order and records every request. */
+    class RecordingProvider implements LlmProvider {
+      readonly requests: CompletionRequest[] = [];
+      constructor(private readonly replies: (string | Error)[]) {}
+      async complete(request: CompletionRequest): Promise<CompletionResponse> {
+        this.requests.push(request);
+        const next = this.replies.shift() ?? 'still not json';
+        if (next instanceof Error) throw next;
+        return { content: next };
+      }
+    }
+    const VALID = '{"verdict":"incorrect","feedback":"off"}';
+
+    async function answerWith(provider: RecordingProvider) {
+      await seedDone(DONE_IDS);
+      const firstId = await start(provider);
+      const writes = vi.spyOn(
+        LocalFileStorageAdapter.prototype,
+        'writeQuizSession',
+      );
+      const res = await handleApiRoute(
+        'POST',
+        '/api/quiz/answer',
+        makeQuizDeps(provider),
+        JSON.stringify({ answer: 'my approach' }),
+      );
+      const sessionWrites = writes.mock.calls.length;
+      writes.mockRestore();
+      return { res, firstId, sessionWrites };
+    }
+
+    it('valid first → a single call, sent in JSON mode with a bounded reply', async () => {
+      const provider = new RecordingProvider([VALID]);
+      const { res, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(200);
+      expect(provider.requests).toHaveLength(1);
+      expect(provider.requests[0]?.options).toEqual({
+        responseFormat: 'json',
+        maxTokens: QUIZ_VERDICT_MAX_TOKENS,
+      });
+      expect(sessionWrites).toBe(1);
+    });
+
+    it('malformed → valid: succeeds after one retry with the reminder, one write', async () => {
+      const provider = new RecordingProvider(['Sure! The verdict is…', VALID]);
+      const { res, firstId, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(200);
+      expect((JSON.parse(res.body) as { verdict: string }).verdict).toBe(
+        'incorrect',
+      );
+      expect(provider.requests).toHaveLength(2);
+      const [first, retry] = provider.requests;
+      // Same request plus the terse reminder on the last user message.
+      expect(retry?.options).toEqual(first?.options);
+      expect(retry?.messages).toHaveLength(first!.messages.length);
+      expect(retry?.messages.at(-1)?.content).toBe(
+        `${first!.messages.at(-1)!.content}\n\n${VERDICT_RETRY_REMINDER}`,
+      );
+      expect(sessionWrites).toBe(1);
+      const adapter = new LocalFileStorageAdapter(tmpDir);
+      const active = await adapter.readActiveQuizSession();
+      expect(active?.answered).toHaveLength(1);
+      expect((await adapter.readIntuitionNote(firstId))?.status).toBe(
+        'to_revisit',
+      );
+    });
+
+    it('malformed → malformed: 502, exactly 2 calls, no writes', async () => {
+      const provider = new RecordingProvider([
+        'nope',
+        '{"verdict":"maybe","feedback":"x"}',
+        VALID,
+      ]);
+      const { res, firstId, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(502);
+      expect(provider.requests).toHaveLength(2);
+      expect(sessionWrites).toBe(0);
+      const adapter = new LocalFileStorageAdapter(tmpDir);
+      expect((await adapter.readActiveQuizSession())?.answered).toHaveLength(0);
+      expect((await adapter.readIntuitionNote(firstId))?.status).toBe('done');
+      expect((await adapter.readCompetencySignals()).patterns).toHaveLength(0);
+    });
+    const EMPTY = () =>
+      new Error(
+        'OpenAI-compatible server returned an empty response (no content)',
+      );
+
+    it('empty completion → valid: the empty reply is retried like a malformed verdict', async () => {
+      const provider = new RecordingProvider([EMPTY(), VALID]);
+      const { res, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(200);
+      expect(provider.requests).toHaveLength(2);
+      expect(provider.requests[1]?.messages.at(-1)?.content).toContain(
+        VERDICT_RETRY_REMINDER,
+      );
+      expect(sessionWrites).toBe(1);
+    });
+
+    it('empty → empty: 502, exactly 2 calls, no writes', async () => {
+      const provider = new RecordingProvider([EMPTY(), EMPTY(), VALID]);
+      const { res, firstId, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(502);
+      expect(provider.requests).toHaveLength(2);
+      expect(sessionWrites).toBe(0);
+      const adapter = new LocalFileStorageAdapter(tmpDir);
+      expect((await adapter.readActiveQuizSession())?.answered).toHaveLength(0);
+      expect((await adapter.readIntuitionNote(firstId))?.status).toBe('done');
+      expect((await adapter.readCompetencySignals()).patterns).toHaveLength(0);
+    });
+
+    it('empty content string → valid: also retried once', async () => {
+      const provider = new RecordingProvider(['', VALID]);
+      const { res } = await answerWith(provider);
+      expect(res.status).toBe(200);
+      expect(provider.requests).toHaveLength(2);
+    });
+  });
+
+  it('provider connection error → 503 model unavailable, one call, no writes', async () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider({
       rejectWith: new Error('connect ECONNREFUSED 127.0.0.1:11434'),
@@ -393,10 +524,68 @@ describe('POST /api/quiz/answer', () => {
       deps,
       JSON.stringify({ answer: 'x' }),
     );
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'model unavailable',
+      code: 'model_unavailable',
+      detail: MODEL_UNAVAILABLE_DETAIL,
+      hint: GENERIC_UNAVAILABLE_HINT,
+    });
+    // A transport error is never retried by the quiz route.
+    expect(provider.calls).toBe(1);
     const adapter = new LocalFileStorageAdapter(tmpDir);
     const active = await adapter.readActiveQuizSession();
     expect(active?.answered).toHaveLength(0);
+    expect(active?.transcript).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      'timeout',
+      new Error('OpenAI-compatible server at http://x timed out after 120 s'),
+    ],
+    ['HTTP 503', new Error('OpenAI-compatible server returned HTTP 503: busy')],
+    [
+      'DMR loading',
+      new Error('OpenAI-compatible server returned HTTP 500: model is loading'),
+    ],
+    ['AbortError', Object.assign(new Error('aborted'), { name: 'AbortError' })],
+    [
+      'unknown host',
+      new Error(
+        'fetch failed: getaddrinfo ENOTFOUND model-runner.docker.internal',
+      ),
+    ],
+  ])('%s → 503 model unavailable, no writes', async (_label, rejectWith) => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider({ rejectWith });
+    const deps = makeQuizDeps(provider);
+    await start(provider);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'x' }),
+    );
+    expect(res.status).toBe(503);
+    expect((JSON.parse(res.body) as { error: string }).error).toBe(
+      'model unavailable',
+    );
+    expect(provider.calls).toBe(1);
+    const active = await new LocalFileStorageAdapter(
+      tmpDir,
+    ).readActiveQuizSession();
+    expect(active?.answered).toHaveLength(0);
+  });
+
+  it('classifier: other errors are not "model unavailable"', () => {
+    expect(isModelUnavailableError(new Error('returned HTTP 500: boom'))).toBe(
+      false,
+    );
+    expect(isModelUnavailableError(new Error('HTTP 401 unauthorized'))).toBe(
+      false,
+    );
+    expect(isModelUnavailableError('ECONNREFUSED')).toBe(false);
   });
 
   it('connection error with Docker Model Runner → DMR hint (ADR 0011 D4)', async () => {
@@ -421,9 +610,13 @@ describe('POST /api/quiz/answer', () => {
       deps,
       JSON.stringify({ answer: 'x' }),
     );
-    expect(res.status).toBe(502);
-    expect((JSON.parse(res.body) as { error: string }).error).toBe(
-      'Could not reach Docker Model Runner. Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. Docker Engine: install the docker-model-plugin package (check with `docker model status`).',
+    expect(res.status).toBe(503);
+    const body = JSON.parse(res.body) as { error: string; hint: string };
+    expect(body.error).toBe('model unavailable');
+    expect(body.hint).toBe(DMR_UNAVAILABLE_HINT);
+    expect(body.hint).toContain('about 2.5 GB');
+    expect(body.hint).toContain(
+      'Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. Docker Engine: install the docker-model-plugin package (check with `docker model status`).',
     );
   });
 
@@ -448,10 +641,11 @@ describe('POST /api/quiz/answer', () => {
       deps,
       JSON.stringify({ answer: 'x' }),
     );
-    expect(res.status).toBe(502);
-    expect((JSON.parse(res.body) as { error: string }).error).not.toContain(
-      'Settings → AI',
+    expect(res.status).toBe(503);
+    expect((JSON.parse(res.body) as { hint: string }).hint).toBe(
+      GENERIC_UNAVAILABLE_HINT,
     );
+    expect(res.body).not.toContain('Settings → AI');
   });
 
   it('missing/empty answer → 400', async () => {
@@ -613,6 +807,49 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
     // Note flipped to to_revisit (terminal incorrect behavior).
     const note = await adapter.readIntuitionNote(firstId);
     expect(note?.status).toBe('to_revisit');
+  });
+
+  it('a second on_track that arrives on the malformed-verdict RETRY is still coerced to incorrect', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new SequencedQuizProvider([
+      ON_TRACK,
+      'not json at all',
+      ON_TRACK,
+    ]);
+    const deps = makeQuizDeps(provider);
+    await startWith(deps);
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const firstId = (await adapter.readActiveQuizSession())?.deck[0] as string;
+
+    const first = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'partial 1' }),
+    );
+    expect(JSON.parse(first.body).verdict).toBe('on_track');
+
+    // Malformed first reply, then on_track on the retry → coerced.
+    const second = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'partial 2' }),
+    );
+    expect(provider.evalCalls).toBe(3);
+    expect(second.status).toBe(200);
+    const body = JSON.parse(second.body) as {
+      verdict: string;
+      terminal: boolean;
+      session: { index: number; answered: number };
+    };
+    expect(body.verdict).toBe('incorrect');
+    expect(body.terminal).toBe(true);
+    expect(body.session.index).toBe(1);
+    expect(body.session.answered).toBe(1);
+    expect((await adapter.readIntuitionNote(firstId))?.status).toBe(
+      'to_revisit',
+    );
   });
 
   it('correct after one nudge → terminal correct + advance (note stays done)', async () => {

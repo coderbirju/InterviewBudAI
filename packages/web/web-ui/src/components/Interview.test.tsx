@@ -353,6 +353,61 @@ describe('Quickfire Quiz Master', () => {
     ).toBeInTheDocument();
   });
 
+  it('model unavailable (503): friendly state with hint + Retry, keeps question and answer', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    mockedApi.answerQuiz
+      .mockRejectedValueOnce(
+        new api.ApiError('model unavailable', 503, {
+          code: 'model_unavailable',
+          detail:
+            'The model is starting or unavailable — try again in a moment.',
+          hint: 'The first run downloads the model (about 2.5 GB for the default). Is Docker Model Runner enabled?',
+        }),
+      )
+      .mockResolvedValueOnce({
+        verdict: 'correct',
+        feedback: 'Nice.',
+        terminal: true,
+        complete: false,
+        session: STATE({ index: 1, answered: 1 }),
+        question: { problemId: 'lc-2', wrapped: 'Next question.' },
+      } as QuizAnswerResult);
+
+    render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /start quiz/i }),
+    );
+    await screen.findByText('A wrapped question about arrays.');
+    await user.type(screen.getByLabelText(/your answer/i), 'my approach');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+
+    const state = await screen.findByRole('status', {
+      name: /model not ready/i,
+    });
+    expect(state).toHaveTextContent("The model isn't ready yet");
+    expect(state).toHaveTextContent(/starting or unavailable/);
+    expect(state).toHaveTextContent(/about 2\.5 GB/);
+    expect(state).toHaveTextContent(/Docker Model Runner enabled/);
+    // Not the generic error banner; question + draft preserved.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('A wrapped question about arrays.'),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/your answer/i)).toHaveValue('my approach');
+
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    expect(mockedApi.answerQuiz).toHaveBeenCalledTimes(2);
+    expect(mockedApi.answerQuiz).toHaveBeenLastCalledWith(
+      'my approach',
+      'lc-1',
+    );
+    expect(await screen.findByText('Next question.')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: /model not ready/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it('on a 409 (shown card deleted) sends problemId, shows the next card and a not-graded notice', async () => {
     const user = userEvent.setup();
     mockedApi.startQuiz.mockResolvedValue(START_OK);
