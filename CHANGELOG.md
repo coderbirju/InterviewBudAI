@@ -37,6 +37,18 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **OpenAI-compatible provider — run the Quiz Master on Docker Model Runner**
+  (ADR 0011 PR A). Set `IBAI_OPENAI_BASE_URL` (e.g.
+  `http://localhost:12434/engines/v1`) and `IBAI_OPENAI_MODEL`; an
+  `IBAI_OPENAI_API_KEY` (or `OPENAI_API_KEY`) is optional and only sent over
+  `https` or loopback `http`. Also works with llama.cpp, vLLM, LM Studio,
+  Ollama's `/v1` and hosted OpenAI-style APIs. Precedence: Anthropic →
+  OpenAI-compatible → Ollama. Timeout `IBAI_OPENAI_TIMEOUT_MS` (default
+  120 s). **Settings** shows "Docker Model Runner (local)" for a DMR host,
+  and **Test connection** checks that the server lists your model. The
+  provider interface gains an optional `responseFormat: 'json'` hint
+  (additive; Ollama maps it to `format: 'json'`, Anthropic ignores it).
+
 - **Custom problems in the app** (ADR 0010, PR 2): **Add problem** on Home
   (and a **+** on each topic to pre-select it) opens a small form — title,
   optional link, difficulty, 1–3 topics, optional plain-text statement; if it
