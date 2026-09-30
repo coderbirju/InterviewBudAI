@@ -11,6 +11,11 @@ import * as path from 'node:path';
 import { createCatalogSource } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
 import { createCoachHandler } from './handler.js';
+import {
+  OPENAI_IGNORED_HINT,
+  OPENAI_INSECURE_KEY_HINT,
+  OPENAI_USERINFO_HINT,
+} from './config.js';
 import type {
   CoachHandlerDeps,
   HandlerRequest,
@@ -18,7 +23,6 @@ import type {
 } from './handler.js';
 import {
   OLLAMA_USERINFO_DETAIL,
-  OPENAI_USERINFO_DETAIL,
   openAICompatibleLabel,
   TEST_TIMEOUT_MS,
   createProviderTester,
@@ -621,10 +625,10 @@ describe('GET /api/settings — openai', () => {
     assertNoSecrets(res);
   });
 
-  it('generic server: "OpenAI-compatible" label, userinfo/path/query stripped', async () => {
+  it('generic server: "OpenAI-compatible" label, path/query stripped', async () => {
     const { res, body } = await getSettings(
       makeHandler({
-        IBAI_OPENAI_BASE_URL: `https://u:${OAI_KEY}@llm.example.com/v1?k=${OAI_KEY}`,
+        IBAI_OPENAI_BASE_URL: `https://llm.example.com/v1?k=${OAI_KEY}`,
         IBAI_OPENAI_MODEL: 'gpt-x',
       }),
     );
@@ -643,11 +647,88 @@ describe('GET /api/settings — openai', () => {
       makeHandler({
         IBAI_OPENAI_BASE_URL: 'http://192.168.1.9:8000/v1',
         IBAI_OPENAI_MODEL: 'm',
-        OPENAI_API_KEY: OAI_KEY,
+        IBAI_OPENAI_API_KEY: OAI_KEY,
       }),
     );
     expect(body.provider.kind).toBe('none');
     expect(body.provider.hint).toMatch(/plain http/);
+    assertNoSecrets(res);
+  });
+
+  it.each([
+    ['DMR', 'http://localhost:12434/engines/v1'],
+    ['LM Studio', 'http://localhost:1234/v1'],
+    ['LAN vLLM', 'http://192.168.1.9:8000/v1'],
+    ['other https host', 'https://llm.example.com/v1'],
+    ['look-alike host', 'https://api.openai.com.evil.example/v1'],
+  ])('OPENAI_API_KEY + %s → not used (keyConfigured false)', async (_, url) => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        IBAI_OPENAI_BASE_URL: url,
+        IBAI_OPENAI_MODEL: 'm',
+        OPENAI_API_KEY: OAI_KEY,
+      }),
+    );
+    expect(body.provider.kind).toBe('openai');
+    expect(body.provider.keyConfigured).toBe(false);
+    assertNoSecrets(res);
+  });
+
+  it('OPENAI_API_KEY + https://api.openai.com → used (keyConfigured true)', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        IBAI_OPENAI_BASE_URL: 'https://api.openai.com/v1/',
+        IBAI_OPENAI_MODEL: 'gpt-x',
+        OPENAI_API_KEY: OAI_KEY,
+      }),
+    );
+    expect(body.provider).toMatchObject({
+      kind: 'openai',
+      keyConfigured: true,
+      label: 'OpenAI-compatible',
+    });
+    assertNoSecrets(res);
+  });
+
+  it('base URL with userinfo → none with a hint (URL never echoed)', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        IBAI_OPENAI_BASE_URL: `https://u:${OAI_KEY}@llm.example.com/v1`,
+        IBAI_OPENAI_MODEL: 'gpt-x',
+      }),
+    );
+    expect(body.provider).toEqual({
+      kind: 'none',
+      model: null,
+      endpoint: null,
+      keyConfigured: false,
+      hint: OPENAI_USERINFO_HINT,
+    });
+    assertNoSecrets(res);
+  });
+
+  it('Anthropic + OpenAI config → anthropic, with an "ignored" hint', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({ ...ANTHROPIC_ENV, ...DMR_ENV }),
+    );
+    expect(body.provider.kind).toBe('anthropic');
+    expect(body.provider.hint).toBe(OPENAI_IGNORED_HINT);
+    assertNoSecrets(res);
+  });
+
+  it('rejected OpenAI config + Ollama → ollama, with a hint', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        ...OLLAMA_ENV,
+        IBAI_OPENAI_BASE_URL: 'http://192.168.1.9:8000/v1',
+        IBAI_OPENAI_MODEL: 'm',
+        IBAI_OPENAI_API_KEY: OAI_KEY,
+      }),
+    );
+    expect(body.provider.kind).toBe('ollama');
+    expect(body.provider.hint).toBe(
+      `${OPENAI_INSECURE_KEY_HINT}; using Ollama instead`,
+    );
     assertNoSecrets(res);
   });
 });
@@ -660,6 +741,12 @@ describe('openAICompatibleLabel (ADR 0011 D5)', () => {
     ['http://127.0.0.1:12434/engines/v1', true],
     ['http://[::1]:12434/engines/v1', true],
     ['http://172.17.0.1:12434/engines/v1', true],
+    // Judged on the NORMALIZED URL (ADR 0011 D5).
+    ['http://localhost:12434/engines', true],
+    ['http://localhost:12434/engines/llama.cpp', true],
+    ['http://localhost:12434', true],
+    ['http://172.17.0.1:12434/', true],
+    ['http://model-runner.docker.internal', true],
     ['http://localhost:12434/v1', false],
     ['http://localhost:1234/v1', false],
     ['http://10.0.0.5:12434/engines/v1', false],
@@ -803,7 +890,7 @@ describe('POST /api/settings/test-provider — openai', () => {
     assertNoSecrets(res);
   });
 
-  it('base URL with userinfo → fixed detail, no call', async () => {
+  it('base URL with userinfo → provider none, no call', async () => {
     const fake = fakeFetch(() => jsonResponse(200, { data: [] }));
     const res = await postTest(
       makeHandler(
@@ -814,9 +901,25 @@ describe('POST /api/settings/test-provider — openai', () => {
         { fetchImpl: fake.fetchImpl },
       ),
     );
-    const body = JSON.parse(res.body) as ApiProviderTestResponse;
-    expect(body.detail).toBe(OPENAI_USERINFO_DETAIL);
+    expect(res.status).toBe(400);
     expect(fake.calls).toHaveLength(0);
+    assertNoSecrets(res);
+  });
+
+  it('OPENAI_API_KEY + DMR → GET /models sends no Authorization header', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, { data: [{ id: DMR_ENV.IBAI_OPENAI_MODEL }] }),
+    );
+    const res = await postTest(
+      makeHandler(
+        { ...DMR_ENV, OPENAI_API_KEY: OAI_KEY },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    expect(fake.calls).toHaveLength(1);
+    expect(
+      (fake.calls[0]?.init?.headers as Record<string, string>).Authorization,
+    ).toBeUndefined();
     assertNoSecrets(res);
   });
 

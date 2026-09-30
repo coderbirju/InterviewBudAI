@@ -75,7 +75,7 @@ and Settings shows a hint.
 | `IBAI_ANTHROPIC_MODEL` | Anthropic model name | — |
 | `IBAI_OPENAI_BASE_URL` | OpenAI-compatible base URL (ends in `/v1`, e.g. `http://localhost:12434/engines/v1` for Docker Model Runner) | — |
 | `IBAI_OPENAI_MODEL` | OpenAI-compatible model id | — |
-| `IBAI_OPENAI_API_KEY` (or `OPENAI_API_KEY`) | Optional OpenAI-compatible bearer key — never commit | — |
+| `IBAI_OPENAI_API_KEY` (or `OPENAI_API_KEY`, used only for `https://api.openai.com`) | Optional OpenAI-compatible bearer key — never commit | — |
 | `IBAI_OPENAI_TIMEOUT_MS` | OpenAI-compatible request timeout (clamped 5 000–600 000) | `120000` |
 | `IBAI_OLLAMA_MODEL` | Ollama model name | — |
 | `IBAI_OLLAMA_URL` | Ollama endpoint | `http://127.0.0.1:11434` |

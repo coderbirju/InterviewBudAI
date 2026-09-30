@@ -71,7 +71,9 @@ export function formatStartupBanner(input: {
     providerLine = `  Provider: Ollama (model: ${provider.model})`;
   } else {
     providerLine = `  Provider: ${NO_PROVIDER_MESSAGE}`;
-    if (provider.hint) providerLine += ` (${provider.hint})`;
+  }
+  if ('hint' in provider && provider.hint) {
+    providerLine += ` (${provider.hint})`;
   }
 
   return [

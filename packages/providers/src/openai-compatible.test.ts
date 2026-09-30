@@ -181,6 +181,42 @@ describe('normalizeOpenAIBaseUrl', () => {
     ['http://localhost:8080/v1/models/', 'http://localhost:8080/v1'],
     ['http://localhost:8080/openai', 'http://localhost:8080/openai'],
     ['  http://localhost:8080/v1?x=1#y  ', 'http://localhost:8080/v1'],
+    // ADR 0011 D5 — Docker Model Runner forms.
+    ['http://localhost:12434/engines', 'http://localhost:12434/engines/v1'],
+    ['http://localhost:12434/engines/', 'http://localhost:12434/engines/v1'],
+    [
+      'http://localhost:12434/engines/llama.cpp',
+      'http://localhost:12434/engines/llama.cpp/v1',
+    ],
+    [
+      'http://model-runner.docker.internal/engines/llama.cpp/',
+      'http://model-runner.docker.internal/engines/llama.cpp/v1',
+    ],
+    [
+      'http://model-runner.docker.internal',
+      'http://model-runner.docker.internal/engines/v1',
+    ],
+    [
+      'http://model-runner.docker.internal/',
+      'http://model-runner.docker.internal/engines/v1',
+    ],
+    [
+      'http://model-runner.docker.internal:80/engines',
+      'http://model-runner.docker.internal/engines/v1',
+    ],
+    ['http://localhost:12434', 'http://localhost:12434/engines/v1'],
+    ['http://127.0.0.1:12434/', 'http://127.0.0.1:12434/engines/v1'],
+    ['http://172.17.0.1:12434', 'http://172.17.0.1:12434/engines/v1'],
+    [
+      'http://localhost:12434/engines/chat/completions',
+      'http://localhost:12434/engines/v1',
+    ],
+    [
+      'http://localhost:12434/engines/v1/models',
+      'http://localhost:12434/engines/v1',
+    ],
+    ['http://172.17.0.1:8000', 'http://172.17.0.1:8000/v1'],
+    ['http://192.168.1.20:12434', 'http://192.168.1.20:12434/v1'],
   ])('%s → %s', (raw, expected) => {
     expect(normalizeOpenAIBaseUrl(raw)).toBe(expected);
   });
@@ -188,6 +224,24 @@ describe('normalizeOpenAIBaseUrl', () => {
   it('never double-appends /v1', () => {
     const once = normalizeOpenAIBaseUrl('http://localhost:11434');
     expect(normalizeOpenAIBaseUrl(once)).toBe(once);
+    for (const raw of [
+      'http://localhost:12434',
+      'http://localhost:12434/engines',
+      'http://model-runner.docker.internal/engines/llama.cpp',
+    ]) {
+      const n = normalizeOpenAIBaseUrl(raw);
+      expect(normalizeOpenAIBaseUrl(n)).toBe(n);
+    }
+  });
+
+  it('a bare DMR host POSTs to …/engines/v1/chat/completions', async () => {
+    const f = fake(() => json(200, OK));
+    await provider(f.fetchImpl, {
+      baseUrl: 'http://model-runner.docker.internal',
+    }).complete(REQ);
+    expect(f.calls[0]?.url).toBe(
+      'http://model-runner.docker.internal/engines/v1/chat/completions',
+    );
   });
 
   it('rejects non-URLs and non-http(s) schemes without echoing input', () => {
@@ -394,6 +448,87 @@ describe('OpenAICompatibleProvider — JSON-mode capability latch (ADR 0011 D1)'
     expect(f.calls).toHaveLength(1);
   });
 
+  it('400 naming response_format in error.param → retried without it', async () => {
+    const f = fake((call) =>
+      bodyOf(call).response_format
+        ? json(400, {
+            error: { message: 'Invalid parameter', param: 'response_format' },
+          })
+        : json(200, OK),
+    );
+    const res = await provider(f.fetchImpl).complete({
+      ...REQ,
+      options: { responseFormat: 'json' },
+    });
+    expect(res.content).toBe('Hello!');
+    expect(f.calls).toHaveLength(2);
+  });
+
+  it('an unrelated 400 that echoes the request (incl. response_format) does NOT disable JSON mode', async () => {
+    const f = fake((call) =>
+      json(400, {
+        error: { message: 'temperature must be <= 2', param: 'temperature' },
+        request: JSON.parse(String(call.init.body)) as unknown,
+      }),
+    );
+    const p = provider(f.fetchImpl);
+    const jsonReq = { ...REQ, options: { responseFormat: 'json' as const } };
+    const err = await errorOf(p.complete(jsonReq));
+    expect(err.message).toMatch(/HTTP 400/);
+    expect(f.calls).toHaveLength(1);
+    // Not latched: the next call still asks for JSON mode.
+    await errorOf(p.complete(jsonReq));
+    expect(bodyOf(f.calls[1]).response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('a plain-text 400 echoing the request body is not treated as a response_format rejection', async () => {
+    const f = fake(
+      (call) =>
+        new Response(`Bad request: ${String(call.init.body)}`, { status: 400 }),
+    );
+    await errorOf(
+      provider(f.fetchImpl).complete({
+        ...REQ,
+        options: { responseFormat: 'json' },
+      }),
+    );
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('the retry shares the ORIGINAL deadline (one deadline per call)', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fake((call) =>
+        bodyOf(call).response_format
+          ? new Promise<Response>((resolve) =>
+              setTimeout(() => resolve(rejectFormat()), 3_000),
+            )
+          : new Promise<Response>((_, reject) => {
+              call.init.signal?.addEventListener('abort', () =>
+                reject(new Error('aborted')),
+              );
+            }),
+      );
+      let settled = false;
+      const pending = errorOf(
+        provider(f.fetchImpl, { timeoutMs: 5_000 }).complete({
+          ...REQ,
+          options: { responseFormat: 'json' },
+        }),
+      ).finally(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(f.calls).toHaveLength(2);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(settled).toBe(true);
+      expect((await pending).message).toMatch(/timed out after 5 s$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('without JSON mode a response_format 400 is not retried', async () => {
     const f = fake(() => rejectFormat());
     await errorOf(provider(f.fetchImpl).complete(REQ));
@@ -416,7 +551,9 @@ describe('OpenAICompatibleProvider — key transport rule (ADR 0011 D1)', () => 
     ['http://localhost:12434/engines/v1', true, true],
     ['http://127.0.0.1:1234/v1', true, true],
     ['http://[::1]:8080/v1', true, true],
-    ['http://model-runner.docker.internal/engines/v1', true, true],
+    // DMR needs no key: its in-container name gets no plain-http exception.
+    ['http://model-runner.docker.internal/engines/v1', true, false],
+    ['http://model-runner.docker.internal/engines/v1', false, true],
     ['http://192.168.1.20:8000/v1', true, false],
     ['http://172.17.0.1:12434/engines/v1', true, false],
     ['http://192.168.1.20:8000/v1', false, true],

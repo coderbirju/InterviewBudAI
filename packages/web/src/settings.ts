@@ -45,9 +45,9 @@ export interface ApiSettingsProvider {
    */
   readonly endpoint: string | null;
   /**
-   * True when the active provider's key is present: the optional
-   * `IBAI_OPENAI_API_KEY` / `OPENAI_API_KEY` for `openai`, an Anthropic key
-   * otherwise.
+   * True when the active provider's key is present: for `openai` the key that
+   * would actually be sent (`IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only
+   * for https://api.openai.com), an Anthropic key otherwise.
    */
   readonly keyConfigured: boolean;
   /**
@@ -55,7 +55,11 @@ export interface ApiSettingsProvider {
    * a Docker Model Runner host, else "OpenAI-compatible".
    */
   readonly label?: string;
-  /** Why no provider is active, when a config is half-set. */
+  /**
+   * Why no provider is active (a config is half-set or rejected), or — on an
+   * active Anthropic/Ollama provider — why a set OpenAI-compatible config is
+   * not used.
+   */
   readonly hint?: string;
 }
 
@@ -119,7 +123,8 @@ const ENV_VARS: readonly { readonly name: string; readonly purpose: string }[] =
     },
     {
       name: 'OPENAI_API_KEY',
-      purpose: 'OpenAI-compatible bearer key, optional (secret)',
+      purpose:
+        'OpenAI bearer key, optional; used only when IBAI_OPENAI_BASE_URL is https://api.openai.com (secret)',
     },
     {
       name: 'IBAI_OPENAI_TIMEOUT_MS',
@@ -183,7 +188,9 @@ function isLoopbackHostname(hostname: string): boolean {
  */
 export function openAICompatibleLabel(rawBaseUrl: string): string {
   try {
-    const url = new URL(rawBaseUrl.trim());
+    // Judge the NORMALIZED URL, so `…:12434/engines` or a bare DMR host
+    // (both normalized to `…/engines/v1`) are labeled too.
+    const url = new URL(normalizeOpenAIBaseUrl(rawBaseUrl));
     const host = url.hostname.toLowerCase();
     if (host === 'model-runner.docker.internal') {
       return 'Docker Model Runner (local)';
@@ -221,6 +228,7 @@ export function settingsProvider(env: NodeJS.ProcessEnv): ApiSettingsProvider {
       model: status.model,
       endpoint: sanitizeEndpoint(resolveOllamaUrl(env)),
       keyConfigured,
+      ...(status.hint !== undefined && { hint: status.hint }),
     };
   }
   if (status.kind === 'anthropic') {
@@ -229,6 +237,7 @@ export function settingsProvider(env: NodeJS.ProcessEnv): ApiSettingsProvider {
       model: status.model,
       endpoint: null,
       keyConfigured,
+      ...(status.hint !== undefined && { hint: status.hint }),
     };
   }
   return {
