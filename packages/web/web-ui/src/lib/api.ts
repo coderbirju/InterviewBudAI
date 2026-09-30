@@ -701,7 +701,7 @@ export interface DockerDataInfo {
   readonly writable: boolean;
   /** Fixed help text when not writable. */
   readonly writableHelp?: string;
-  /** The folder the non-Docker app uses, when it differs (mismatch banner). */
+  /** The /setup choice from the host config.json, when it differs (mismatch banner). */
   readonly hostConfigDataDir?: string;
 }
 

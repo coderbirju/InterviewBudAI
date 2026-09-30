@@ -6,7 +6,7 @@ import type { DockerDataInfo } from '../lib/api';
  * Analytics and /data:
  *
  *  - `/data` is not writable → the fix (never a silent fallback);
- *  - the non-Docker app uses another folder (host config.json) → how to use
+ *  - the /setup choice outside Docker (host config.json) is another folder → how to use
  *    the same notes here. Only the path is shown; the container cannot read
  *    that folder, so no note count.
  *
@@ -53,9 +53,14 @@ export function DockerNotices({
             className="mt-0.5 h-5 w-5 shrink-0 text-amber-400"
             aria-hidden
           />
+          {/* The value is the /setup choice (host config.json); npm start
+              ignores it when IBAI_DATA_DIR is set, so name the source. */}
           <p className="break-all">
-            Your non-Docker setup uses <code>{mismatch}</code>. To use the same
-            notes in Docker, set <code>IBAI_HOST_DATA_DIR={mismatch}</code> in{' '}
+            Your <code>/setup</code> choice outside Docker is{' '}
+            <code>{mismatch}</code> (saved in{' '}
+            <code>~/.interviewbudai/config.json</code>; <code>npm start</code>{' '}
+            ignores it when <code>IBAI_DATA_DIR</code> is set). To use that
+            folder in Docker, set <code>IBAI_HOST_DATA_DIR={mismatch}</code> in{' '}
             <code>.env</code> and restart.
           </p>
         </div>
