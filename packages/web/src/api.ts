@@ -264,7 +264,8 @@ function isConnectionError(error: unknown): boolean {
       msg.includes('econnrefused') ||
       msg.includes('fetch failed') ||
       msg.includes('connection refused') ||
-      msg.includes('network error')
+      msg.includes('network error') ||
+      msg.includes('timed out')
     );
   }
   return false;
@@ -526,13 +527,13 @@ function providerErrorResponse(error: unknown): HandlerResponse {
   if (isConnectionError(error)) {
     return json(502, {
       error:
-        'Could not reach the model provider. If using Ollama, is it running (ollama serve)? If using Anthropic, check your network.',
+        'Could not reach the model provider. If using Ollama or a local OpenAI-compatible server (e.g. Docker Model Runner), is it running? If using Anthropic, check your network.',
     });
   }
   if (isAuthError(error)) {
     return json(502, {
       error:
-        'The model rejected the request - check your ANTHROPIC_API_KEY and IBAI_ANTHROPIC_MODEL (or your Ollama model).',
+        'The model rejected the request - check your API key and model settings (ANTHROPIC_API_KEY / IBAI_ANTHROPIC_MODEL, IBAI_OPENAI_API_KEY / IBAI_OPENAI_MODEL, or your Ollama model).',
     });
   }
   return json(502, {

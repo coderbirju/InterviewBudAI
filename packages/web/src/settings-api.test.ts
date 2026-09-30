@@ -18,6 +18,8 @@ import type {
 } from './handler.js';
 import {
   OLLAMA_USERINFO_DETAIL,
+  OPENAI_USERINFO_DETAIL,
+  openAICompatibleLabel,
   TEST_TIMEOUT_MS,
   createProviderTester,
   sanitizeEndpoint,
@@ -33,6 +35,7 @@ const ORIGIN = `http://${HOST}`;
 const CATALOG = createCatalogSource();
 const KEY = 'sk-ant-SECRET-key-do-not-leak-123';
 const OLLAMA_PASS = 'hunter2-ollama-pass';
+const OAI_KEY = 'sk-oai-SECRET-do-not-leak-777';
 
 const ANTHROPIC_ENV = {
   ANTHROPIC_API_KEY: KEY,
@@ -140,6 +143,8 @@ function assertNoSecrets(res: HandlerResponse): void {
   expect(serialized).not.toContain(KEY);
   expect(serialized).not.toContain(OLLAMA_PASS);
   expect(serialized).not.toContain('x-api-key');
+  expect(serialized).not.toContain(OAI_KEY);
+  expect(serialized).not.toContain('Bearer');
 }
 
 describe('GET /api/settings', () => {
@@ -202,6 +207,11 @@ describe('GET /api/settings', () => {
       'ANTHROPIC_API_KEY',
       'IBAI_ANTHROPIC_API_KEY',
       'IBAI_ANTHROPIC_MODEL',
+      'IBAI_OPENAI_BASE_URL',
+      'IBAI_OPENAI_MODEL',
+      'IBAI_OPENAI_API_KEY',
+      'OPENAI_API_KEY',
+      'IBAI_OPENAI_TIMEOUT_MS',
       'IBAI_OLLAMA_MODEL',
       'IBAI_OLLAMA_URL',
       'IBAI_DATA_DIR',
@@ -212,6 +222,11 @@ describe('GET /api/settings', () => {
       ANTHROPIC_API_KEY: true,
       IBAI_ANTHROPIC_API_KEY: true,
       IBAI_ANTHROPIC_MODEL: true,
+      IBAI_OPENAI_BASE_URL: false,
+      IBAI_OPENAI_MODEL: false,
+      IBAI_OPENAI_API_KEY: false,
+      OPENAI_API_KEY: false,
+      IBAI_OPENAI_TIMEOUT_MS: false,
       IBAI_OLLAMA_MODEL: false,
       IBAI_OLLAMA_URL: false,
       IBAI_DATA_DIR: false,
@@ -572,5 +587,265 @@ describe('POST /api/settings/test-provider', () => {
         .status,
     ).toBe(405);
     expect(fake.calls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible (ADR 0011 D5)
+// ---------------------------------------------------------------------------
+
+const DMR_ENV = {
+  IBAI_OPENAI_BASE_URL: 'http://localhost:12434/engines/v1/',
+  IBAI_OPENAI_MODEL: 'ai/qwen3:4b-instruct-2507-q4_K_M',
+};
+
+describe('GET /api/settings — openai', () => {
+  it('DMR host: kind openai, origin-only endpoint, DMR label, key presence only', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        ...DMR_ENV,
+        IBAI_OPENAI_BASE_URL: 'http://localhost:12434/engines/v1/?t=abc#x',
+        IBAI_OPENAI_API_KEY: OAI_KEY,
+      }),
+    );
+    expect(body.provider).toEqual({
+      kind: 'openai',
+      model: 'ai/qwen3:4b-instruct-2507-q4_K_M',
+      endpoint: 'http://localhost:12434',
+      keyConfigured: true,
+      label: 'Docker Model Runner (local)',
+    });
+    expect(body.envHelp.find((e) => e.var === 'IBAI_OPENAI_API_KEY')?.set).toBe(
+      true,
+    );
+    assertNoSecrets(res);
+  });
+
+  it('generic server: "OpenAI-compatible" label, userinfo/path/query stripped', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        IBAI_OPENAI_BASE_URL: `https://u:${OAI_KEY}@llm.example.com/v1?k=${OAI_KEY}`,
+        IBAI_OPENAI_MODEL: 'gpt-x',
+      }),
+    );
+    expect(body.provider).toEqual({
+      kind: 'openai',
+      model: 'gpt-x',
+      endpoint: 'https://llm.example.com',
+      keyConfigured: false,
+      label: 'OpenAI-compatible',
+    });
+    assertNoSecrets(res);
+  });
+
+  it('key over plain http to a LAN host → none with a hint (no key echoed)', async () => {
+    const { res, body } = await getSettings(
+      makeHandler({
+        IBAI_OPENAI_BASE_URL: 'http://192.168.1.9:8000/v1',
+        IBAI_OPENAI_MODEL: 'm',
+        OPENAI_API_KEY: OAI_KEY,
+      }),
+    );
+    expect(body.provider.kind).toBe('none');
+    expect(body.provider.hint).toMatch(/plain http/);
+    assertNoSecrets(res);
+  });
+});
+
+describe('openAICompatibleLabel (ADR 0011 D5)', () => {
+  it.each([
+    ['http://model-runner.docker.internal/engines/v1', true],
+    ['http://model-runner.docker.internal:12434/engines/llama.cpp/v1', true],
+    ['http://localhost:12434/engines/v1', true],
+    ['http://127.0.0.1:12434/engines/v1', true],
+    ['http://[::1]:12434/engines/v1', true],
+    ['http://172.17.0.1:12434/engines/v1', true],
+    ['http://localhost:12434/v1', false],
+    ['http://localhost:1234/v1', false],
+    ['http://10.0.0.5:12434/engines/v1', false],
+    ['https://api.openai.com/v1', false],
+    ['not a url', false],
+  ])('%s → DMR %s', (url, dmr) => {
+    expect(openAICompatibleLabel(url)).toBe(
+      dmr ? 'Docker Model Runner (local)' : 'OpenAI-compatible',
+    );
+  });
+});
+
+describe('POST /api/settings/test-provider — openai', () => {
+  it('model listed → ok; GET <baseUrl>/models, no Authorization without a key', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, {
+        object: 'list',
+        data: [
+          { id: 'ai/smollm2' },
+          { id: 'ai/qwen3:4b-instruct-2507-q4_K_M' },
+        ],
+      }),
+    );
+    const res = await postTest(
+      makeHandler(DMR_ENV, { fetchImpl: fake.fetchImpl }),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(true);
+    expect(body.detail).toBe(
+      'Docker Model Runner is reachable and lists the model "ai/qwen3:4b-instruct-2507-q4_K_M".',
+    );
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0]?.url).toBe('http://localhost:12434/engines/v1/models');
+    expect(fake.calls[0]?.init?.method).toBe('GET');
+    expect(fake.calls[0]?.init?.headers).toEqual({
+      Accept: 'application/json',
+    });
+  });
+
+  it('with a key: Bearer header sent, never echoed; m ≡ m:latest', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, { data: [{ id: 'gpt-x:latest' }] }),
+    );
+    const res = await postTest(
+      makeHandler(
+        {
+          IBAI_OPENAI_BASE_URL: 'https://llm.example.com/v1',
+          IBAI_OPENAI_MODEL: 'gpt-x',
+          IBAI_OPENAI_API_KEY: OAI_KEY,
+        },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(true);
+    expect(
+      (fake.calls[0]?.init?.headers as Record<string, string>).Authorization,
+    ).toBe(`Bearer ${OAI_KEY}`);
+    assertNoSecrets(res);
+  });
+
+  it('model not listed → ok:false (DMR: pull hint; generic: check the model)', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, { data: [{ id: 'other' }] }),
+    );
+    const dmr = JSON.parse(
+      (await postTest(makeHandler(DMR_ENV, { fetchImpl: fake.fetchImpl })))
+        .body,
+    ) as ApiProviderTestResponse;
+    expect(dmr.ok).toBe(false);
+    expect(dmr.detail).toMatch(
+      /not listed\. Run: docker model pull ai\/qwen3:4b-instruct-2507-q4_K_M$/,
+    );
+    const generic = JSON.parse(
+      (
+        await postTest(
+          makeHandler(
+            {
+              IBAI_OPENAI_BASE_URL: 'http://localhost:1234/v1',
+              IBAI_OPENAI_MODEL: 'm',
+            },
+            { fetchImpl: fake.fetchImpl },
+          ),
+        )
+      ).body,
+    ) as ApiProviderTestResponse;
+    expect(generic.ok).toBe(false);
+    expect(generic.detail).toBe(
+      'The OpenAI-compatible server is reachable, but does not list the model "m". Check IBAI_OPENAI_MODEL.',
+    );
+  });
+
+  it('not a model list → ok:false', async () => {
+    const fake = fakeFetch(() => jsonResponse(200, { models: [] }));
+    const body = JSON.parse(
+      (await postTest(makeHandler(DMR_ENV, { fetchImpl: fake.fetchImpl })))
+        .body,
+    ) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toMatch(/not with a model list/);
+  });
+
+  it('unreachable → sanitized detail with the origin only', async () => {
+    const env = {
+      ...DMR_ENV,
+      IBAI_OPENAI_BASE_URL: `http://localhost:12434/engines/v1?token=${OAI_KEY}`,
+    };
+    const fake = fakeFetch(() => {
+      throw new TypeError(`fetch failed ${env.IBAI_OPENAI_BASE_URL}`);
+    });
+    const res = await postTest(makeHandler(env, { fetchImpl: fake.fetchImpl }));
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe(
+      'Could not reach Docker Model Runner at http://localhost:12434. Is the server running?',
+    );
+    assertNoSecrets(res);
+  });
+
+  it('HTTP 401 → fixed "rejected the API key" text; body never echoed', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(401, {
+        error: { type: 'invalid_request_error', message: `bad key ${OAI_KEY}` },
+      }),
+    );
+    const res = await postTest(
+      makeHandler(
+        {
+          IBAI_OPENAI_BASE_URL: 'https://llm.example.com/v1',
+          IBAI_OPENAI_MODEL: 'gpt-x',
+          IBAI_OPENAI_API_KEY: OAI_KEY,
+        },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe(
+      'The OpenAI-compatible server rejected the API key (HTTP 401) (invalid_request_error). Check the key in your environment.',
+    );
+    assertNoSecrets(res);
+  });
+
+  it('base URL with userinfo → fixed detail, no call', async () => {
+    const fake = fakeFetch(() => jsonResponse(200, { data: [] }));
+    const res = await postTest(
+      makeHandler(
+        {
+          IBAI_OPENAI_BASE_URL: `http://u:${OAI_KEY}@localhost:12434/engines/v1`,
+          IBAI_OPENAI_MODEL: 'm',
+        },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.detail).toBe(OPENAI_USERINFO_DETAIL);
+    expect(fake.calls).toHaveLength(0);
+    assertNoSecrets(res);
+  });
+
+  it('timeout → "did not answer" at the shared 5 s deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeFetch(
+        (call) =>
+          new Promise<Response>((_, rejectFetch) => {
+            call.init?.signal?.addEventListener('abort', () =>
+              rejectFetch(new Error('aborted')),
+            );
+          }),
+      );
+      const test = createProviderTester({
+        env: DMR_ENV,
+        fetchImpl: fake.fetchImpl,
+        clock: () => Date.now(),
+      });
+      const pending = test();
+      await vi.advanceTimersByTimeAsync(TEST_TIMEOUT_MS);
+      const body = (await pending).body as ApiProviderTestResponse;
+      expect(body.ok).toBe(false);
+      expect(body.detail).toBe(
+        `Docker Model Runner did not answer within ${TEST_TIMEOUT_MS / 1000} s.`,
+      );
+      expect(fake.calls[0]?.init?.signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
