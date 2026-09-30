@@ -220,6 +220,7 @@ describe('GET /api/settings', () => {
       'IBAI_OLLAMA_URL',
       'IBAI_DATA_DIR',
       'IBAI_WEB_PORT',
+      'IBAI_HOST_DATA_DIR',
     ]);
     const set = Object.fromEntries(body.envHelp.map((e) => [e.var, e.set]));
     expect(set).toEqual({
@@ -235,6 +236,7 @@ describe('GET /api/settings', () => {
       IBAI_OLLAMA_URL: false,
       IBAI_DATA_DIR: false,
       IBAI_WEB_PORT: true,
+      IBAI_HOST_DATA_DIR: false,
     });
     for (const e of body.envHelp) {
       expect(Object.keys(e).sort()).toEqual(['purpose', 'set', 'var']);
@@ -747,6 +749,9 @@ describe('openAICompatibleLabel (ADR 0011 D5)', () => {
     ['http://localhost:12434', true],
     ['http://172.17.0.1:12434/', true],
     ['http://model-runner.docker.internal', true],
+    // Same loopback rule as the provider (`isLoopbackHostname`).
+    ['http://[::1]:12434', true],
+    ['http://dmr.localhost:12434/engines/v1', true],
     ['http://localhost:12434/v1', false],
     ['http://localhost:1234/v1', false],
     ['http://10.0.0.5:12434/engines/v1', false],
@@ -861,7 +866,7 @@ describe('POST /api/settings/test-provider — openai', () => {
     const body = JSON.parse(res.body) as ApiProviderTestResponse;
     expect(body.ok).toBe(false);
     expect(body.detail).toBe(
-      'Could not reach Docker Model Runner at http://localhost:12434. Is the server running?',
+      'Could not reach Docker Model Runner at http://localhost:12434. Is Docker Model Runner enabled in Docker Desktop → Settings → AI?',
     );
     assertNoSecrets(res);
   });

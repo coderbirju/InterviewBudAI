@@ -103,7 +103,11 @@ import type {
 } from './data-dir-control.js';
 import type { HandlerResponse } from './handler.js';
 import { handleImportRoute } from './import/routes.js';
-import { buildSettingsResponse } from './settings.js';
+import {
+  DMR_CONNECTION_HINT,
+  buildSettingsResponse,
+  isDmrProvider,
+} from './settings.js';
 import type { ProviderTestOutcome } from './settings.js';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
@@ -523,11 +527,15 @@ function randomSource(deps: ApiDeps): RandomSource {
  * Classify a provider error into a clear JSON HandlerResponse (auth vs
  * connection vs unusable). Shared by all quiz routes that call the model.
  */
-function providerErrorResponse(error: unknown): HandlerResponse {
+function providerErrorResponse(
+  error: unknown,
+  dmr: boolean = false,
+): HandlerResponse {
   if (isConnectionError(error)) {
     return json(502, {
-      error:
-        'Could not reach the model provider. If using Ollama or a local OpenAI-compatible server (e.g. Docker Model Runner), is it running? If using Anthropic, check your network.',
+      error: dmr
+        ? `Could not reach Docker Model Runner. ${DMR_CONNECTION_HINT}`
+        : 'Could not reach the model provider. If using Ollama or a local OpenAI-compatible server (e.g. Docker Model Runner), is it running? If using Anthropic, check your network.',
     });
   }
   if (isAuthError(error)) {
@@ -1328,7 +1336,7 @@ export async function handleApiRoute(
             error: 'The model returned an unusable verdict. Please try again.',
           });
         }
-        return providerErrorResponse(error);
+        return providerErrorResponse(error, isDmrProvider(deps.settings?.env));
       }
 
       const at = nowDate(deps).toISOString() as IsoTimestamp;
