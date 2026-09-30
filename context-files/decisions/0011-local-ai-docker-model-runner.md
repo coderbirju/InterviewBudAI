@@ -265,9 +265,10 @@ command was run and no model was pulled. **Unverified** items are marked.
   (`/host-config/config.json`); it is optional, and a missing file is fine.
   - If that file parses (same untrusted validation as today) and its
     `dataDir` differs from the display-only `IBAI_HOST_DATA_DIR`, then `/data`
-    and Home show a banner: "Your non-Docker setup uses `<path>`. To use the
-    same notes in Docker, set `IBAI_HOST_DATA_DIR=<path>` in `.env` and
-    restart."
+    and Home show a banner: "Your /setup choice outside Docker is `<path>`
+    (saved in `~/.interviewbudai/config.json`; `npm start` ignores it when
+    `IBAI_DATA_DIR` is set)…"
+    *(Amended 2026-09-30: wording replaced per PR #79, from the #78 review.)*
   - The container cannot read that other folder, so the banner shows only
     the path and never counts its notes.
   - Implementation note for PR B: a bind mount of a missing file would make
