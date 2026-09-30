@@ -423,7 +423,7 @@ describe('POST /api/quiz/answer', () => {
     );
     expect(res.status).toBe(502);
     expect((JSON.parse(res.body) as { error: string }).error).toBe(
-      'Could not reach Docker Model Runner. Is Docker Model Runner enabled in Docker Desktop → Settings → AI?',
+      'Could not reach Docker Model Runner. Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. Docker Engine: install the docker-model-plugin package (check with `docker model status`).',
     );
   });
 
