@@ -192,7 +192,8 @@ export const DMR_LABEL = 'Docker Model Runner (local)';
  * (ADR 0011 D4).
  */
 export const DMR_CONNECTION_HINT =
-  'Is Docker Model Runner enabled in Docker Desktop → Settings → AI?';
+  'Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. ' +
+  'Docker Engine: install the docker-model-plugin package (check with `docker model status`).';
 
 /** True when the active provider is OpenAI-compatible AND labeled DMR. */
 export function isDmrProvider(env: NodeJS.ProcessEnv | undefined): boolean {

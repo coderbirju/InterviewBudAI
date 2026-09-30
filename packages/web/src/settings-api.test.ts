@@ -866,7 +866,7 @@ describe('POST /api/settings/test-provider — openai', () => {
     const body = JSON.parse(res.body) as ApiProviderTestResponse;
     expect(body.ok).toBe(false);
     expect(body.detail).toBe(
-      'Could not reach Docker Model Runner at http://localhost:12434. Is Docker Model Runner enabled in Docker Desktop → Settings → AI?',
+      'Could not reach Docker Model Runner at http://localhost:12434. Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. Docker Engine: install the docker-model-plugin package (check with `docker model status`).',
     );
     assertNoSecrets(res);
   });
