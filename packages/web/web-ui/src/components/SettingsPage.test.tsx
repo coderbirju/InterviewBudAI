@@ -28,6 +28,11 @@ function envHelp(
     'ANTHROPIC_API_KEY',
     'IBAI_ANTHROPIC_API_KEY',
     'IBAI_ANTHROPIC_MODEL',
+    'IBAI_OPENAI_BASE_URL',
+    'IBAI_OPENAI_MODEL',
+    'IBAI_OPENAI_API_KEY',
+    'OPENAI_API_KEY',
+    'IBAI_OPENAI_TIMEOUT_MS',
     'IBAI_OLLAMA_MODEL',
     'IBAI_OLLAMA_URL',
     'IBAI_DATA_DIR',
@@ -65,6 +70,18 @@ const OLLAMA: SettingsResponse = {
     keyConfigured: false,
   },
   envHelp: envHelp({ IBAI_OLLAMA_MODEL: true }),
+};
+
+const DMR: SettingsResponse = {
+  ...BASE,
+  provider: {
+    kind: 'openai',
+    model: 'ai/qwen3:4b-instruct-2507-q4_K_M',
+    endpoint: 'http://localhost:12434',
+    keyConfigured: false,
+    label: 'Docker Model Runner (local)',
+  },
+  envHelp: envHelp({ IBAI_OPENAI_BASE_URL: true, IBAI_OPENAI_MODEL: true }),
 };
 
 const NONE: SettingsResponse = {
@@ -144,6 +161,40 @@ describe('SettingsPage', () => {
     expect(model).toHaveTextContent('http://127.0.0.1:11434');
     expect(within(model).getByText('Not configured')).toBeInTheDocument();
     expect(model).not.toHaveTextContent(/billable/i);
+  });
+
+  it('openai: DMR label, endpoint, optional key row, test button, no billable note', async () => {
+    mockedApi.fetchSettings.mockResolvedValue(DMR);
+    const { container } = render(<SettingsPage />);
+    const model = await screen.findByRole('region', { name: 'Model' });
+    expect(model).toHaveTextContent('Docker Model Runner (local)');
+    expect(model).toHaveTextContent('ai/qwen3:4b-instruct-2507-q4_K_M');
+    expect(model).toHaveTextContent('http://localhost:12434');
+    expect(model).toHaveTextContent('API key (optional)');
+    expect(model).not.toHaveTextContent('Anthropic API key');
+    expect(model).not.toHaveTextContent(/billable/i);
+    expect(
+      within(model).getByRole('button', { name: /test connection/i }),
+    ).toBeInTheDocument();
+    expectNoKeyInput(container);
+  });
+
+  it('openai without a label falls back to "OpenAI-compatible"', async () => {
+    mockedApi.fetchSettings.mockResolvedValue({
+      ...DMR,
+      provider: { ...DMR.provider, label: undefined },
+    });
+    render(<SettingsPage />);
+    const model = await screen.findByRole('region', { name: 'Model' });
+    expect(model).toHaveTextContent('OpenAI-compatible');
+  });
+
+  it('the .env snippet includes the OpenAI-compatible vars as placeholders', () => {
+    expect(ENV_SNIPPET).toContain(
+      'IBAI_OPENAI_BASE_URL=<openai-compatible-base-url>',
+    );
+    expect(ENV_SNIPPET).toContain('IBAI_OPENAI_MODEL=<model-id>');
+    expect(ENV_SNIPPET).toContain('IBAI_OPENAI_API_KEY=<your-api-key>');
   });
 
   it('none: no test button; hint shown; still no input', async () => {

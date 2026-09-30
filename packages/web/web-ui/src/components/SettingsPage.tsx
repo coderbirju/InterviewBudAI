@@ -24,7 +24,8 @@ import { dataHref, isPlainClick, navigate } from '../lib/router';
 /**
  * Settings (`/settings`, ADR 0008 Wave 2(c-lite)) — read-only provider status:
  *
- *  1. Model — active provider, model, Ollama endpoint, key configured ✓/✗ and
+ *  1. Model — active provider, model, Ollama / OpenAI-compatible endpoint
+ *     (origin only), key configured ✓/✗ and
  *     an explicit "Test connection" (Anthropic: one tiny billable call).
  *  2. How to configure — the env vars the server reads (set ✓/✗) and a
  *     copyable `.env` snippet with placeholders only.
@@ -48,6 +49,7 @@ type Test =
 
 const PROVIDER_LABEL: Record<ProviderKind, string> = {
   anthropic: 'Anthropic',
+  openai: 'OpenAI-compatible',
   ollama: 'Ollama (local)',
   none: 'None configured',
 };
@@ -67,7 +69,14 @@ export const ENV_SNIPPET = `# InterviewBudAI — put this in the repo-root .env 
 ANTHROPIC_API_KEY=<your-anthropic-api-key>
 IBAI_ANTHROPIC_MODEL=<anthropic-model-name>
 
-# Option B — Ollama (local)
+# Option B — OpenAI-compatible server, e.g. Docker Model Runner (local):
+#   base URL like http://localhost:12434/engines/v1
+IBAI_OPENAI_BASE_URL=<openai-compatible-base-url>
+IBAI_OPENAI_MODEL=<model-id>
+# Optional; only if your server needs one:
+IBAI_OPENAI_API_KEY=<your-api-key>
+
+# Option C — Ollama (local)
 IBAI_OLLAMA_MODEL=<ollama-model-name>
 IBAI_OLLAMA_URL=http://127.0.0.1:11434
 `;
@@ -201,7 +210,11 @@ export function SettingsPage(): JSX.Element {
           Model
         </h2>
         <dl className="mt-3 divide-y divide-slate-800">
-          <Row label="Provider">{PROVIDER_LABEL[provider.kind]}</Row>
+          <Row label="Provider">
+            {provider.kind === 'openai' && provider.label
+              ? provider.label
+              : PROVIDER_LABEL[provider.kind]}
+          </Row>
           <Row label="Model">
             {provider.model ?? <span className="text-slate-400">—</span>}
           </Row>
@@ -212,7 +225,22 @@ export function SettingsPage(): JSX.Element {
               )}
             </Row>
           )}
-          <Row label="Anthropic API key">
+          {provider.kind === 'openai' && (
+            <Row label="Endpoint">
+              {provider.endpoint ?? (
+                <span className="text-slate-400">
+                  Invalid IBAI_OPENAI_BASE_URL
+                </span>
+              )}
+            </Row>
+          )}
+          <Row
+            label={
+              provider.kind === 'openai'
+                ? 'API key (optional)'
+                : 'Anthropic API key'
+            }
+          >
             <YesNo
               yes={provider.keyConfigured}
               yesLabel="Configured"
