@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   OpenAICompatibleProvider,
   normalizeOpenAIBaseUrl,
+  openAIKeyTransportAllowed,
 } from './openai-compatible.js';
 import type { OpenAICompatibleProviderConfig } from './openai-compatible.js';
 import type { CompletionRequest } from './index.js';
@@ -334,7 +335,7 @@ describe('OpenAICompatibleProvider — untrusted response + error classification
       provider(f.fetchImpl, { timeoutMs: 20 }).complete(REQ),
     );
     expect(err.message).toBe(
-      'OpenAI-compatible server at http://localhost:12434 timed out after 0 s',
+      'OpenAI-compatible server at http://localhost:12434 timed out after 20 ms',
     );
     expect(f.calls[0]?.init.signal?.aborted).toBe(true);
   });
@@ -356,5 +357,107 @@ describe('OpenAICompatibleProvider — untrusted response + error classification
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('OpenAICompatibleProvider — JSON-mode capability latch (ADR 0011 D1)', () => {
+  const rejectFormat = (): Response =>
+    json(400, {
+      error: { message: "Unrecognized request argument: 'response_format'" },
+    });
+
+  it('400 mentioning response_format → one retry without it, latched for later calls', async () => {
+    const f = fake((call) =>
+      bodyOf(call).response_format ? rejectFormat() : json(200, OK),
+    );
+    const p = provider(f.fetchImpl);
+    const jsonReq = { ...REQ, options: { responseFormat: 'json' as const } };
+    expect((await p.complete(jsonReq)).content).toBe('Hello!');
+    expect(f.calls).toHaveLength(2);
+    expect(bodyOf(f.calls[0]).response_format).toEqual({ type: 'json_object' });
+    expect(bodyOf(f.calls[1])).not.toHaveProperty('response_format');
+
+    await p.complete(jsonReq);
+    expect(f.calls).toHaveLength(3);
+    expect(bodyOf(f.calls[2])).not.toHaveProperty('response_format');
+  });
+
+  it('a 400 NOT about response_format is not retried', async () => {
+    const f = fake(() => json(400, { error: { message: 'bad temperature' } }));
+    const err = await errorOf(
+      provider(f.fetchImpl).complete({
+        ...REQ,
+        options: { responseFormat: 'json' },
+      }),
+    );
+    expect(err.message).toMatch(/HTTP 400/);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('without JSON mode a response_format 400 is not retried', async () => {
+    const f = fake(() => rejectFormat());
+    await errorOf(provider(f.fetchImpl).complete(REQ));
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it("responseFormat: 'text' sends no response_format", async () => {
+    const f = fake(() => json(200, OK));
+    await provider(f.fetchImpl).complete({
+      ...REQ,
+      options: { responseFormat: 'text' },
+    });
+    expect(bodyOf(f.calls[0])).not.toHaveProperty('response_format');
+  });
+});
+
+describe('OpenAICompatibleProvider — key transport rule (ADR 0011 D1)', () => {
+  it.each([
+    ['https://api.example.com/v1', true, true],
+    ['http://localhost:12434/engines/v1', true, true],
+    ['http://127.0.0.1:1234/v1', true, true],
+    ['http://[::1]:8080/v1', true, true],
+    ['http://model-runner.docker.internal/engines/v1', true, true],
+    ['http://192.168.1.20:8000/v1', true, false],
+    ['http://172.17.0.1:12434/engines/v1', true, false],
+    ['http://192.168.1.20:8000/v1', false, true],
+    ['not a url', true, false],
+  ])('%s (key: %s) → %s', (url, hasKey, allowed) => {
+    expect(openAIKeyTransportAllowed(url, hasKey)).toBe(allowed);
+  });
+
+  it('refuses a key over plain http to a LAN host (no call, key not echoed)', async () => {
+    const f = fake(() => json(200, OK));
+    const err = await errorOf(
+      provider(f.fetchImpl, {
+        baseUrl: 'http://192.168.1.20:8000/v1',
+        apiKey: KEY,
+      }).complete(REQ),
+    );
+    expect(err.message).toMatch(/refusing to send an API key over plain http/);
+    expect(err.message).not.toContain(KEY);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it('no key → plain http to a LAN host is allowed', async () => {
+    const f = fake(() => json(200, OK));
+    await provider(f.fetchImpl, {
+      baseUrl: 'http://192.168.1.20:8000/v1',
+    }).complete(REQ);
+    expect(f.calls[0]?.url).toBe(
+      'http://192.168.1.20:8000/v1/chat/completions',
+    );
+  });
+});
+
+describe('OpenAICompatibleProvider — 1 MiB body cap', () => {
+  it('rejects an oversized body as malformed', async () => {
+    const big = JSON.stringify({
+      choices: [{ message: { content: 'x'.repeat(1024 * 1024 + 10) } }],
+    });
+    const f = fake(() => new Response(big, { status: 200 }));
+    const err = await errorOf(provider(f.fetchImpl).complete(REQ));
+    expect(err.message).toBe(
+      'OpenAI-compatible server response is malformed: too large (over 1 MiB)',
+    );
   });
 });

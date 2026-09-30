@@ -3,6 +3,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  OPENAI_DEFAULT_TIMEOUT_MS,
+  openAIKeyTransportAllowed,
+} from '@ibai/providers';
 
 /**
  * Resolve the data directory path.
@@ -267,26 +271,72 @@ export function prepareBootDataDir(
 
 export type ProviderStatus =
   | { readonly kind: 'anthropic'; readonly model: string }
+  | { readonly kind: 'openai'; readonly model: string }
   | { readonly kind: 'ollama'; readonly model: string }
   | { readonly kind: 'none'; readonly hint?: string };
 
+/** Hint when an OpenAI-compatible key would travel over plain HTTP. */
+export const OPENAI_INSECURE_KEY_HINT =
+  'IBAI_OPENAI_API_KEY is set but IBAI_OPENAI_BASE_URL is plain http to a non-loopback host; use https (or drop the key)';
+
 /**
- * Describe which provider the server will use, WITHOUT exposing secrets (the
- * API key is only checked for presence). Mirrors the selection order in
- * startServer: Anthropic (key + model) first, then Ollama (model).
+ * True when the OpenAI-compatible provider is fully and safely configured:
+ * base URL + model, and — if a key is set — https or loopback http (ADR 0011
+ * D1 key-transport rule).
+ */
+function openAIUsable(env: NodeJS.ProcessEnv): boolean {
+  const baseUrl = resolveOpenAIBaseUrl(env);
+  return (
+    baseUrl !== undefined &&
+    resolveOpenAIModel(env) !== undefined &&
+    openAIKeyTransportAllowed(baseUrl, Boolean(resolveOpenAIApiKey(env)))
+  );
+}
+
+/**
+ * Describe which provider the server will use, WITHOUT exposing secrets (API
+ * keys are only checked for presence). The ONE shared precedence (ADR 0011
+ * D1) used by startServer (`selectProvider`), `/api/config` and settings —
+ * first match wins:
+ *
+ *  1. Anthropic — an API key AND `IBAI_ANTHROPIC_MODEL`
+ *  2. OpenAI-compatible — `IBAI_OPENAI_BASE_URL` AND `IBAI_OPENAI_MODEL`
+ *     (key optional; with a key the URL must be https or loopback http)
+ *  3. Ollama — `IBAI_OLLAMA_MODEL`
+ *  4. none — with a hint when a config is half-set (or the key rule fails)
  */
 export function resolveProviderStatus(
   env: NodeJS.ProcessEnv = process.env,
 ): ProviderStatus {
   const hasKey = Boolean(resolveAnthropicApiKey(env));
   const anthropicModel = resolveAnthropicModel(env);
+  const openaiBaseUrl = resolveOpenAIBaseUrl(env);
+  const openaiModel = resolveOpenAIModel(env);
   const ollamaModel = resolveOllamaModel(env);
 
   if (hasKey && anthropicModel) {
     return { kind: 'anthropic', model: anthropicModel };
   }
+  if (openaiModel && openAIUsable(env)) {
+    return { kind: 'openai', model: openaiModel };
+  }
   if (ollamaModel) {
     return { kind: 'ollama', model: ollamaModel };
+  }
+  if (openaiBaseUrl && openaiModel) {
+    return { kind: 'none', hint: OPENAI_INSECURE_KEY_HINT };
+  }
+  if (openaiBaseUrl) {
+    return {
+      kind: 'none',
+      hint: 'IBAI_OPENAI_BASE_URL is set but IBAI_OPENAI_MODEL is missing',
+    };
+  }
+  if (openaiModel) {
+    return {
+      kind: 'none',
+      hint: 'IBAI_OPENAI_MODEL is set but IBAI_OPENAI_BASE_URL is missing',
+    };
   }
   if (hasKey) {
     return {
@@ -301,6 +351,52 @@ export function resolveProviderStatus(
     };
   }
   return { kind: 'none' };
+}
+
+/** OpenAI-compatible base URL (`IBAI_OPENAI_BASE_URL`, trimmed); undefined if unset/blank. */
+export function resolveOpenAIBaseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return env.IBAI_OPENAI_BASE_URL?.trim() || undefined;
+}
+
+/** OpenAI-compatible model id (`IBAI_OPENAI_MODEL`, trimmed); undefined if unset/blank. */
+export function resolveOpenAIModel(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return env.IBAI_OPENAI_MODEL?.trim() || undefined;
+}
+
+/**
+ * OPTIONAL OpenAI-compatible bearer key. Precedence: `IBAI_OPENAI_API_KEY` >
+ * `OPENAI_API_KEY`. A secret: only ever passed to the adapter or checked for
+ * presence — never logged or returned.
+ */
+export function resolveOpenAIApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return env.IBAI_OPENAI_API_KEY || env.OPENAI_API_KEY || undefined;
+}
+
+/** Bounds for `IBAI_OPENAI_TIMEOUT_MS` (ADR 0011 D1). */
+export const OPENAI_TIMEOUT_MIN_MS = 5_000;
+export const OPENAI_TIMEOUT_MAX_MS = 600_000;
+
+/**
+ * OpenAI-compatible request deadline: `IBAI_OPENAI_TIMEOUT_MS` (integer ms,
+ * clamped to 5 000–600 000); unset or not a number → the adapter default
+ * (120 000).
+ */
+export function resolveOpenAITimeoutMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env.IBAI_OPENAI_TIMEOUT_MS?.trim();
+  const n = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return OPENAI_DEFAULT_TIMEOUT_MS;
+  return Math.min(
+    OPENAI_TIMEOUT_MAX_MS,
+    Math.max(OPENAI_TIMEOUT_MIN_MS, Math.round(n)),
+  );
 }
 
 /**

@@ -1,6 +1,10 @@
 import * as http from 'node:http';
 import { createLocalStorage } from './problems.js';
-import { AnthropicProvider, OllamaProvider } from '@ibai/providers';
+import {
+  AnthropicProvider,
+  OllamaProvider,
+  OpenAICompatibleProvider,
+} from '@ibai/providers';
 import type { LlmProvider } from '@ibai/providers';
 import {
   prepareBootDataDir,
@@ -8,9 +12,10 @@ import {
   resolvePort,
   resolveHost,
   resolveOllamaUrl,
-  resolveOllamaModel,
   resolveAnthropicApiKey,
-  resolveAnthropicModel,
+  resolveOpenAIApiKey,
+  resolveOpenAIBaseUrl,
+  resolveOpenAITimeoutMs,
 } from './config.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
 import { createCoachHandler, precheckRequest } from './handler.js';
@@ -36,7 +41,7 @@ export interface StartServerOptions {
 
 /** Shown when no provider is configured (the quiz needs one). */
 export const NO_PROVIDER_MESSAGE =
-  'no model configured — quiz disabled; set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL or IBAI_OLLAMA_MODEL';
+  'no model configured — quiz disabled; set ANTHROPIC_API_KEY + IBAI_ANTHROPIC_MODEL, IBAI_OPENAI_BASE_URL + IBAI_OPENAI_MODEL, or IBAI_OLLAMA_MODEL';
 
 /**
  * Build the human-readable startup banner. Pure; never includes secrets (the
@@ -58,7 +63,9 @@ export function formatStartupBanner(input: {
   }
 
   let providerLine: string;
-  if (provider.kind === 'anthropic') {
+  if (provider.kind === 'openai') {
+    providerLine = `  Provider: OpenAI-compatible (model: ${provider.model})`;
+  } else if (provider.kind === 'anthropic') {
     providerLine = `  Provider: Anthropic (model: ${provider.model})`;
   } else if (provider.kind === 'ollama') {
     providerLine = `  Provider: Ollama (model: ${provider.model})`;
@@ -73,6 +80,54 @@ export function formatStartupBanner(input: {
     providerLine,
     '  Press Ctrl+C to stop.',
   ];
+}
+
+/**
+ * Build the LLM provider from the environment, following the ONE shared
+ * precedence in {@link resolveProviderStatus} (ADR 0011 D1): Anthropic (key +
+ * model) → OpenAI-compatible (base URL + model; optional key, https or
+ * loopback only) → Ollama (model) → none (`provider` undefined; the quiz
+ * reports "no model configured").
+ *
+ * The label carries the provider kind and model only — never a key or URL.
+ */
+export function selectProvider(env: NodeJS.ProcessEnv): {
+  readonly provider: LlmProvider | undefined;
+  readonly label: string;
+} {
+  const status = resolveProviderStatus(env);
+  switch (status.kind) {
+    case 'anthropic':
+      return {
+        provider: new AnthropicProvider({
+          apiKey: resolveAnthropicApiKey(env) ?? '',
+          model: status.model,
+        }),
+        label: `Using Anthropic: ${status.model}`,
+      };
+    case 'openai': {
+      const apiKey = resolveOpenAIApiKey(env);
+      return {
+        provider: new OpenAICompatibleProvider({
+          baseUrl: resolveOpenAIBaseUrl(env) ?? '',
+          model: status.model,
+          timeoutMs: resolveOpenAITimeoutMs(env),
+          ...(apiKey !== undefined && { apiKey }),
+        }),
+        label: `Using OpenAI-compatible: ${status.model}`,
+      };
+    }
+    case 'ollama':
+      return {
+        provider: new OllamaProvider({
+          endpoint: resolveOllamaUrl(env),
+          model: status.model,
+        }),
+        label: `Using Ollama: ${status.model}`,
+      };
+    case 'none':
+      return { provider: undefined, label: 'No model configured' };
+  }
 }
 
 /** Methods whose request body is read (capped at `MAX_BODY_BYTES`). */
@@ -140,10 +195,9 @@ export function readRequestBody(
  *
  * The server binds to localhost (127.0.0.1) only. No external network access.
  *
- * Provider is now REQUIRED for coach operations (ADR 0005 D6):
- * - If Anthropic key AND model set → AnthropicProvider
- * - Else if Ollama model set → OllamaProvider
- * - Else provider = undefined (coach will return provider-required error)
+ * Provider is now REQUIRED for coach operations (ADR 0005 D6); see
+ * {@link selectProvider} for the precedence (Anthropic → OpenAI-compatible →
+ * Ollama → none).
  */
 export async function startServer(
   opts?: StartServerOptions,
@@ -163,35 +217,14 @@ export async function startServer(
   const port = resolvePort(env, argv);
   const host = resolveHost();
 
-  // Resolve provider config (Anthropic first, then Ollama)
-  const anthropicApiKey = resolveAnthropicApiKey(env);
-  const anthropicModel = resolveAnthropicModel(env);
-  const ollamaUrl = resolveOllamaUrl(env);
-  const ollamaModel = resolveOllamaModel(env);
-
   // Storage adapter for the boot data dir (the handler requires one).
   const storage = createLocalStorage(dataDir);
 
   // Storage factory for the server's CURRENT data dir (/setup can switch it).
   const createStorage = (dir: string) => createLocalStorage(dir);
 
-  // Create provider: Anthropic if key+model, else Ollama if model, else undefined (NO demo fallback)
-  let provider: LlmProvider | undefined;
-  let providerLabel: string;
-
-  if (anthropicApiKey && anthropicModel) {
-    provider = new AnthropicProvider({
-      apiKey: anthropicApiKey,
-      model: anthropicModel,
-    });
-    providerLabel = `Using Anthropic: ${anthropicModel}`;
-  } else if (ollamaModel) {
-    provider = new OllamaProvider({ endpoint: ollamaUrl, model: ollamaModel });
-    providerLabel = `Using Ollama: ${ollamaModel}`;
-  } else {
-    provider = undefined;
-    providerLabel = 'No model configured';
-  }
+  // Create provider (Anthropic → OpenAI-compatible → Ollama → none; NO demo fallback)
+  const { provider, label: providerLabel } = selectProvider(env);
 
   // Create handler with storage, provider, label, and per-request factory
   const handler = createCoachHandler({

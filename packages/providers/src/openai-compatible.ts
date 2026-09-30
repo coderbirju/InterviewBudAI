@@ -47,7 +47,10 @@ export interface OpenAICompatibleProviderConfig {
   readonly apiKey?: string;
   /** Optional default generation options merged UNDER per-request options. */
   readonly defaultOptions?: CompletionOptions;
-  /** Whole-call deadline in ms (request + body). Default 120 000. */
+  /**
+   * Whole-call deadline in ms (request + body). Default 120 000 (the web app
+   * reads `IBAI_OPENAI_TIMEOUT_MS`, clamped to 5 000–600 000).
+   */
   readonly timeoutMs?: number;
   /** Optional fetch injection for testing; defaults to global fetch (lazily). */
   readonly fetchImpl?: typeof fetch;
@@ -56,8 +59,60 @@ export interface OpenAICompatibleProviderConfig {
 /** Label used in every error message. */
 const PROVIDER_NAME = 'OpenAI-compatible server';
 
-/** Default whole-call deadline: generous for local models on a CPU. */
-const DEFAULT_TIMEOUT_MS = 120_000;
+/** Default whole-call deadline: generous for local models on a CPU (ADR 0011 D1). */
+export const OPENAI_DEFAULT_TIMEOUT_MS = 120_000;
+
+/** Cap on the (untrusted) response body (ADR 0011 D1). */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** Hosts a key may be sent to over plain `http:`. */
+function isLoopbackOrDmrHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return (
+    h === 'localhost' ||
+    h.endsWith('.localhost') ||
+    /^127(\.\d{1,3}){3}$/.test(h) ||
+    h === '[::1]' ||
+    // Docker Model Runner's in-container name (Docker Desktop's internal
+    // network; DMR needs no key anyway).
+    h === 'model-runner.docker.internal'
+  );
+}
+
+/**
+ * Key-transport rule (ADR 0011 D1): with a key, the base URL must be
+ * `https:`, or `http:` to a loopback host (or Docker Model Runner's internal
+ * host) — never a key over plain HTTP to the network. Without a key any
+ * http(s) base URL is fine. An unparseable URL → false.
+ */
+export function openAIKeyTransportAllowed(
+  rawBaseUrl: string,
+  hasKey: boolean,
+): boolean {
+  if (!hasKey) return true;
+  try {
+    const url = new URL(rawBaseUrl.trim());
+    if (url.protocol === 'https:') return true;
+    return url.protocol === 'http:' && isLoopbackOrDmrHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Does an HTTP 400 body say the server rejected `response_format`? */
+function rejectsResponseFormat(error: unknown): boolean {
+  return (
+    error instanceof HttpProviderError &&
+    error.kind === 'http' &&
+    error.status === 400 &&
+    /response_format/i.test(error.bodySnippet ?? '')
+  );
+}
+
+/** "20 ms" / "5 s" for error text. */
+function formatMs(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`;
+}
 
 // ---------------------------------------------------------------------------
 // Base URL normalization
@@ -131,6 +186,7 @@ function buildRequestBody(
   }
   if (options?.topP !== undefined) body.top_p = options.topP;
   if (options?.stop !== undefined) body.stop = [...options.stop];
+  // `json_object` only (ADR 0011: DMR documents it; `json_schema` is unverified).
   if (options?.responseFormat === 'json') {
     body.response_format = { type: 'json_object' };
   }
@@ -230,14 +286,20 @@ function classify(
   switch (error.kind) {
     case 'timeout':
       return new Error(
-        `${PROVIDER_NAME} at ${origin} timed out after ${Math.round(timeoutMs / 1000)} s`,
+        `${PROVIDER_NAME} at ${origin} timed out after ${formatMs(timeoutMs)}`,
       );
     case 'connection':
       return new Error(
         `${PROVIDER_NAME} request failed: network error — could not reach ${origin}. Is the server running?`,
       );
     case 'malformed':
-      return new Error(`${PROVIDER_NAME} response is malformed: invalid JSON`);
+      return new Error(
+        `${PROVIDER_NAME} response is malformed: ${
+          error.message.includes('too large')
+            ? 'too large (over 1 MiB)'
+            : 'invalid JSON'
+        }`,
+      );
     case 'http': {
       const status = error.status ?? 0;
       if (status === 401 || status === 403) {
@@ -270,13 +332,18 @@ export class OpenAICompatibleProvider implements LlmProvider {
   private readonly defaultOptions?: CompletionOptions;
   private readonly timeoutMs: number;
   private readonly fetchImpl?: typeof fetch;
+  /**
+   * Capability latch (ADR 0011 D1): set once the server has answered 400 to
+   * `response_format`; JSON mode is then not sent again for this process.
+   */
+  private jsonModeUnsupported = false;
 
   constructor(config: OpenAICompatibleProviderConfig) {
     this.rawBaseUrl = config.baseUrl;
     this.model = config.model;
     if (config.apiKey) this.apiKey = config.apiKey;
     this.defaultOptions = config.defaultOptions;
-    this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = config.timeoutMs ?? OPENAI_DEFAULT_TIMEOUT_MS;
     this.fetchImpl = config.fetchImpl;
   }
 
@@ -289,12 +356,16 @@ export class OpenAICompatibleProvider implements LlmProvider {
       );
     }
     const origin = parsed.origin;
+    if (!openAIKeyTransportAllowed(baseUrl, Boolean(this.apiKey))) {
+      throw new Error(
+        `${PROVIDER_NAME}: refusing to send an API key over plain http to ${origin} (use https, or a loopback host)`,
+      );
+    }
 
     const merged =
       this.defaultOptions || request.options
         ? { ...this.defaultOptions, ...request.options }
         : undefined;
-    const body = buildRequestBody(this.model, request.messages, merged);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -302,16 +373,37 @@ export class OpenAICompatibleProvider implements LlmProvider {
     };
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
 
-    let data: unknown;
-    try {
-      data = await postJson({
+    const send = (options: CompletionOptions | undefined): Promise<unknown> =>
+      postJson({
         url: `${baseUrl}/chat/completions`,
         headers,
-        body,
+        body: buildRequestBody(this.model, request.messages, options),
         fetchImpl: this.fetchImpl ?? globalThis.fetch,
         providerName: PROVIDER_NAME,
         timeoutMs: this.timeoutMs,
+        maxBodyBytes: MAX_BODY_BYTES,
       });
+    const withoutJsonMode = (
+      options: CompletionOptions | undefined,
+    ): CompletionOptions | undefined => {
+      if (options?.responseFormat !== 'json') return options;
+      return { ...options, responseFormat: 'text' };
+    };
+
+    const wantsJson = merged?.responseFormat === 'json';
+    let data: unknown;
+    try {
+      try {
+        data = await send(
+          this.jsonModeUnsupported ? withoutJsonMode(merged) : merged,
+        );
+      } catch (error) {
+        // One retry without JSON mode when the server rejects it (latched).
+        if (!wantsJson || this.jsonModeUnsupported) throw error;
+        if (!rejectsResponseFormat(error)) throw error;
+        this.jsonModeUnsupported = true;
+        data = await send(withoutJsonMode(merged));
+      }
     } catch (error) {
       throw classify(error, origin, this.apiKey, this.timeoutMs);
     }

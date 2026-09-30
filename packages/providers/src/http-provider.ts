@@ -75,6 +75,45 @@ export interface HttpProviderRequest {
    * no deadline (the historical behavior).
    */
   readonly timeoutMs?: number;
+  /**
+   * OPTIONAL cap on the response body in bytes. Larger bodies are cut off and
+   * rejected as `malformed` (success) or truncated (error snippet). Unset = no
+   * cap (the historical behavior).
+   */
+  readonly maxBodyBytes?: number;
+}
+
+/** Thrown internally when a capped body read overflows. */
+class BodyTooLargeError extends Error {}
+
+/** Read a body as text, never buffering more than `maxBytes` (+1 chunk). */
+async function readTextCapped(
+  response: Response,
+  maxBytes: number | undefined,
+): Promise<string> {
+  if (maxBytes === undefined || response.body === null) {
+    return response.text();
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      void reader.cancel().catch(() => undefined);
+      throw new BodyTooLargeError(`body exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    all.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
 }
 
 /**
@@ -89,6 +128,7 @@ export interface HttpProviderRequest {
  */
 export async function postJson(req: HttpProviderRequest): Promise<unknown> {
   const { url, headers, body, fetchImpl, providerName, timeoutMs } = req;
+  const { maxBodyBytes } = req;
 
   const controller = timeoutMs !== undefined ? new AbortController() : null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -136,7 +176,7 @@ export async function postJson(req: HttpProviderRequest): Promise<unknown> {
     if (!response.ok) {
       let bodySnippet = '';
       try {
-        const text = await race(response.text());
+        const text = await race(readTextCapped(response, maxBodyBytes));
         bodySnippet = text.slice(0, 500);
       } catch (error) {
         if (error instanceof HttpProviderError) throw error;
@@ -151,10 +191,21 @@ export async function postJson(req: HttpProviderRequest): Promise<unknown> {
 
     let data: unknown;
     try {
-      data = await race(response.json() as Promise<unknown>);
+      data =
+        maxBodyBytes === undefined
+          ? await race(response.json() as Promise<unknown>)
+          : (JSON.parse(
+              await race(readTextCapped(response, maxBodyBytes)),
+            ) as unknown);
     } catch (error) {
       if (error instanceof HttpProviderError) throw error;
       if (controller?.signal.aborted) throw timeoutError();
+      if (error instanceof BodyTooLargeError) {
+        throw new HttpProviderError(
+          `${providerName} response is too large (over ${maxBodyBytes} bytes)`,
+          'malformed',
+        );
+      }
       throw new HttpProviderError(
         `${providerName} returned invalid JSON response`,
         'malformed',
