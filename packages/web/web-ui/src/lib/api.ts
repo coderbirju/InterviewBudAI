@@ -181,10 +181,28 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * Optional machine-readable extras from the JSON error body, e.g. the
+     * quiz's 503 `{ code: 'model_unavailable', detail, hint }` (ADR 0011 D4).
+     */
+    readonly extra: {
+      readonly code?: string;
+      readonly detail?: string;
+      readonly hint?: string;
+    } = {},
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/** True for the quiz's "model is starting or unavailable" error (ADR 0011 D4). */
+export function isModelUnavailable(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.status === 503 &&
+    err.extra.code === 'model_unavailable'
+  );
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -500,15 +518,20 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   });
   if (!res.ok) {
     let message = `POST ${path} failed (${res.status})`;
+    const extra: { code?: string; detail?: string; hint?: string } = {};
     try {
-      const data = (await res.json()) as { error?: unknown };
+      const data = (await res.json()) as Record<string, unknown>;
       if (typeof data.error === 'string' && data.error.trim()) {
         message = data.error;
+      }
+      for (const key of ['code', 'detail', 'hint'] as const) {
+        const value = data[key];
+        if (typeof value === 'string' && value.trim()) extra[key] = value;
       }
     } catch {
       // Non-JSON error body — keep the generic message.
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, extra);
   }
   return (await res.json()) as T;
 }
