@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-27 — PRs #1–#71 merged or closed; Wave 2(a) done; Wave 2(b) ADR 0010 proposed; distribution decided (GitHub Release zip, ADR 0009 D5)._
+_Last updated: 2026-09-29 — ADR 0011 (local AI via Docker) accepted; PRs #1–#71 merged or closed; Wave 2(a) done; Wave 2(b) ADR 0010 proposed; distribution decided (GitHub Release zip, ADR 0009 D5)._
 
 ## Legend
 ✅ merged · 🟡 PR open · 🔨 in progress, no PR yet · ⛔ blocked · ⬜ not started · ⏸ deferred · ✖ closed unmerged
@@ -19,6 +19,7 @@ See `team-charter.md` §0, §9A.
 - 🔨 Wave 2(c-lite) settings / provider status — in progress.
 
 ## In progress
+- 🟡 ADR 0011 local AI via Docker Model Runner (Accepted) — `architect/adr-0011-local-ai-docker`; next PR A (OpenAI-compatible provider + settings), B (Docker + compose + CI), C (quiz small-model robustness).
 - 🟡 ADR 0010 custom problems (proposed) — `architect/adr-0010-custom-problems`, PR #72.
 
 ## Recently merged
@@ -45,6 +46,14 @@ See `team-charter.md` §0, §9A.
 - **Storage**: `LocalFileStorageAdapter` (sessions, summaries, competency map,
   weaknesses, notes, quiz sessions, competency signals).
 - **Curriculum**: curated links + difficulty catalog (no answers).
+
+## Milestone: Local AI via Docker (ADR 0011)
+| Item | What | Status |
+|---|---|---|
+| ADR | ADR 0011: default swappable local model (`ai/qwen3:4b-instruct-2507-q4_K_M`) via Compose + DMR | 🟡 |
+| PR A | `OpenAICompatibleProvider`, env vars + precedence, settings label/test | ⬜ |
+| PR B | Dockerfile, compose.yaml, bind host / public port, `/data` bind mount, CI docker job | ⬜ |
+| PR C | Quiz JSON mode, one retry, prompt compaction, loading state | ⬜ |
 
 ## Milestone: Web usability (ADR 0008)
 | Item | What | Status |

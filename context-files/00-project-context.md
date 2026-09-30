@@ -37,6 +37,9 @@ competency map that any AI coaching session can read and build on.
 2. **Bring-your-own-LLM.** The project is **not opinionated** about models. Any
    LLM works on day one — OpenAI, Anthropic, local Ollama, etc. — behind a
    pluggable interface. The project never ships or requires a specific model.
+   *Amended by ADR 0011:* the project still requires no model and stays
+   bring-your-own-LLM; the optional Docker Compose setup ships an opinionated,
+   swappable **default** local model that users can change or drop.
 3. **Not opinionated about content.** The project ships a **catalog of problems
    as links + difficulty rankings only**. It ships NO intuitions, NO answers, NO
    solutions. All intuition, notes, and direction are authored and owned by the
