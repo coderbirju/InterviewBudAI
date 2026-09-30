@@ -19,7 +19,11 @@
 
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { AnthropicProvider, normalizeOpenAIBaseUrl } from '@ibai/providers';
+import {
+  AnthropicProvider,
+  isLoopbackHostname,
+  normalizeOpenAIBaseUrl,
+} from '@ibai/providers';
 import {
   resolveAnthropicApiKey,
   resolveAnthropicModel,
@@ -141,6 +145,11 @@ const ENV_VARS: readonly { readonly name: string; readonly purpose: string }[] =
     },
     { name: 'IBAI_DATA_DIR', purpose: 'Pins the data folder' },
     { name: 'IBAI_WEB_PORT', purpose: 'Web server port (default 4173)' },
+    {
+      name: 'IBAI_HOST_DATA_DIR',
+      purpose:
+        'Docker only: the host folder mounted at /data (default ~/.interviewbudai/data)',
+    },
   ];
 
 /**
@@ -175,9 +184,25 @@ let cachedVersion: string | undefined;
 /** Docker Model Runner's host-side TCP port (ADR 0011 verified facts). */
 const DMR_PORT = '12434';
 
-function isLoopbackHostname(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return h === 'localhost' || /^127(\.\d{1,3}){3}$/.test(h) || h === '[::1]';
+/** The Docker Model Runner display label (ADR 0011 D5). */
+export const DMR_LABEL = 'Docker Model Runner (local)';
+
+/**
+ * Extra tip on a connection failure when the provider is Docker Model Runner
+ * (ADR 0011 D4).
+ */
+export const DMR_CONNECTION_HINT =
+  'Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. ' +
+  'Docker Engine: install the docker-model-plugin package (check with `docker model status`).';
+
+/** True when the active provider is OpenAI-compatible AND labeled DMR. */
+export function isDmrProvider(env: NodeJS.ProcessEnv | undefined): boolean {
+  if (env === undefined) return false;
+  const status = resolveProviderStatus(env);
+  return (
+    status.kind === 'openai' &&
+    openAICompatibleLabel(resolveOpenAIBaseUrl(env) ?? '') === DMR_LABEL
+  );
 }
 
 /**
@@ -193,14 +218,14 @@ export function openAICompatibleLabel(rawBaseUrl: string): string {
     const url = new URL(normalizeOpenAIBaseUrl(rawBaseUrl));
     const host = url.hostname.toLowerCase();
     if (host === 'model-runner.docker.internal') {
-      return 'Docker Model Runner (local)';
+      return DMR_LABEL;
     }
     if (
       (isLoopbackHostname(host) || host === '172.17.0.1') &&
       url.port === DMR_PORT &&
       url.pathname.startsWith('/engines/')
     ) {
-      return 'Docker Model Runner (local)';
+      return DMR_LABEL;
     }
   } catch {
     // fall through
@@ -471,7 +496,7 @@ export function createProviderTester(
         ? 'Anthropic'
         : provider.kind === 'ollama'
           ? 'Ollama'
-          : provider.label === 'Docker Model Runner (local)'
+          : provider.label === DMR_LABEL
             ? 'Docker Model Runner'
             : 'The OpenAI-compatible server';
 
@@ -602,7 +627,9 @@ export function createProviderTester(
         provider.kind === 'ollama'
           ? 'Is Ollama running?'
           : provider.kind === 'openai'
-            ? 'Is the server running?'
+            ? provider.label === DMR_LABEL
+              ? DMR_CONNECTION_HINT
+              : 'Is the server running?'
             : 'Check your network connection.';
       return done(false, `Could not reach ${who}${where}. ${tip}`);
     } finally {

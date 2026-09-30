@@ -3,6 +3,7 @@ import { ArrowRight, FolderSearch, History, X } from 'lucide-react';
 import { fetchDataDir } from '../lib/api';
 import type { DataDirStatus } from '../lib/api';
 import { dataHref, isPlainClick, navigate } from '../lib/router';
+import { DockerNotices } from './DockerNotices';
 
 /**
  * "Don't see your solved problems?" banner on Home and Analytics (ADR 0009
@@ -45,12 +46,20 @@ export function DataFolderBanner(): JSX.Element | null {
   }, []);
 
   if (status === null) return null;
+  // Docker-only notices (ADR 0011 D3): never dismissible.
+  const docker =
+    status.docker &&
+    (!status.docker.writable ||
+      status.docker.hostConfigDataDir !== undefined) ? (
+      <DockerNotices docker={status.docker} />
+    ) : null;
   const empty = status.noteCount === 0;
   const hasCandidate = status.legacyCandidates.length > 0;
-  if (!empty && !hasCandidate) return null;
   // Dismissible only when there are notes already (0 notes → always shown).
   const dismissible = !empty;
-  if (dismissible && dismissed) return null;
+  if ((!empty && !hasCandidate) || (dismissible && dismissed)) {
+    return docker === null ? null : <div className="mb-6">{docker}</div>;
+  }
 
   const Icon = hasCandidate ? History : FolderSearch;
   const message = hasCandidate
@@ -58,43 +67,46 @@ export function DataFolderBanner(): JSX.Element | null {
     : "Don't see your solved problems? Point InterviewBudAI at your existing folder or import a CSV";
 
   return (
-    <div
-      role="region"
-      aria-label="Data folder"
-      className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-slate-200"
-    >
-      <Icon className="h-5 w-5 shrink-0 text-emerald-400" aria-hidden />
-      <p className="flex-1">{message}</p>
-      <a
-        href={dataHref()}
-        onClick={(e) => {
-          if (isPlainClick(e)) {
-            e.preventDefault();
-            navigate(dataHref());
-          }
-        }}
-        className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-500 px-3 py-1.5 font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
+    <>
+      {docker !== null && <div className="mb-3">{docker}</div>}
+      <div
+        role="region"
+        aria-label="Data folder"
+        className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-slate-200"
       >
-        Your data
-        <ArrowRight className="h-4 w-4" aria-hidden />
-      </a>
-      {dismissible && (
-        <button
-          type="button"
-          aria-label="Dismiss"
-          onClick={() => {
-            try {
-              window.sessionStorage.setItem(DATA_BANNER_DISMISSED_KEY, '1');
-            } catch {
-              // Storage unavailable: dismiss for this render only.
+        <Icon className="h-5 w-5 shrink-0 text-emerald-400" aria-hidden />
+        <p className="flex-1">{message}</p>
+        <a
+          href={dataHref()}
+          onClick={(e) => {
+            if (isPlainClick(e)) {
+              e.preventDefault();
+              navigate(dataHref());
             }
-            setDismissed(true);
           }}
-          className="shrink-0 rounded-md p-1 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+          className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-500 px-3 py-1.5 font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
         >
-          <X className="h-4 w-4" aria-hidden />
-        </button>
-      )}
-    </div>
+          Your data
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </a>
+        {dismissible && (
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => {
+              try {
+                window.sessionStorage.setItem(DATA_BANNER_DISMISSED_KEY, '1');
+              } catch {
+                // Storage unavailable: dismiss for this render only.
+              }
+              setDismissed(true);
+            }}
+            className="shrink-0 rounded-md p-1 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        )}
+      </div>
+    </>
   );
 }

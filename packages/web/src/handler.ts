@@ -10,11 +10,14 @@ import {
 import { createCatalogSource } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
 import { resolvePort, resolveServerDataDir } from './config.js';
+import type { DockerDataInfo } from './container.js';
+import type { HostPolicy } from './security.js';
 import type { DataDirSource } from './config.js';
 import {
   DataDirControl,
   isSettlingResponse,
   pinnedBy,
+  dockerPinnedText,
   settlesLegacy,
 } from './data-dir-control.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
@@ -22,8 +25,9 @@ import { createKnownProblemIdCheck } from './problems.js';
 import { isApiRoute, handleApiRoute } from './api.js';
 import { createProviderTester } from './settings.js';
 import {
-  allowedHostsFor,
   checkSameOrigin,
+  hostPolicyFor,
+  toHostPolicy,
   createCsrfToken,
   hasLegacyDataDirCookie,
   headerValue,
@@ -89,6 +93,14 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
    * configured port (`resolvePort(env, argv)`).
    */
   readonly port?: number;
+  /**
+   * The port the browser uses (`IBAI_PUBLIC_PORT`, ADR 0011 D2). When it
+   * differs from `port`, Host on `port` is allowed for non-mutating requests
+   * only and Origin is accepted only on this port. Defaults to `port`.
+   */
+  readonly publicPort?: number;
+  /** Docker info for /data (ADR 0011 D3); only set inside the container. */
+  readonly docker?: DockerDataInfo;
   /** Sink for one-time warnings (default: console.warn). */
   readonly warn?: (line: string) => void;
   /**
@@ -158,15 +170,28 @@ function reject(
  */
 export function precheckRequest(
   req: Pick<HandlerRequest, 'method' | 'url' | 'contentType' | 'headers'>,
-  allowedHosts: ReadonlySet<string>,
+  hosts: ReadonlySet<string> | HostPolicy,
 ): HandlerResponse | null {
+  const policy = toHostPolicy(hosts);
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const isApi = isApiRoute(pathname);
-  if (!isAllowedHost(headerValue(req.headers, 'host'), allowedHosts)) {
+  const host = headerValue(req.headers, 'host');
+  const onPublic = isAllowedHost(host, policy.publicHosts);
+  const onReadOnly = !onPublic && isAllowedHost(host, policy.readOnlyHosts);
+  if (!onPublic && !onReadOnly) {
     return reject(isApi, 421, 'misdirected request: unexpected Host header');
   }
   if (isMutatingMethod(req.method)) {
-    const verdict = checkSameOrigin(req.headers, allowedHosts);
+    // The container's listen port serves the HEALTHCHECK only (ADR 0011 D2):
+    // state changes must come through the published port.
+    if (onReadOnly) {
+      return reject(
+        isApi,
+        403,
+        'state-changing requests must use the published port',
+      );
+    }
+    const verdict = checkSameOrigin(req.headers, policy.publicHosts);
     if (!verdict.ok) {
       return reject(isApi, 403, verdict.reason);
     }
@@ -240,9 +265,8 @@ function serverPage(
 export function createCoachHandler(
   deps: CoachHandlerDeps,
 ): (req: HandlerRequest) => Promise<HandlerResponse> {
-  const allowedHosts = allowedHostsFor(
-    deps.port ?? resolvePort(deps.env, deps.argv),
-  );
+  const listenPort = deps.port ?? resolvePort(deps.env, deps.argv);
+  const allowedHosts = hostPolicyFor(listenPort, deps.publicPort ?? listenPort);
   // Per-process CSRF token for the server-rendered /setup form. The form is
   // only readable same-origin (Host allowlist + SOP), so a foreign page cannot
   // learn it.
@@ -257,6 +281,7 @@ export function createCoachHandler(
   const state = new DataDirControl({
     homeDir,
     isKnownProblemId: createKnownProblemIdCheck(catalog),
+    ...(deps.docker !== undefined && { docker: deps.docker }),
     ...((): { dataDir: string; source: DataDirSource } => {
       if (deps.dataDir !== undefined) {
         return {
@@ -342,9 +367,12 @@ export function createCoachHandler(
     // Routed before the SPA catch-all so it is never shadowed.
     if (pathname === '/setup') {
       const pinned = state.pinned;
-      const pinnedNotice = pinned
-        ? `The data directory is pinned to ${state.dataDir} by ${pinnedBy(state.source)}; /setup can create it but cannot change it. Restart the server without it to choose a different location here.`
-        : undefined;
+      const docker = state.dockerInfo;
+      const pinnedNotice = !pinned
+        ? undefined
+        : docker !== undefined
+          ? `${dockerPinnedText(docker)}; /setup cannot change it. To use another folder, set IBAI_HOST_DATA_DIR=<path> in .env and restart (docker compose up).`
+          : `The data directory is pinned to ${state.dataDir} by ${pinnedBy(state.source)}; /setup can create it but cannot change it. Restart the server without it to choose a different location here.`;
       if (isGet) {
         return serverPage(
           200,

@@ -666,6 +666,27 @@ export interface DataDirStatus {
   readonly formatVersion: number;
   readonly readOnly?: boolean;
   readonly legacyCandidates: readonly LegacyCandidate[];
+  /** Present only when the server runs in the Docker image (ADR 0011 D3). */
+  readonly docker?: DockerDataInfo;
+}
+
+/** The server's Docker info for the data folder (ADR 0011 D3). */
+export interface DockerDataInfo {
+  /** Display-only host folder mounted at /data (`IBAI_HOST_DATA_DIR`). */
+  readonly hostDataDir: string | null;
+  /** `/data` passed the boot writability check. */
+  readonly writable: boolean;
+  /** Fixed help text when not writable. */
+  readonly writableHelp?: string;
+  /** The folder the non-Docker app uses, when it differs (mismatch banner). */
+  readonly hostConfigDataDir?: string;
+}
+
+/** "Pinned by Docker (IBAI_HOST_DATA_DIR=<host path>)". */
+export function dockerPinnedText(docker: DockerDataInfo): string {
+  return docker.hostDataDir !== null
+    ? `Pinned by Docker (IBAI_HOST_DATA_DIR=${docker.hostDataDir})`
+    : 'Pinned by Docker (the folder mounted at /data)';
 }
 
 /** A dry-run hint (see the server `InspectionHint`). */
