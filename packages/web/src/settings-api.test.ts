@@ -765,6 +765,18 @@ describe('openAICompatibleLabel (ADR 0011 D5)', () => {
 });
 
 describe('POST /api/settings/test-provider — openai', () => {
+  it('HTTP 503 → the "starting or unavailable" loading state (ADR 0011 D4)', async () => {
+    const fake = fakeFetch(() => jsonResponse(503, { error: 'loading' }));
+    const res = await postTest(
+      makeHandler(DMR_ENV, { fetchImpl: fake.fetchImpl }),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe(
+      'Docker Model Runner is starting or unavailable (HTTP 503). Try again in a moment.',
+    );
+  });
+
   it('model listed → ok; GET <baseUrl>/models, no Authorization without a key', async () => {
     const fake = fakeFetch(() =>
       jsonResponse(200, {

@@ -342,7 +342,7 @@ describe('dockerDataInfo', () => {
     });
     expect(info?.hostConfigDataDir).toBe('/Users/a/Desktop/testBuai');
     expect(hostMismatchText('/Users/a/Desktop/testBuai')).toBe(
-      'Your non-Docker setup uses /Users/a/Desktop/testBuai. To use the same notes in Docker, set IBAI_HOST_DATA_DIR=/Users/a/Desktop/testBuai in .env and restart.',
+      'Your /setup choice outside Docker is /Users/a/Desktop/testBuai (saved in ~/.interviewbudai/config.json; npm start ignores it when IBAI_DATA_DIR is set). To use that folder in Docker, set IBAI_HOST_DATA_DIR=/Users/a/Desktop/testBuai in .env and restart.',
     );
   });
 

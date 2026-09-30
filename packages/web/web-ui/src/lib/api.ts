@@ -181,10 +181,28 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * Optional machine-readable extras from the JSON error body, e.g. the
+     * quiz's 503 `{ code: 'model_unavailable', detail, hint }` (ADR 0011 D4).
+     */
+    readonly extra: {
+      readonly code?: string;
+      readonly detail?: string;
+      readonly hint?: string;
+    } = {},
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/** True for the quiz's "model is starting or unavailable" error (ADR 0011 D4). */
+export function isModelUnavailable(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.status === 503 &&
+    err.extra.code === 'model_unavailable'
+  );
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -500,15 +518,20 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   });
   if (!res.ok) {
     let message = `POST ${path} failed (${res.status})`;
+    const extra: { code?: string; detail?: string; hint?: string } = {};
     try {
-      const data = (await res.json()) as { error?: unknown };
+      const data = (await res.json()) as Record<string, unknown>;
       if (typeof data.error === 'string' && data.error.trim()) {
         message = data.error;
+      }
+      for (const key of ['code', 'detail', 'hint'] as const) {
+        const value = data[key];
+        if (typeof value === 'string' && value.trim()) extra[key] = value;
       }
     } catch {
       // Non-JSON error body — keep the generic message.
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, extra);
   }
   return (await res.json()) as T;
 }
@@ -526,7 +549,9 @@ export function getQuizSession(): Promise<QuizSessionResult> {
  * POST /api/quiz/start — build a fresh shuffled deck from the current done-set
  * and present its first question. Resolves to `{ empty: true }` when no
  * problems are marked done. Throws `ApiError(400)` when no model is configured
- * (message `no model configured`) or `ApiError(502)` on a provider failure.
+ * (message `no model configured`), `ApiError(503)` (code `model_unavailable`)
+ * when the model is starting or unreachable, or `ApiError(502)` on another
+ * provider failure.
  */
 export function startQuiz(): Promise<QuizStartResult> {
   return postJson<QuizStartResult>('/api/quiz/start');
@@ -547,7 +572,9 @@ export function newQuiz(): Promise<QuizStartResult> {
  * and either the next question or a completion marker. Throws
  * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 409
  * the shown card changed — e.g. it was deleted — so the answer was not graded,
- * 502 provider/verdict failure) — the caller preserves the transcript.
+ * 503 model unavailable (code `model_unavailable`: starting or unreachable,
+ * nothing written), 502 provider/verdict failure) — the caller preserves the
+ * transcript.
  * `problemId` names the card the user was shown.
  */
 export function answerQuiz(
@@ -678,7 +705,7 @@ export interface DockerDataInfo {
   readonly writable: boolean;
   /** Fixed help text when not writable. */
   readonly writableHelp?: string;
-  /** The folder the non-Docker app uses, when it differs (mismatch banner). */
+  /** The /setup choice from the host config.json, when it differs (mismatch banner). */
   readonly hostConfigDataDir?: string;
 }
 
