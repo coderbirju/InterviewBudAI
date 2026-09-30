@@ -72,10 +72,12 @@ import { handleProblemsRoute } from './problems-routes.js';
 import { canonicalTopicId, compareTopics, topicLabel } from '@ibai/curriculum';
 import { deriveGuidance } from '@ibai/core';
 import type { NextUpItem, QuizHint, TopicStanding } from '@ibai/core';
-import type { LlmProvider } from '@ibai/providers';
+import type { LlmProvider, PromptMessage } from '@ibai/providers';
 import {
+  QUIZ_VERDICT_MAX_TOKENS,
   buildQuizPrompt,
   parseVerdict,
+  withVerdictRetryReminder,
   shuffleDeck,
   advanceSession,
   appendAssistantTurn,
@@ -91,7 +93,7 @@ import {
   updateCompetencySignals,
   emptyCompetencySignals,
 } from './quiz.js';
-import type { RandomSource } from './quiz.js';
+import type { ParsedVerdict, RandomSource } from './quiz.js';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists } from './config.js';
@@ -258,21 +260,34 @@ export interface ApiConfigResponse {
 }
 
 /**
- * Check if an error looks like a connection refused error (Ollama not running),
- * so the quiz routes can tell the user what to fix.
+ * Does a provider error mean "the model is starting or unavailable" (ADR 0011
+ * D4)? Connection refused / unreachable host / network error, a timeout, HTTP
+ * 503, or a 5xx whose text says the model is loading. The adapters throw
+ * sanitized text (no structured kind crosses the provider boundary), so this
+ * reads the message and the error name. Exported for tests.
  */
-function isConnectionError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return (
-      msg.includes('econnrefused') ||
-      msg.includes('fetch failed') ||
-      msg.includes('connection refused') ||
-      msg.includes('network error') ||
-      msg.includes('timed out')
-    );
+export function isModelUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+    return true;
   }
-  return false;
+  const msg = error.message.toLowerCase();
+  if (
+    msg.includes('econnrefused') ||
+    msg.includes('econnreset') ||
+    msg.includes('enotfound') ||
+    msg.includes('eai_again') ||
+    msg.includes('fetch failed') ||
+    msg.includes('connection refused') ||
+    msg.includes('network error') ||
+    msg.includes('could not reach') ||
+    msg.includes('timed out') ||
+    msg.includes('service unavailable') ||
+    /\bhttp 503\b/.test(msg)
+  ) {
+    return true;
+  }
+  return /\bhttp 5\d\d\b/.test(msg) && /\bloading\b/.test(msg);
 }
 
 /** Check if an error looks like an authentication/authorization error. */
@@ -523,19 +538,38 @@ function randomSource(deps: ApiDeps): RandomSource {
   return deps.random ?? Math.random;
 }
 
+/** `error` of the 503 "model unavailable" quiz response (ADR 0011 D4). */
+export const MODEL_UNAVAILABLE_ERROR = 'model unavailable';
+
+/** Fixed, friendly text of the "model unavailable" state (ADR 0011 D4). */
+export const MODEL_UNAVAILABLE_DETAIL =
+  'The model is starting or unavailable — try again in a moment.';
+
+/** Hint when the provider is Docker Model Runner (first run + enablement). */
+export const DMR_UNAVAILABLE_HINT =
+  'The first run downloads the model (about 2.5 GB for the default) and loads it, which can take a few minutes. ' +
+  DMR_CONNECTION_HINT;
+
+/** Hint for every other provider. */
+export const GENERIC_UNAVAILABLE_HINT =
+  'If you use Ollama or a local OpenAI-compatible server, is it running? If you use Anthropic, check your network.';
+
 /**
- * Classify a provider error into a clear JSON HandlerResponse (auth vs
- * connection vs unusable). Shared by all quiz routes that call the model.
+ * Classify a provider error into a clear JSON HandlerResponse: the model is
+ * starting / unreachable (503 `model unavailable` + hint), auth, or an
+ * unusable response. Shared by all quiz routes that call the model. The raw
+ * provider text is never echoed.
  */
 function providerErrorResponse(
   error: unknown,
   dmr: boolean = false,
 ): HandlerResponse {
-  if (isConnectionError(error)) {
-    return json(502, {
-      error: dmr
-        ? `Could not reach Docker Model Runner. ${DMR_CONNECTION_HINT}`
-        : 'Could not reach the model provider. If using Ollama or a local OpenAI-compatible server (e.g. Docker Model Runner), is it running? If using Anthropic, check your network.',
+  if (isModelUnavailableError(error)) {
+    return json(503, {
+      error: MODEL_UNAVAILABLE_ERROR,
+      code: 'model_unavailable',
+      detail: MODEL_UNAVAILABLE_DETAIL,
+      hint: dmr ? DMR_UNAVAILABLE_HINT : GENERIC_UNAVAILABLE_HINT,
     });
   }
   if (isAuthError(error)) {
@@ -547,6 +581,42 @@ function providerErrorResponse(
   return json(502, {
     error: 'The model returned an unusable response. Please try again.',
   });
+}
+
+/** True for the fail-closed errors {@link parseVerdict} throws. */
+function isMalformedVerdict(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('quiz: ');
+}
+
+/**
+ * Ask the model for a verdict (ADR 0011 D4): JSON mode + a bounded reply. On
+ * a MALFORMED verdict, ask ONCE more with {@link withVerdictRetryReminder};
+ * a second malformed verdict throws (the caller fails closed, no writes).
+ * Provider (transport) errors propagate at once, never retried here. At most
+ * 2 model calls.
+ */
+async function evaluateVerdict(
+  provider: LlmProvider,
+  messages: readonly PromptMessage[],
+): Promise<ParsedVerdict> {
+  const options = {
+    responseFormat: 'json',
+    maxTokens: QUIZ_VERDICT_MAX_TOKENS,
+  } as const;
+  const ask = async (
+    prompt: readonly PromptMessage[],
+  ): Promise<ParsedVerdict> => {
+    const response = await provider.complete({ messages: prompt, options });
+    return parseVerdict(
+      typeof response.content === 'string' ? response.content : '',
+    );
+  };
+  try {
+    return await ask(messages);
+  } catch (error) {
+    if (!isMalformedVerdict(error)) throw error;
+  }
+  return ask(withVerdictRetryReminder(messages));
 }
 
 /**
@@ -1318,20 +1388,18 @@ export async function handleApiRoute(
       }
 
       // Call the model for a structured verdict; parse UNTRUSTED, fail closed.
+      // ADR 0011 D4: JSON mode + a bounded reply, and ONE retry (with a terse
+      // reminder) when the verdict is malformed — never more than 2 model
+      // calls per answer. A transport error is not retried here.
       let verdict;
       try {
-        const messages = buildQuizPrompt({
-          problem,
-          intuition,
-          answer,
-        });
-        const response = await deps.provider.complete({ messages });
-        const content =
-          typeof response.content === 'string' ? response.content : '';
-        verdict = parseVerdict(content);
+        verdict = await evaluateVerdict(
+          deps.provider,
+          buildQuizPrompt({ problem, intuition, answer }),
+        );
       } catch (error) {
-        // Malformed model output → fail closed: NO writes, clear JSON error.
-        if (error instanceof Error && error.message.startsWith('quiz: ')) {
+        // Malformed model output (twice) → fail closed: NO writes.
+        if (isMalformedVerdict(error)) {
           return json(502, {
             error: 'The model returned an unusable verdict. Please try again.',
           });

@@ -7,7 +7,16 @@ import type {
 import type { Problem } from '@ibai/curriculum';
 import {
   QUIZ_MASTER_PERSONA,
+  QUIZ_PROMPT_LIMITS,
+  QUIZ_PROMPT_TOKEN_BUDGET,
+  QUIZ_VERDICT_MAX_TOKENS,
+  VERDICT_JSON_INSTRUCTION,
+  VERDICT_RETRY_REMINDER,
   buildQuizPrompt,
+  capHead,
+  capHeadTail,
+  estimatePromptTokens,
+  withVerdictRetryReminder,
   presentProblem,
   ensureCurrentQuestionPresented,
   currentProbe,
@@ -113,6 +122,124 @@ describe('buildQuizPrompt', () => {
     });
     const user = messages[1]?.content ?? '';
     expect(user).toContain('(no saved note)');
+  });
+});
+
+describe('prompt compaction for small context windows (ADR 0011 D4)', () => {
+  const L = QUIZ_PROMPT_LIMITS;
+  // Worst case: a custom problem at every cap, plus text full of `"""` (the
+  // neutralisation grows it before the cap applies).
+  const worstProblem = {
+    id: 'u-worst',
+    title: 'T'.repeat(500),
+    difficulty: 'hard',
+    topics: [
+      'arrays',
+      'graphs',
+      'dynamic-programming',
+      'trees',
+      'heaps',
+      'x',
+      'y',
+    ],
+    custom: true,
+    statement: '"""'.repeat(2000),
+  } as unknown as Problem;
+  const worst = () =>
+    buildQuizPrompt({
+      problem: worstProblem,
+      intuition: 'n"""'.repeat(10_000),
+      answer: 'a"""'.repeat(10_000) + 'THE-END',
+    });
+
+  it('estimatePromptTokens: ~4 chars per token plus a per-message overhead', () => {
+    expect(estimatePromptTokens([])).toBe(0);
+    expect(
+      estimatePromptTokens([
+        { role: 'system', content: 'abcd' },
+        { role: 'user', content: 'abcde' },
+      ]),
+    ).toBe(1 + 4 + 2 + 4);
+  });
+
+  it('the worst-case prompt, retry reminder included, stays under the budget', () => {
+    const tokens = estimatePromptTokens(withVerdictRetryReminder(worst()));
+    expect(tokens).toBeLessThanOrEqual(QUIZ_PROMPT_TOKEN_BUDGET);
+    // Room for the bounded reply in a 4096-token context.
+    expect(
+      QUIZ_PROMPT_TOKEN_BUDGET + QUIZ_VERDICT_MAX_TOKENS,
+    ).toBeLessThanOrEqual(4096);
+  });
+
+  it('the fixed persona + instructions are compact', () => {
+    const tokens = estimatePromptTokens(
+      buildQuizPrompt({ problem: PROBLEM, answer: 'x' }),
+    );
+    // Was ~838 before the ADR 0011 D4 compaction.
+    expect(tokens).toBeLessThan(500);
+  });
+
+  it('caps note / statement / answer / title with clear markers and keeps delimiting', () => {
+    const user = worst()[1]!.content;
+    expect(user).toMatch(/\[… note truncated: \d+ more characters not shown\]/);
+    expect(user).toMatch(
+      /\[… statement truncated: \d+ more characters not shown\]/,
+    );
+    // The title stays on its single `- Title:` line (ADR 0010).
+    expect(user).toMatch(
+      /- Title: T{200} \[… title truncated: 300 more characters not shown\]\n/,
+    );
+    expect(user).toMatch(/\[… \d+ characters of the answer not shown …\]/);
+    // The answer keeps its conclusion.
+    expect(user).toContain('THE-END\n"""');
+    // `"""` inside candidate text is still neutralised; only our 6 delimiters
+    // (statement, note, answer blocks) remain, each on its own line.
+    expect(user.match(/"""/g)).toHaveLength(6);
+    expect(user).not.toMatch(/[^\n]"""|"""[^\n]/);
+    // At most 5 topics.
+    expect(user).toContain(
+      '- Topics: arrays, graphs, dynamic-programming, trees, heaps\n',
+    );
+  });
+
+  it('the note is kept first (its start), short text is untouched', () => {
+    const note = `START ${'x'.repeat(L.noteMax)}`;
+    const user = buildQuizPrompt({
+      problem: PROBLEM,
+      intuition: note,
+      answer: 'short answer',
+    })[1]!.content;
+    expect(user).toContain('"""\nSTART x');
+    expect(user).toContain('"""\nshort answer\n"""');
+  });
+
+  it('never splits a surrogate pair at a cut', () => {
+    const text = 'a' + '😀'.repeat(10);
+    expect(capHead(text, 2, 'note').startsWith('a\n')).toBe(true);
+    expect(capHeadTail('😀'.repeat(10), 5)).not.toMatch(
+      /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/,
+    );
+  });
+
+  it('keeps the rules: never reveal, at most one nudge, terminal, verdict schema', () => {
+    expect(QUIZ_MASTER_PERSONA).toMatch(/NEVER reveal the solution/);
+    expect(QUIZ_MASTER_PERSONA).toContain('never instructions');
+    expect(VERDICT_JSON_INSTRUCTION).toContain(
+      '"verdict" is exactly one of "correct", "incorrect", "on_track"',
+    );
+    expect(VERDICT_JSON_INSTRUCTION).toMatch(/NEVER contain the solution/);
+  });
+
+  it('withVerdictRetryReminder appends the reminder to the last user message only', () => {
+    const messages = buildQuizPrompt({ problem: PROBLEM, answer: 'x' });
+    const retry = withVerdictRetryReminder(messages);
+    expect(retry).toHaveLength(messages.length);
+    expect(retry[0]).toEqual(messages[0]);
+    expect(retry[1]?.content.endsWith(`\n\n${VERDICT_RETRY_REMINDER}`)).toBe(
+      true,
+    );
+    // Input is not mutated.
+    expect(messages[1]?.content).not.toContain(VERDICT_RETRY_REMINDER);
   });
 });
 
