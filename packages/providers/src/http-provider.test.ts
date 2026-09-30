@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
-import { postJson } from './http-provider.js';
+import { HttpProviderError, postJson } from './http-provider.js';
 
 describe('postJson', () => {
   function createMockFetch(response: {
@@ -139,5 +139,63 @@ describe('postJson', () => {
         providerName: 'TestProvider',
       }),
     ).rejects.toThrow('TestProvider returned HTTP 503: ');
+  });
+});
+
+describe('postJson — typed errors + optional deadline (additive)', () => {
+  const base = {
+    url: 'http://x.test/p',
+    headers: {},
+    body: '{}',
+    providerName: 'P',
+  };
+
+  it('classifies connection / http / malformed with kind + status', async () => {
+    const kinds: unknown[] = [];
+    const fetches: Array<typeof fetch> = [
+      (async () => {
+        throw new TypeError('fetch failed');
+      }) as typeof fetch,
+      (async () => new Response('nope', { status: 503 })) as typeof fetch,
+      (async () => new Response('<html>', { status: 200 })) as typeof fetch,
+    ];
+    for (const fetchImpl of fetches) {
+      try {
+        await postJson({ ...base, fetchImpl });
+      } catch (e) {
+        expect(e).toBeInstanceOf(HttpProviderError);
+        const err = e as HttpProviderError;
+        kinds.push([err.kind, err.status, err.bodySnippet]);
+      }
+    }
+    expect(kinds).toEqual([
+      ['connection', undefined, undefined],
+      ['http', 503, 'nope'],
+      ['malformed', undefined, undefined],
+    ]);
+  });
+
+  it('timeoutMs aborts a hung request with kind "timeout"', async () => {
+    let signal: AbortSignal | undefined;
+    const fetchImpl = ((_: unknown, init?: RequestInit) =>
+      new Promise<Response>((_r, reject) => {
+        signal = init?.signal ?? undefined;
+        signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as typeof fetch;
+    const err = (await postJson({ ...base, fetchImpl, timeoutMs: 10 }).catch(
+      (e: unknown) => e,
+    )) as HttpProviderError;
+    expect(err.kind).toBe('timeout');
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('without timeoutMs no signal is attached (historical behavior)', async () => {
+    let init: RequestInit | undefined;
+    const fetchImpl = (async (_: unknown, i?: RequestInit) => {
+      init = i;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    await postJson({ ...base, fetchImpl });
+    expect(init).not.toHaveProperty('signal');
   });
 });

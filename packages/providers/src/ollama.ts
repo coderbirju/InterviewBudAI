@@ -100,12 +100,18 @@ function buildRequestBody(
     model: string;
     messages: Array<{ role: string; content: string }>;
     stream: boolean;
+    format?: 'json';
     options?: OllamaRequestOptions;
   } = {
     model,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     stream: false,
   };
+
+  // Optional JSON-mode hint (additive): Ollama's native `format: 'json'`.
+  if (options?.responseFormat === 'json') {
+    body.format = 'json';
+  }
 
   // Build options object, omitting undefined values
   if (options) {

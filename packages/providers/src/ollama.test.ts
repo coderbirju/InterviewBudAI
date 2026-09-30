@@ -395,3 +395,30 @@ describe('OllamaProvider', () => {
     });
   });
 });
+
+describe('OllamaProvider — responseFormat (additive JSON hint)', () => {
+  const ok = (): Response =>
+    new Response(
+      JSON.stringify({ message: { role: 'assistant', content: '{}' } }),
+      { status: 200 },
+    );
+
+  it("maps responseFormat: 'json' to format: 'json'; absent otherwise", async () => {
+    const fetchImpl = vi.fn(async () => ok());
+    const p = new OllamaProvider({ model: 'llama3', fetchImpl });
+    await p.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      options: { responseFormat: 'json' },
+    });
+    await p.complete({ messages: [{ role: 'user', content: 'x' }] });
+    const bodies = fetchImpl.mock.calls.map(
+      (c) =>
+        JSON.parse(
+          String((c as unknown as [string, RequestInit])[1].body),
+        ) as Record<string, unknown>,
+    );
+    expect(bodies[0]?.format).toBe('json');
+    expect(bodies[0]).not.toHaveProperty('options');
+    expect(bodies[1]).not.toHaveProperty('format');
+  });
+});
