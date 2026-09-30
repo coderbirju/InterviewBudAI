@@ -289,7 +289,10 @@ function defaultChoices(candidates: readonly Candidate[]): Map<string, string> {
 
 /**
  * SHA-256 over the data dir, `defaultStatus`, every file's name + exact text,
- * and every resolved row's problem id, mapped fields and "note exists" flag.
+ * every resolved row's problem id, mapped fields and "note exists" flag, and
+ * (v2, ADR 0010 D4) every unmatched row's key, title, url and mapped fields —
+ * the inputs of an "Add as custom problem" decision — so a row that starts
+ * matching (or changes) between preview and commit ⇒ 409.
  */
 export function computePreviewHash(
   analysis: ImportAnalysis,
@@ -298,7 +301,7 @@ export function computePreviewHash(
   existing: ReadonlySet<string>,
 ): string {
   const payload = JSON.stringify({
-    v: 1,
+    v: 2,
     dataDir,
     defaultStatus,
     files: analysis.files.map((f) => [f.name, f.text]),
@@ -319,6 +322,19 @@ export function computePreviewHash(
           existing.has(id),
         ];
       }),
+    unmatched: analysis.candidates
+      .filter((c) => c.match === null)
+      .map((c) => [
+        c.key,
+        c.title,
+        c.url,
+        c.mapped.body,
+        c.mapped.notes,
+        c.mapped.content,
+        c.mapped.lastVisited,
+        c.mapped.timeComplexity ?? null,
+        c.mapped.spaceComplexity ?? null,
+      ]),
   });
   return createHash('sha256').update(payload, 'utf8').digest('hex');
 }
@@ -392,11 +408,29 @@ export function buildPreview(
 /** A per-problem decision from the client. */
 export type ImportAction = 'create' | 'skip' | 'overwrite' | 'merge';
 
+/** A difficulty chosen for a new custom problem. */
+export type CustomDifficulty = 'easy' | 'medium' | 'hard';
+
 export interface ImportDecision {
-  readonly action: ImportAction;
+  readonly action: ImportAction | 'add-custom';
   readonly status?: NoteStatus;
   /** Which of several rows matching this problem to import (a preview `key`). */
   readonly rowKey?: string;
+  /** `add-custom` only (required there). */
+  readonly difficulty?: CustomDifficulty;
+  /** `add-custom` only (required there): raw topic ids, validated by the caller. */
+  readonly topics?: readonly string[];
+}
+
+/**
+ * "Add as custom problem" for one unmatched row (ADR 0010 D4): the caller
+ * creates the problem (server id), then writes the row's note to it.
+ */
+export interface CustomImportOperation {
+  readonly row: Candidate;
+  readonly difficulty: CustomDifficulty;
+  readonly topics: readonly string[];
+  readonly status?: NoteStatus;
 }
 
 /** One resolved write (or skip). */
@@ -413,7 +447,9 @@ const ACTIONS: ReadonlySet<string> = new Set([
   'skip',
   'overwrite',
   'merge',
+  'add-custom',
 ]);
+const DIFFICULTIES: ReadonlySet<string> = new Set(['easy', 'medium', 'hard']);
 
 /** Validate the untrusted `decisions` value. */
 export function parseDecisions(
@@ -425,14 +461,18 @@ export function parseDecisions(
     return {
       ok: false,
       status: 400,
-      error: '"decisions" must be an object keyed by problem id',
+      error:
+        '"decisions" must be an object keyed by problem id (or, for add-custom, by unmatched row key)',
     };
   }
   for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       return { ok: false, status: 400, error: `invalid decision for ${id}` };
     }
-    const { action, status, rowKey } = raw as Record<string, unknown>;
+    const { action, status, rowKey, difficulty, topics } = raw as Record<
+      string,
+      unknown
+    >;
     if (typeof action !== 'string' || !ACTIONS.has(action)) {
       return { ok: false, status: 400, error: `invalid action for ${id}` };
     }
@@ -441,6 +481,43 @@ export function parseDecisions(
     }
     if (rowKey !== undefined && typeof rowKey !== 'string') {
       return { ok: false, status: 400, error: `invalid rowKey for ${id}` };
+    }
+    if (action === 'add-custom') {
+      if (rowKey !== undefined && rowKey !== id) {
+        return {
+          ok: false,
+          status: 400,
+          error: `rowKey for ${id} must be ${id}`,
+        };
+      }
+      if (typeof difficulty !== 'string' || !DIFFICULTIES.has(difficulty)) {
+        return {
+          ok: false,
+          status: 400,
+          error: `add-custom for ${id} needs a difficulty (easy, medium or hard)`,
+        };
+      }
+      if (!Array.isArray(topics) || topics.some((t) => typeof t !== 'string')) {
+        return {
+          ok: false,
+          status: 400,
+          error: `add-custom for ${id} needs "topics": an array of topic ids`,
+        };
+      }
+      decisions.set(id, {
+        action: 'add-custom',
+        ...(status !== undefined && { status: status as NoteStatus }),
+        difficulty: difficulty as CustomDifficulty,
+        topics: topics as string[],
+      });
+      continue;
+    }
+    if (difficulty !== undefined || topics !== undefined) {
+      return {
+        ok: false,
+        status: 400,
+        error: `difficulty/topics are only for add-custom (${id})`,
+      };
     }
     decisions.set(id, {
       action: action as ImportAction,
@@ -453,15 +530,23 @@ export function parseDecisions(
 
 /**
  * Resolve decisions against the (re-computed) analysis: one operation per
- * matched problem. Defaults: `create` for a new note, `skip` for a conflict.
- * Ids the preview did not produce, or actions that do not fit the note's
- * state, are rejected (400).
+ * matched problem, plus one custom operation per unmatched row the user chose
+ * to "Add as custom problem" (keyed by its row key; unmatched rows default to
+ * not imported). Defaults: `create` for a new note, `skip` for a conflict.
+ * Ids / row keys the preview did not produce, or actions that do not fit the
+ * note's state, are rejected (400).
  */
 export function planCommit(
   analysis: ImportAnalysis,
   existing: ReadonlySet<string>,
   decisions: ReadonlyMap<string, ImportDecision>,
-): { ok: true; operations: ImportOperation[] } | ImportRejection {
+):
+  | {
+      ok: true;
+      operations: ImportOperation[];
+      customOperations: CustomImportOperation[];
+    }
+  | ImportRejection {
   const choices = defaultChoices(analysis.candidates);
   const rowsById = new Map<string, Candidate[]>();
   for (const c of analysis.candidates) {
@@ -470,7 +555,28 @@ export function planCommit(
     list.push(c);
     rowsById.set(c.match.problemId, list);
   }
-  for (const id of decisions.keys()) {
+  const unmatchedByKey = new Map(
+    analysis.candidates.filter((c) => !c.match).map((c) => [c.key, c]),
+  );
+  const customOperations: CustomImportOperation[] = [];
+  for (const [id, decision] of decisions) {
+    if (decision.action === 'add-custom') {
+      const row = unmatchedByKey.get(id);
+      if (row === undefined) {
+        return {
+          ok: false,
+          status: 400,
+          error: `add-custom for ${id}, which is not an unmatched row of the preview`,
+        };
+      }
+      customOperations.push({
+        row,
+        difficulty: decision.difficulty as CustomDifficulty,
+        topics: decision.topics ?? [],
+        ...(decision.status !== undefined && { status: decision.status }),
+      });
+      continue;
+    }
     if (!rowsById.has(id)) {
       return {
         ok: false,
@@ -484,7 +590,8 @@ export function planCommit(
     const exists = existing.has(id);
     const decision = decisions.get(id);
     const action: ImportAction =
-      decision?.action ?? (exists ? 'skip' : 'create');
+      (decision?.action as ImportAction | undefined) ??
+      (exists ? 'skip' : 'create');
     if (exists && action === 'create') {
       return {
         ok: false,
@@ -515,7 +622,7 @@ export function planCommit(
       row,
     });
   }
-  return { ok: true, operations };
+  return { ok: true, operations, customOperations };
 }
 
 /** The later of two ISO timestamps (unparsable values lose). */

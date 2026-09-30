@@ -54,6 +54,10 @@ export interface CatalogProblem {
   readonly difficulty: Difficulty;
   readonly status: NoteStatus;
   readonly completed: boolean;
+  /** A user-added problem (ADR 0010): "Custom" badge, editable on Notes. */
+  readonly custom?: true;
+  /** A custom problem's own plain-text statement (render escaped). */
+  readonly statement?: string;
 }
 
 /** A topic group in the catalog response. */
@@ -821,11 +825,23 @@ export interface ImportPreview {
 
 export type ImportAction = 'create' | 'skip' | 'overwrite' | 'merge';
 
-/** Per-problem choice sent on commit. */
+/** Per-problem choice sent on commit (keyed by problem id). */
 export interface ImportDecision {
   readonly action: ImportAction;
   readonly status?: NoteStatus;
   readonly rowKey?: string;
+}
+
+/**
+ * "Add as custom problem" for an unmatched row (ADR 0010 D4), keyed by the
+ * row's `key` in the same `decisions` object: the new problem gets the row's
+ * title (+ its url if http(s)) and this difficulty and 1–3 topics.
+ */
+export interface ImportCustomDecision {
+  readonly action: 'add-custom';
+  readonly difficulty: WireDifficulty;
+  readonly topics: readonly string[];
+  readonly status?: NoteStatus;
 }
 
 /** POST /api/import/csv/commit response. */
@@ -835,8 +851,16 @@ export interface ImportCommitResult {
   readonly merged: number;
   readonly skipped: number;
   readonly unmatched: number;
+  /** Custom problems created from unmatched rows (absent from older servers). */
+  readonly customCreated?: readonly {
+    readonly rowKey: string;
+    readonly problemId: string;
+    readonly title: string;
+  }[];
+  /** `rowKey` is set for an add-custom row (`problemId` may then be ''). */
   readonly failed: readonly {
     readonly problemId: string;
+    readonly rowKey?: string;
     readonly error: string;
   }[];
   readonly backup: string;
@@ -862,7 +886,7 @@ export function commitCsvImport(
   files: readonly ImportFileInput[],
   previewHash: string,
   defaultStatus: NoteStatus,
-  decisions: Readonly<Record<string, ImportDecision>>,
+  decisions: Readonly<Record<string, ImportDecision | ImportCustomDecision>>,
 ): Promise<ImportCommitResult> {
   return postJson<ImportCommitResult>('/api/import/csv/commit', {
     files,
@@ -870,4 +894,172 @@ export function commitCsvImport(
     defaultStatus,
     decisions,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Custom problems (ADR 0010 D5)
+// ---------------------------------------------------------------------------
+
+/** The wire (lowercase) difficulty the problems API takes and returns. */
+export type WireDifficulty = 'easy' | 'medium' | 'hard';
+
+/** Server limits (ADR 0010 D5), mirrored for client-side validation. */
+export const CUSTOM_PROBLEM_LIMITS = {
+  titleMax: 200,
+  urlMax: 2048,
+  statementMax: 2000,
+  topicsMin: 1,
+  topicsMax: 3,
+} as const;
+
+/** A stored custom problem (`{ problem }` of POST / PATCH). */
+export interface CustomProblem {
+  readonly id: string;
+  readonly title: string;
+  readonly url?: string;
+  readonly statement?: string;
+  readonly difficulty: WireDifficulty;
+  readonly topics: readonly string[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly custom: true;
+}
+
+/** Fields of a create. */
+export interface ProblemInput {
+  readonly title: string;
+  readonly url?: string;
+  readonly statement?: string;
+  readonly difficulty: WireDifficulty;
+  readonly topics: readonly string[];
+}
+
+/** Fields of an edit (`null` clears the optional url / statement). */
+export interface ProblemPatch {
+  readonly title?: string;
+  readonly url?: string | null;
+  readonly statement?: string | null;
+  readonly difficulty?: WireDifficulty;
+  readonly topics?: readonly string[];
+}
+
+/** The existing problem a duplicate 409 points at. */
+export interface DuplicateProblem {
+  readonly problemId: string;
+  readonly title: string;
+  readonly custom: boolean;
+}
+
+/**
+ * A non-2xx from `/api/problems*`: the server message plus the 409 details —
+ * `duplicate` (+ `overridable` for a title-only match, which may be resent
+ * with `allowSimilarTitle`) or `hasNote` (resend the delete with
+ * `deleteNote: true`).
+ */
+export class ProblemApiError extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly duplicate?: DuplicateProblem,
+    readonly overridable = false,
+    readonly hasNote = false,
+  ) {
+    super(message, status);
+    this.name = 'ProblemApiError';
+  }
+}
+
+async function sendProblemRequest<T>(
+  method: 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let data: Record<string, unknown> = {};
+    try {
+      const parsed = (await res.json()) as unknown;
+      if (typeof parsed === 'object' && parsed !== null) {
+        data = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Non-JSON error body — generic message below.
+    }
+    const dup = data.duplicate as Record<string, unknown> | undefined;
+    const duplicate =
+      dup && typeof dup.problemId === 'string' && typeof dup.title === 'string'
+        ? {
+            problemId: dup.problemId,
+            title: dup.title,
+            custom: dup.custom === true,
+          }
+        : undefined;
+    throw new ProblemApiError(
+      typeof data.error === 'string' && data.error.trim()
+        ? data.error
+        : `${method} ${path} failed (${res.status})`,
+      res.status,
+      duplicate,
+      data.overridable === true,
+      data.hasNote === true,
+    );
+  }
+  return (await res.json()) as T;
+}
+
+/** POST /api/problems — 201 `{ problem }`; 409 duplicate ⇒ `ProblemApiError`. */
+export async function createProblem(
+  input: ProblemInput,
+  options: { readonly allowSimilarTitle?: boolean } = {},
+): Promise<CustomProblem> {
+  const { problem } = await sendProblemRequest<{ problem: CustomProblem }>(
+    'POST',
+    '/api/problems',
+    { ...input, ...(options.allowSimilarTitle && { allowSimilarTitle: true }) },
+  );
+  return problem;
+}
+
+/** PATCH /api/problems/:id — 200 `{ problem }`; 409 duplicate as for create. */
+export async function updateProblem(
+  id: string,
+  patch: ProblemPatch,
+  options: { readonly allowSimilarTitle?: boolean } = {},
+): Promise<CustomProblem> {
+  const { problem } = await sendProblemRequest<{ problem: CustomProblem }>(
+    'PATCH',
+    `/api/problems/${encodeURIComponent(id)}`,
+    { ...patch, ...(options.allowSimilarTitle && { allowSimilarTitle: true }) },
+  );
+  return problem;
+}
+
+/** DELETE /api/problems/:id result (`backup` only when a note was deleted). */
+export interface DeleteProblemResult {
+  readonly deleted: boolean;
+  readonly noteDeleted: boolean;
+  readonly backup?: string;
+}
+
+/**
+ * DELETE /api/problems/:id. Without `deleteNote`, a problem that has a note
+ * answers 409 `{ hasNote: true }` (`ProblemApiError.hasNote`) — confirm, then
+ * resend with `deleteNote: true` (the server backs the folder up first).
+ */
+export function deleteProblem(
+  id: string,
+  options: { readonly deleteNote?: boolean } = {},
+): Promise<DeleteProblemResult> {
+  return sendProblemRequest<DeleteProblemResult>(
+    'DELETE',
+    `/api/problems/${encodeURIComponent(id)}`,
+    options.deleteNote ? { deleteNote: true } : {},
+  );
 }

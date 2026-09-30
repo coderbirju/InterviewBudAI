@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CircleCheck,
@@ -7,19 +7,26 @@ import {
   FileSpreadsheet,
   Loader2,
 } from 'lucide-react';
-import { ApiError, commitCsvImport, previewCsvImport } from '../lib/api';
+import {
+  ApiError,
+  commitCsvImport,
+  fetchCatalog,
+  previewCsvImport,
+} from '../lib/api';
 import type {
   ImportAction,
   ImportCommitResult,
+  ImportCustomDecision,
   ImportDecision,
   ImportFileInput,
   ImportPreview,
   ImportPreviewRow,
   ImportUnmatchedRow,
   NoteStatus,
+  WireDifficulty,
 } from '../lib/api';
 import { STATUS_LABELS, STATUS_ORDER } from '../lib/home';
-import { homeHref, isPlainClick, navigate } from '../lib/router';
+import { homeHref, isPlainClick, navigate, notesHref } from '../lib/router';
 
 /**
  * "Import notes from CSV" (ADR 0009 D2) — the CSV section of `/data`.
@@ -29,8 +36,27 @@ import { homeHref, isPlainClick, navigate } from '../lib/router';
  * skip) and a default status → Import (server re-checks the preview hash,
  * backs up the data folder, writes) → summary with the backup path.
  *
+ * Unmatched rows (ADR 0010 D4) can each be ticked "Add as custom problem",
+ * with a difficulty (default Medium) and a required topic chosen in the row;
+ * the server creates the problem from the row's title (and its link if
+ * http(s)), then writes the row's note to it.
+ *
  * Every CSV value is rendered as JSX text (auto-escaped); no raw HTML.
  */
+
+/** An unmatched row the user ticked "Add as custom problem" (topic '' = not chosen yet). */
+interface CustomRowChoice {
+  readonly difficulty: WireDifficulty;
+  readonly topic: string;
+}
+
+/** Topic choices for custom rows (from `/api/catalog`). */
+type TopicList =
+  | { readonly kind: 'idle' | 'loading' | 'error' }
+  | {
+      readonly kind: 'ready';
+      readonly topics: readonly { id: string; label: string }[];
+    };
 
 /** Client-side mirrors of the server limits (the server re-checks). */
 export const CSV_MAX_FILES = 64;
@@ -60,7 +86,12 @@ type Phase =
   | { readonly kind: 'previewing' }
   | { readonly kind: 'preview'; readonly preview: ImportPreview }
   | { readonly kind: 'committing'; readonly preview: ImportPreview }
-  | { readonly kind: 'done'; readonly result: ImportCommitResult };
+  | {
+      readonly kind: 'done';
+      readonly result: ImportCommitResult;
+      /** Row key -> "file line N: title", to label per-row failures. */
+      readonly rowLabels: Readonly<Record<string, string>>;
+    };
 
 /** "812 B" / "12.3 KB" / "1.1 MB". */
 export function formatBytes(n: number): string {
@@ -91,6 +122,19 @@ export function unmatchedAsText(rows: readonly ImportUnmatchedRow[]): string {
         `${r.file} line ${r.line}: ${r.title || '(blank title)'}${r.url ? ` — ${r.url}` : ''}`,
     )
     .join('\n');
+}
+
+/** Keep custom-row choices whose row is still unmatched after a re-preview. */
+function keepCustomRows(
+  preview: ImportPreview,
+  previous: Readonly<Record<string, CustomRowChoice>>,
+): Record<string, CustomRowChoice> {
+  const out: Record<string, CustomRowChoice> = {};
+  for (const row of preview.unmatched) {
+    const prior = previous[row.key];
+    if (prior) out[row.key] = prior;
+  }
+  return out;
 }
 
 /** Default decisions: create new notes, skip conflicts, the chosen row. */
@@ -137,6 +181,10 @@ export function CsvImport({
   const [decisions, setDecisions] = useState<Record<string, ImportDecision>>(
     {},
   );
+  const [customRows, setCustomRows] = useState<Record<string, CustomRowChoice>>(
+    {},
+  );
+  const [topicList, setTopicList] = useState<TopicList>({ kind: 'idle' });
   const [error, setError] = useState<{
     message: string;
     stale: boolean;
@@ -198,32 +246,49 @@ export function CsvImport({
         return;
       }
       const previous = decisions;
+      const previousCustom = customRows;
       setPhase({ kind: 'previewing' });
       setError(null);
       try {
         const preview = await previewCsvImport(payload, status);
         setDecisions(initialDecisions(preview, previous));
+        setCustomRows(keepCustomRows(preview, previousCustom));
         setPhase({ kind: 'preview', preview });
       } catch (err) {
         setError({ message: errorMessage(err), stale: false });
         setPhase({ kind: 'idle' });
       }
     },
-    [files, decisions],
+    [files, decisions, customRows],
   );
 
   const runCommit = useCallback(
     async (preview: ImportPreview): Promise<void> => {
       setPhase({ kind: 'committing', preview });
       setError(null);
+      const all: Record<string, ImportDecision | ImportCustomDecision> = {
+        ...decisions,
+      };
+      for (const [key, choice] of Object.entries(customRows)) {
+        all[key] = {
+          action: 'add-custom',
+          difficulty: choice.difficulty,
+          topics: [choice.topic],
+        };
+      }
+      const rowLabels: Record<string, string> = {};
+      for (const row of preview.unmatched) {
+        rowLabels[row.key] =
+          `${row.file} line ${row.line}: ${row.title || '(blank title)'}`;
+      }
       try {
         const result = await commitCsvImport(
           files.map(({ name, text }) => ({ name, text })),
           preview.previewHash,
           defaultStatus,
-          decisions,
+          all,
         );
-        setPhase({ kind: 'done', result });
+        setPhase({ kind: 'done', result, rowLabels });
         onImported?.();
       } catch (err) {
         const stale = err instanceof ApiError && err.status === 409;
@@ -231,12 +296,13 @@ export function CsvImport({
         setPhase({ kind: 'preview', preview });
       }
     },
-    [files, defaultStatus, decisions, onImported],
+    [files, defaultStatus, decisions, customRows, onImported],
   );
 
   const reset = (): void => {
     setFiles([]);
     setDecisions({});
+    setCustomRows({});
     setError(null);
     setFileError(null);
     setCopied(null);
@@ -248,6 +314,24 @@ export function CsvImport({
       ? phase.preview
       : null;
   const busy = phase.kind === 'previewing' || phase.kind === 'committing';
+  const needsTopics = (preview?.unmatched.length ?? 0) > 0;
+
+  // Topics for "Add as custom problem": fetched once, when first needed.
+  useEffect(() => {
+    if (!needsTopics || topicList.kind !== 'idle') return;
+    setTopicList({ kind: 'loading' });
+    fetchCatalog().then(
+      (catalog) =>
+        setTopicList({
+          kind: 'ready',
+          topics: catalog.topics.map((t) => ({
+            id: t.topic,
+            label: t.label ?? t.topic,
+          })),
+        }),
+      () => setTopicList({ kind: 'error' }),
+    );
+  }, [needsTopics, topicList.kind]);
 
   return (
     <section aria-labelledby="import-csv" className={CARD}>
@@ -266,7 +350,11 @@ export function CsvImport({
       </p>
 
       {phase.kind === 'done' ? (
-        <ImportSummary result={phase.result} onAgain={reset} />
+        <ImportSummary
+          result={phase.result}
+          rowLabels={phase.rowLabels}
+          onAgain={reset}
+        />
       ) : (
         <div className="mt-4 space-y-4">
           <div className="flex flex-wrap items-end gap-4">
@@ -394,6 +482,9 @@ export function CsvImport({
               preview={preview}
               decisions={decisions}
               setDecisions={setDecisions}
+              customRows={customRows}
+              setCustomRows={setCustomRows}
+              topicList={topicList}
               defaultStatus={defaultStatus}
               bulk={bulk}
               setBulk={setBulk}
@@ -415,6 +506,9 @@ function PreviewPanel({
   preview,
   decisions,
   setDecisions,
+  customRows,
+  setCustomRows,
+  topicList,
   defaultStatus,
   bulk,
   setBulk,
@@ -432,6 +526,13 @@ function PreviewPanel({
       prev: Record<string, ImportDecision>,
     ) => Record<string, ImportDecision>,
   ) => void;
+  customRows: Record<string, CustomRowChoice>;
+  setCustomRows: (
+    next: (
+      prev: Record<string, CustomRowChoice>,
+    ) => Record<string, CustomRowChoice>,
+  ) => void;
+  topicList: TopicList;
   defaultStatus: NoteStatus;
   bulk: ImportAction;
   setBulk: (a: ImportAction) => void;
@@ -453,13 +554,24 @@ function PreviewPanel({
   );
   const counts = useMemo(() => {
     const all = Object.values(decisions);
+    const custom = Object.values(customRows);
     return {
       problems: all.length,
-      create: all.filter((d) => d.action === 'create').length,
-      writes: all.filter((d) => d.action !== 'skip').length,
+      create: all.filter((d) => d.action === 'create').length + custom.length,
+      writes: all.filter((d) => d.action !== 'skip').length + custom.length,
       conflicts: conflictIds.length,
+      custom: custom.length,
+      customMissingTopic: custom.filter((c) => c.topic === '').length,
     };
-  }, [decisions, conflictIds]);
+  }, [decisions, customRows, conflictIds]);
+
+  const setCustom = (key: string, next: CustomRowChoice | null): void =>
+    setCustomRows((prev) => {
+      const out = { ...prev };
+      if (next === null) delete out[key];
+      else out[key] = next;
+      return out;
+    });
 
   const update = (id: string, patch: Partial<ImportDecision>): void =>
     setDecisions((prev) => {
@@ -509,7 +621,10 @@ function PreviewPanel({
         <Stat label="Problems matched" value={counts.problems} />
         <Stat label="New notes" value={counts.create} />
         <Stat label="Conflicts" value={counts.conflicts} />
-        <Stat label="Unmatched rows" value={preview.unmatched.length} />
+        <Stat
+          label="Unmatched rows"
+          value={preview.unmatched.length - counts.custom}
+        />
         <Stat
           label="Duplicates collapsed"
           value={preview.duplicatesCollapsed}
@@ -615,7 +730,8 @@ function PreviewPanel({
             <p className="text-slate-300">
               {preview.unmatched.length} row
               {preview.unmatched.length === 1 ? '' : 's'} matched no catalog
-              problem and won&apos;t be imported.
+              problem. Tick &ldquo;Add as custom problem&rdquo; to keep a row
+              (pick its difficulty and topic); the rest won&apos;t be imported.
             </p>
             <div className="flex gap-2">
               <button
@@ -641,6 +757,24 @@ function PreviewPanel({
               {copied}
             </p>
           )}
+          {topicList.kind === 'error' && (
+            <p role="alert" className="mt-2 text-xs text-status-blocked">
+              Couldn&apos;t load the topic list, so rows can&apos;t be added as
+              custom problems right now. Reload the page to try again.
+            </p>
+          )}
+          <ul aria-label="Unmatched rows to add" className="mt-3 space-y-2">
+            {preview.unmatched.map((row) => (
+              <UnmatchedRowChoice
+                key={row.key}
+                row={row}
+                choice={customRows[row.key]}
+                topicList={topicList}
+                busy={busy}
+                onChange={(next) => setCustom(row.key, next)}
+              />
+            ))}
+          </ul>
           <pre
             aria-label="Unmatched rows"
             className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-slate-400"
@@ -654,7 +788,12 @@ function PreviewPanel({
         <button
           type="button"
           className={PRIMARY_BTN}
-          disabled={busy || !canImport || counts.writes === 0}
+          disabled={
+            busy ||
+            !canImport ||
+            counts.writes === 0 ||
+            counts.customMissingTopic > 0
+          }
           onClick={onImport}
         >
           {committing
@@ -664,6 +803,11 @@ function PreviewPanel({
         {counts.writes === 0 && (
           <span className="text-sm text-slate-500">
             Nothing to import with the current choices.
+          </span>
+        )}
+        {counts.customMissingTopic > 0 && (
+          <span className="text-sm text-status-revisit">
+            Choose a topic for every row you&apos;re adding as a custom problem.
           </span>
         )}
       </div>
@@ -799,14 +943,101 @@ function PreviewTableRow({
   );
 }
 
+/** One unmatched row: "Add as custom problem" + difficulty + topic. */
+function UnmatchedRowChoice({
+  row,
+  choice,
+  topicList,
+  busy,
+  onChange,
+}: {
+  row: ImportUnmatchedRow;
+  choice: CustomRowChoice | undefined;
+  topicList: TopicList;
+  busy: boolean;
+  onChange: (next: CustomRowChoice | null) => void;
+}): JSX.Element {
+  const title = row.title || '(blank title)';
+  const topics = topicList.kind === 'ready' ? topicList.topics : [];
+  return (
+    <li
+      data-testid={`unmatched-row-${row.key}`}
+      className="flex flex-wrap items-center gap-3 rounded-md border border-slate-800 px-3 py-2"
+    >
+      <label className="flex min-w-0 flex-1 items-center gap-2 text-slate-200">
+        <input
+          type="checkbox"
+          checked={choice !== undefined}
+          disabled={busy || topicList.kind === 'error' || row.title === ''}
+          onChange={(e) =>
+            onChange(
+              e.target.checked ? { difficulty: 'medium', topic: '' } : null,
+            )
+          }
+          aria-label={`Add “${title}” as a custom problem`}
+          className="accent-emerald-500"
+        />
+        <span className="min-w-0 break-words">
+          {title}
+          <span className="ml-2 text-xs text-slate-500">
+            {row.file}, line {row.line}
+          </span>
+        </span>
+      </label>
+      {choice && (
+        <span className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label={`Difficulty for ${title}`}
+            className={SELECT}
+            value={choice.difficulty}
+            disabled={busy}
+            onChange={(e) =>
+              onChange({
+                ...choice,
+                difficulty: e.target.value as WireDifficulty,
+              })
+            }
+          >
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+          <select
+            aria-label={`Topic for ${title}`}
+            aria-invalid={choice.topic === '' ? true : undefined}
+            className={SELECT}
+            value={choice.topic}
+            disabled={busy || topicList.kind !== 'ready'}
+            onChange={(e) => onChange({ ...choice, topic: e.target.value })}
+          >
+            <option value="">
+              {topicList.kind === 'loading'
+                ? 'Loading topics…'
+                : 'Choose a topic…'}
+            </option>
+            {topics.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </span>
+      )}
+    </li>
+  );
+}
+
 function ImportSummary({
   result,
+  rowLabels,
   onAgain,
 }: {
   result: ImportCommitResult;
+  rowLabels: Readonly<Record<string, string>>;
   onAgain: () => void;
 }): JSX.Element {
   const failures = result.failed.length;
+  const customAdded = result.customCreated?.length ?? 0;
   return (
     <div
       role="status"
@@ -828,6 +1059,9 @@ function ImportSummary({
         <Stat label="Overwritten" value={result.overwritten} />
         <Stat label="Merged" value={result.merged} />
         <Stat label="Skipped" value={result.skipped} />
+        {customAdded > 0 && (
+          <Stat label="Custom problems added" value={customAdded} />
+        )}
         <Stat label="Unmatched" value={result.unmatched} />
         {failures > 0 && <Stat label="Failed" value={failures} />}
       </dl>
@@ -835,11 +1069,50 @@ function ImportSummary({
         <div role="alert" className="text-status-blocked">
           <p>These notes could not be written:</p>
           <ul className="list-disc pl-5">
-            {result.failed.map((f) => (
-              <li key={f.problemId}>
-                <span className="font-mono">{f.problemId}</span>: {f.error}
-              </li>
-            ))}
+            {result.failed.map((f, i) => {
+              // The problem was created but its note write failed: say so,
+              // so the row is not mistaken for "nothing happened".
+              const made =
+                f.rowKey !== undefined && f.problemId !== ''
+                  ? result.customCreated?.find(
+                      (c) =>
+                        c.rowKey === f.rowKey && c.problemId === f.problemId,
+                    )
+                  : undefined;
+              return (
+                <li key={`${i}:${f.rowKey ?? f.problemId}`}>
+                  {made ? (
+                    <>
+                      Added <span className="font-semibold">{made.title}</span>{' '}
+                      as a custom problem, but its note couldn&apos;t be written
+                      —{' '}
+                      <a
+                        href={notesHref(made.problemId)}
+                        onClick={(e) => {
+                          if (isPlainClick(e)) {
+                            e.preventDefault();
+                            navigate(notesHref(made.problemId));
+                          }
+                        }}
+                        className="underline"
+                      >
+                        open it
+                      </a>{' '}
+                      and add your notes
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono">
+                        {f.rowKey !== undefined
+                          ? rowLabels[f.rowKey] ?? f.rowKey
+                          : f.problemId}
+                      </span>
+                      : {f.error}
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

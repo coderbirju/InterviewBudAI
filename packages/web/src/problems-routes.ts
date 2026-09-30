@@ -233,6 +233,80 @@ function duplicateResponse(
   });
 }
 
+/** The storage methods a create needs. */
+export type CustomProblemWriter = Required<
+  Pick<StorageAdapter, 'createCustomProblem' | 'listCustomProblems'>
+>;
+
+/** Already-validated fields of a new custom problem. */
+export interface NewCustomProblem {
+  readonly title: string;
+  readonly url?: string;
+  readonly statement?: string;
+  readonly difficulty: CustomProblem['difficulty'];
+  readonly topics: readonly string[];
+}
+
+/**
+ * Create one custom problem from validated fields: the 1,000 cap, the
+ * duplicate check (catalog + existing custom problems) and an exclusive
+ * create with a server-generated id. Shared by `POST /api/problems` and the
+ * CSV import's "Add as custom problem" (ADR 0010 D4); callers hold
+ * {@link serializedProblemWrite}.
+ */
+export async function createCustomProblemRecord(
+  deps: {
+    readonly catalog: CurriculumSource;
+    readonly storage: CustomProblemWriter;
+    readonly now: () => Date;
+    readonly randomInt?: (max: number) => number;
+  },
+  fields: NewCustomProblem,
+  allowSimilarTitle: boolean,
+): Promise<
+  | { readonly ok: true; readonly problem: CustomProblem }
+  | { readonly ok: false; readonly response: HandlerResponse }
+> {
+  const { storage } = deps;
+  const existing = await storage.listCustomProblems();
+  if (existing.length >= CUSTOM_PROBLEM_LIMITS.maxProblems) {
+    return fail(400, {
+      error: `at most ${CUSTOM_PROBLEM_LIMITS.maxProblems} custom problems per data folder`,
+    });
+  }
+  const dup = duplicateResponse(
+    deps.catalog,
+    existing,
+    fields.title,
+    fields.url,
+    allowSimilarTitle,
+  );
+  if (dup !== null) return { ok: false, response: dup };
+
+  const at = deps.now().toISOString() as IsoTimestamp;
+  // Exclusive create; a (vanishingly rare) id collision retries with a new
+  // random suffix — an existing problem is never overwritten.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const problem: CustomProblem = {
+      id: generateCustomProblemId(fields.title, deps.randomInt),
+      title: fields.title,
+      ...(fields.url !== undefined && { url: fields.url }),
+      ...(fields.statement !== undefined && { statement: fields.statement }),
+      difficulty: fields.difficulty,
+      topics: [...fields.topics],
+      createdAt: at,
+      updatedAt: at,
+    };
+    try {
+      await storage.createCustomProblem(problem);
+      return { ok: true, problem };
+    } catch (err) {
+      if (!isErrno(err, 'EEXIST')) throw err;
+    }
+  }
+  return fail(500, { error: 'could not allocate a problem id; try again' });
+}
+
 function toApiProblem(problem: CustomProblem): ApiCustomProblem {
   return { ...problem, custom: true };
 }
@@ -263,7 +337,7 @@ function checkEditableId(id: string, catalog: CurriculumSource): Fail | null {
  */
 let problemWrites: Promise<unknown> = Promise.resolve();
 
-function serialized<T>(task: () => Promise<T>): Promise<T> {
+export function serializedProblemWrite<T>(task: () => Promise<T>): Promise<T> {
   const run = problemWrites.then(task, task);
   problemWrites = run.catch(() => undefined);
   return run;
@@ -280,7 +354,7 @@ export async function handleProblemsRoute(
     (pathname === PROBLEMS_PATH || pathname.startsWith(`${PROBLEMS_PATH}/`)) &&
     (method === 'POST' || method === 'PATCH' || method === 'DELETE')
   ) {
-    return serialized(() =>
+    return serializedProblemWrite(() =>
       handleProblemsRouteUnlocked(method, pathname, deps, rawBody),
     );
   }
@@ -307,45 +381,27 @@ async function handleProblemsRouteUnlocked(
     if (!valid.ok) return valid.response;
     const f = valid.fields;
 
-    const existing = await storage.listCustomProblems();
-    if (existing.length >= CUSTOM_PROBLEM_LIMITS.maxProblems) {
-      return json(400, {
-        error: `at most ${CUSTOM_PROBLEM_LIMITS.maxProblems} custom problems per data folder`,
-      });
-    }
-    const url = typeof f.url === 'string' ? f.url : undefined;
-    const statement = typeof f.statement === 'string' ? f.statement : undefined;
-    const dup = duplicateResponse(
-      deps.catalog,
-      existing,
-      f.title!,
-      url,
-      f.allowSimilarTitle,
-    );
-    if (dup !== null) return dup;
-
-    const at = now().toISOString() as IsoTimestamp;
-    // Exclusive create; a (vanishingly rare) id collision retries with a new
-    // random suffix — an existing problem is never overwritten.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const problem: CustomProblem = {
-        id: generateCustomProblemId(f.title!, deps.randomInt),
+    const created = await createCustomProblemRecord(
+      {
+        catalog: deps.catalog,
+        storage: {
+          createCustomProblem: storage.createCustomProblem.bind(storage),
+          listCustomProblems: storage.listCustomProblems.bind(storage),
+        },
+        now,
+        ...(deps.randomInt !== undefined && { randomInt: deps.randomInt }),
+      },
+      {
         title: f.title!,
-        ...(url !== undefined && { url }),
-        ...(statement !== undefined && { statement }),
+        ...(typeof f.url === 'string' && { url: f.url }),
+        ...(typeof f.statement === 'string' && { statement: f.statement }),
         difficulty: f.difficulty!,
         topics: f.topics!,
-        createdAt: at,
-        updatedAt: at,
-      };
-      try {
-        await storage.createCustomProblem(problem);
-        return json(201, { problem: toApiProblem(problem) });
-      } catch (err) {
-        if (!isErrno(err, 'EEXIST')) throw err;
-      }
-    }
-    return json(500, { error: 'could not allocate a problem id; try again' });
+      },
+      f.allowSimilarTitle,
+    );
+    if (!created.ok) return created.response;
+    return json(201, { problem: toApiProblem(created.problem) });
   }
 
   if (!pathname.startsWith(`${PROBLEMS_PATH}/`)) return null;
