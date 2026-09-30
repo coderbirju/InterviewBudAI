@@ -33,7 +33,7 @@ Everything else (home/catalog/notes/analytics/interview HTML, `/coach`, `/coach.
   **Session management (quiz-fix-b).** An **End session** control is shown during an active quiz — `POST /api/quiz/end` persists the session `complete` and clears the active pointer, so it stops being resumable-active but **remains listed** (ending never deletes). The idle and complete views show a **Your sessions** list (`GET /api/quiz/sessions`, empty-safe): one card per past + active session (created time, `answered / deckSize`, correct tally, status/Active badge) with a **Resume** button (`POST /api/quiz/resume { sessionId }` — re-activates it as the resumable session and continues from its position; a session whose deck is exhausted is shown as complete and is not re-activated) and a **Delete** button (`POST /api/quiz/delete { sessionId }` after a small confirm; a REST-form `DELETE /api/quiz/session/:id` is also accepted). Delete is idempotent (missing → `ok:true`); deleting the active session also clears the pointer. Loading/empty/error states are handled and the page never crashes with no DB / no sessions.
 
 - **Your data** (`/data`, nav link **Data**) — see [below](#your-data-data--adr-0009-d1).
-- **Settings** (`/settings`, nav link **Settings**, ADR 0008 Wave 2c-lite) — read-only model status. **Model** card: provider (Anthropic / Ollama / none), model, Ollama endpoint (origin only), "Anthropic API key: Configured ✓ / Not configured ✗", and a **Test connection** button (explicit click only; Anthropic shows a note that it makes one tiny billable 1-token call) with the result + latency. **How to configure**: the env vars the server reads with set ✓/✗, a copyable `.env` snippet with placeholders only, and a note that changes need a server restart. **Data** card (folder + source, links to `/data`) and **App** card (version, Node). **Keys stay env-only**: the page has no input, never receives, stores or shows a key. The Interview page's "Configure a model" state links here. Component: `web-ui/src/components/SettingsPage.tsx`.
+- **Settings** (`/settings`, nav link **Settings**, ADR 0008 Wave 2c-lite) — read-only model status. **Model** card: provider (Anthropic / OpenAI-compatible — shown as "Docker Model Runner (local)" for a DMR host / Ollama / none), model, Ollama or OpenAI-compatible endpoint (origin only), "Anthropic API key" (or, for OpenAI-compatible, "API key (optional)"): Configured ✓ / Not configured ✗, and a **Test connection** button (explicit click only; Anthropic shows a note that it makes one tiny billable 1-token call) with the result + latency. **How to configure**: the env vars the server reads with set ✓/✗, a copyable `.env` snippet with placeholders only, and a note that changes need a server restart. **Data** card (folder + source, links to `/data`) and **App** card (version, Node). **Keys stay env-only**: the page has no input, never receives, stores or shows a key. The Interview page's "Configure a model" state links here. Component: `web-ui/src/components/SettingsPage.tsx`.
 
 All no-DB states link to `/data`. All values render via JSX (auto-escaped); no `dangerouslySetInnerHTML`. The only outbound calls are the user-configured LLM provider, made **server-side** inside the `POST /api/quiz/*` routes and `POST /api/settings/test-provider`.
 
@@ -149,8 +149,8 @@ generic interview chat (`POST /api/chat`) was removed (ADR 0008 D4) — it now
 
 | Route | Response |
 |---|---|
-| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'ollama'\|'none', model, endpoint, keyConfigured, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT` with `set` booleans — never values. `405` non-GET. |
-| `POST /api/settings/test-provider` | Same prechecks as every mutating `/api` route (Host 421, cross-site 403, non-JSON 415). Rate limited in-process: one test per 5 s (and one at a time) → else `429 { error }`. No provider → `400 { error: 'no model configured' }`. Ollama: `GET <IBAI_OLLAMA_URL>/api/tags` (5 s timeout), `ok` only if the configured model is pulled (`llama3` ≡ `llama3:latest`). Anthropic: one `max_tokens: 1` messages call through `AnthropicProvider` (billable, 5 s timeout). `200 { ok, latencyMs, detail }`; `detail` is fixed, sanitized text (HTTP status class + a plain `error.type` identifier at most) — provider bodies, headers, keys and URL userinfo are never echoed. |
+| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the optional key; otherwise Anthropic). Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT` with `set` booleans — never values. `405` non-GET. |
+| `POST /api/settings/test-provider` | Same prechecks as every mutating `/api` route (Host 421, cross-site 403, non-JSON 415). Rate limited in-process: one test per 5 s (and one at a time) → else `429 { error }`. No provider → `400 { error: 'no model configured' }`. Ollama: `GET <IBAI_OLLAMA_URL>/api/tags` (5 s timeout), `ok` only if the configured model is pulled (`llama3` ≡ `llama3:latest`). OpenAI-compatible: `GET <base URL>/models` (Bearer only when a key is set; 5 s timeout), `ok` only if `data[].id` lists the configured model (`m` ≡ `m:latest`); "not listed" gets its own detail (DMR: a `docker model pull` hint). Anthropic: one `max_tokens: 1` messages call through `AnthropicProvider` (billable, 5 s timeout). `200 { ok, latencyMs, detail }`; `detail` is fixed, sanitized text (HTTP status class + a plain `error.type` identifier at most) — provider bodies, headers, keys and URL userinfo are never echoed. |
 
 ### Your data (`/data` — ADR 0009 D1)
 
@@ -322,7 +322,31 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export IBAI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
 ```
 
-### Option 2: Ollama (Local)
+### Option 2: OpenAI-compatible server (e.g. Docker Model Runner)
+
+Any server that speaks the OpenAI Chat Completions API: Docker Model Runner,
+llama.cpp, vLLM, LM Studio, Ollama's `/v1`, or a hosted OpenAI-style API.
+
+```bash
+# Docker Model Runner on the host (enable host-side TCP support; Linux: port 12434)
+export IBAI_OPENAI_BASE_URL=http://localhost:12434/engines/v1
+export IBAI_OPENAI_MODEL=<model-id>        # as the server names it, e.g. an ai/... tag
+export IBAI_OPENAI_API_KEY=...             # optional; OPENAI_API_KEY also works
+export IBAI_OPENAI_TIMEOUT_MS=120000       # optional (clamped 5000–600000)
+```
+
+The base URL is the one ending in `/v1`: trailing slashes are dropped, a bare
+origin gets `/v1` appended, a pasted `…/chat/completions` or `…/models` is
+trimmed, and any other path is kept (never a double `/v1`). A key is sent as
+`Authorization: Bearer …` only when set, and only over `https` or loopback
+`http` (else the provider is skipped with a Settings hint). The key never
+appears in logs, errors or `/api/settings`.
+
+**Precedence** (first match wins; `resolveProviderStatus` / `selectProvider`):
+Anthropic (key + model) → OpenAI-compatible (base URL + model) → Ollama
+(model) → none.
+
+### Option 3: Ollama (Local)
 
 ```bash
 # Start Ollama
