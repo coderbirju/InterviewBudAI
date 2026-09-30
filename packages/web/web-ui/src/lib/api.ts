@@ -549,7 +549,9 @@ export function getQuizSession(): Promise<QuizSessionResult> {
  * POST /api/quiz/start — build a fresh shuffled deck from the current done-set
  * and present its first question. Resolves to `{ empty: true }` when no
  * problems are marked done. Throws `ApiError(400)` when no model is configured
- * (message `no model configured`) or `ApiError(502)` on a provider failure.
+ * (message `no model configured`), `ApiError(503)` (code `model_unavailable`)
+ * when the model is starting or unreachable, or `ApiError(502)` on another
+ * provider failure.
  */
 export function startQuiz(): Promise<QuizStartResult> {
   return postJson<QuizStartResult>('/api/quiz/start');
@@ -570,7 +572,9 @@ export function newQuiz(): Promise<QuizStartResult> {
  * and either the next question or a completion marker. Throws
  * `ApiError` on a non-2xx (400 no model / no DB, 404 no active session, 409
  * the shown card changed — e.g. it was deleted — so the answer was not graded,
- * 502 provider/verdict failure) — the caller preserves the transcript.
+ * 503 model unavailable (code `model_unavailable`: starting or unreachable,
+ * nothing written), 502 provider/verdict failure) — the caller preserves the
+ * transcript.
  * `problemId` names the card the user was shown.
  */
 export function answerQuiz(

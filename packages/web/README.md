@@ -285,9 +285,11 @@ are described under SPA views above.
 
 The verdict JSON the model must emit is
 `{ "verdict": "correct"|"incorrect"|"on_track", "feedback": string, "optimalNudge"?: string }`
-in a fenced ```json block (parsed fail-closed, mirroring `core`'s `coach()`).
-On any malformed/absent verdict the turn returns `502` and performs **no
-storage writes** — never a fabricated verdict. `optimalNudge` nudges the user
+as a bare JSON object with no code fence, so it also works in JSON mode (a
+fenced ```json block is still accepted; parsed fail-closed, mirroring `core`'s
+`coach()`). An empty completion counts as malformed and gets the same one
+retry. On a malformed/absent verdict after that retry the turn returns `502`
+and performs **no storage writes** — never a fabricated verdict. `optimalNudge` nudges the user
 toward a more optimal approach **without revealing it** (§6.2). Competency
 signals are updated via `readCompetencySignals`/`writeCompetencySignals`; the
 `to_revisit` flip is written via `writeIntuitionNote`, preserving other note
@@ -295,8 +297,9 @@ fields. The pure engine pieces (prompt building, verdict parsing, seedable
 shuffle, session advance/no-repeat, competency-signal derivation) live in
 `quiz.ts` and are unit-tested independently of the HTTP layer.
 
-The quiz routes never crash on a provider failure: **auth** and
-**connection** errors map to `502` with a clear message. The only outbound
+The quiz routes never crash on a provider failure: **connection** errors
+(model starting or unreachable) map to `503 model_unavailable` with a hint,
+and **auth** errors map to `502` with a clear message. The only outbound
 network call is to the user-configured provider, made server-side inside
 `complete()`.
 

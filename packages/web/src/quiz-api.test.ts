@@ -396,10 +396,12 @@ describe('POST /api/quiz/answer', () => {
     /** Returns queued contents in order and records every request. */
     class RecordingProvider implements LlmProvider {
       readonly requests: CompletionRequest[] = [];
-      constructor(private readonly replies: string[]) {}
+      constructor(private readonly replies: (string | Error)[]) {}
       async complete(request: CompletionRequest): Promise<CompletionResponse> {
         this.requests.push(request);
-        return { content: this.replies.shift() ?? 'still not json' };
+        const next = this.replies.shift() ?? 'still not json';
+        if (next instanceof Error) throw next;
+        return { content: next };
       }
     }
     const VALID = '{"verdict":"incorrect","feedback":"off"}';
@@ -472,6 +474,40 @@ describe('POST /api/quiz/answer', () => {
       expect((await adapter.readActiveQuizSession())?.answered).toHaveLength(0);
       expect((await adapter.readIntuitionNote(firstId))?.status).toBe('done');
       expect((await adapter.readCompetencySignals()).patterns).toHaveLength(0);
+    });
+    const EMPTY = () =>
+      new Error(
+        'OpenAI-compatible server returned an empty response (no content)',
+      );
+
+    it('empty completion → valid: the empty reply is retried like a malformed verdict', async () => {
+      const provider = new RecordingProvider([EMPTY(), VALID]);
+      const { res, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(200);
+      expect(provider.requests).toHaveLength(2);
+      expect(provider.requests[1]?.messages.at(-1)?.content).toContain(
+        VERDICT_RETRY_REMINDER,
+      );
+      expect(sessionWrites).toBe(1);
+    });
+
+    it('empty → empty: 502, exactly 2 calls, no writes', async () => {
+      const provider = new RecordingProvider([EMPTY(), EMPTY(), VALID]);
+      const { res, firstId, sessionWrites } = await answerWith(provider);
+      expect(res.status).toBe(502);
+      expect(provider.requests).toHaveLength(2);
+      expect(sessionWrites).toBe(0);
+      const adapter = new LocalFileStorageAdapter(tmpDir);
+      expect((await adapter.readActiveQuizSession())?.answered).toHaveLength(0);
+      expect((await adapter.readIntuitionNote(firstId))?.status).toBe('done');
+      expect((await adapter.readCompetencySignals()).patterns).toHaveLength(0);
+    });
+
+    it('empty content string → valid: also retried once', async () => {
+      const provider = new RecordingProvider(['', VALID]);
+      const { res } = await answerWith(provider);
+      expect(res.status).toBe(200);
+      expect(provider.requests).toHaveLength(2);
     });
   });
 
@@ -771,6 +807,49 @@ describe('POST /api/quiz/answer — at-most-one-nudge policy (quiz-fix-a)', () =
     // Note flipped to to_revisit (terminal incorrect behavior).
     const note = await adapter.readIntuitionNote(firstId);
     expect(note?.status).toBe('to_revisit');
+  });
+
+  it('a second on_track that arrives on the malformed-verdict RETRY is still coerced to incorrect', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new SequencedQuizProvider([
+      ON_TRACK,
+      'not json at all',
+      ON_TRACK,
+    ]);
+    const deps = makeQuizDeps(provider);
+    await startWith(deps);
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const firstId = (await adapter.readActiveQuizSession())?.deck[0] as string;
+
+    const first = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'partial 1' }),
+    );
+    expect(JSON.parse(first.body).verdict).toBe('on_track');
+
+    // Malformed first reply, then on_track on the retry → coerced.
+    const second = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'partial 2' }),
+    );
+    expect(provider.evalCalls).toBe(3);
+    expect(second.status).toBe(200);
+    const body = JSON.parse(second.body) as {
+      verdict: string;
+      terminal: boolean;
+      session: { index: number; answered: number };
+    };
+    expect(body.verdict).toBe('incorrect');
+    expect(body.terminal).toBe(true);
+    expect(body.session.index).toBe(1);
+    expect(body.session.answered).toBe(1);
+    expect((await adapter.readIntuitionNote(firstId))?.status).toBe(
+      'to_revisit',
+    );
   });
 
   it('correct after one nudge → terminal correct + advance (note stays done)', async () => {

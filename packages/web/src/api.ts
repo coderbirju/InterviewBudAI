@@ -583,14 +583,23 @@ function providerErrorResponse(
   });
 }
 
-/** True for the fail-closed errors {@link parseVerdict} throws. */
+/**
+ * True for the fail-closed errors {@link parseVerdict} throws, and for an
+ * EMPTY completion (a provider's "returned an empty response" error, e.g. a
+ * small model in JSON mode that hit `maxTokens`): both are an unreadable
+ * verdict, eligible for the one retry.
+ */
 function isMalformedVerdict(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith('quiz: ');
+  return (
+    error instanceof Error &&
+    (error.message.startsWith('quiz: ') ||
+      error.message.includes('returned an empty response'))
+  );
 }
 
 /**
  * Ask the model for a verdict (ADR 0011 D4): JSON mode + a bounded reply. On
- * a MALFORMED verdict, ask ONCE more with {@link withVerdictRetryReminder};
+ * a MALFORMED (or empty) verdict, ask ONCE more with {@link withVerdictRetryReminder};
  * a second malformed verdict throws (the caller fails closed, no writes).
  * Provider (transport) errors propagate at once, never retried here. At most
  * 2 model calls.
