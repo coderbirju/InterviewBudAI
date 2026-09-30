@@ -9,10 +9,12 @@ import {
   Lock,
 } from 'lucide-react';
 import { CsvImport } from './CsvImport';
+import { DockerNotices } from './DockerNotices';
 import {
   ApiError,
   checkDataDir,
   dismissLegacyData,
+  dockerPinnedText,
   fetchDataDir,
   switchDataDir,
 } from '../lib/api';
@@ -217,7 +219,11 @@ export function DataPage(): JSX.Element {
         <dl className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-slate-500">Source</dt>
-            <dd className="text-slate-200">{SOURCE_LABEL[status.source]}</dd>
+            <dd className="text-slate-200" data-testid="data-source">
+              {status.docker
+                ? dockerPinnedText(status.docker)
+                : SOURCE_LABEL[status.source]}
+            </dd>
           </div>
           <div>
             <dt className="text-slate-500">Notes</dt>
@@ -232,7 +238,28 @@ export function DataPage(): JSX.Element {
             below (or create it yourself).
           </p>
         )}
-        {status.pinned && (
+        {status.docker && (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
+              <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p className="break-all" data-testid="docker-pinned">
+                {dockerPinnedText(status.docker)}. Inside Docker this folder is
+                shown as <code>{status.dataDir}</code>
+                {status.docker.hostDataDir !== null && (
+                  <>
+                    {' '}
+                    (on your computer: <code>{status.docker.hostDataDir}</code>)
+                  </>
+                )}
+                , including backups under <code>{status.dataDir}/.backups</code>
+                . To use another folder, set <code>IBAI_HOST_DATA_DIR</code> in{' '}
+                <code>.env</code> and restart <code>docker compose up</code>.
+              </p>
+            </div>
+            <DockerNotices docker={status.docker} />
+          </div>
+        )}
+        {status.pinned && !status.docker && (
           <div className="mt-4 flex items-start gap-2 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <p>
@@ -311,75 +338,77 @@ export function DataPage(): JSX.Element {
         </section>
       )}
 
-      {/* 3. Use an existing folder */}
-      <section aria-labelledby="use-existing" className={CARD}>
-        <h2 id="use-existing" className="font-semibold text-slate-100">
-          Use an existing notes folder
-        </h2>
-        <p className="mt-1 text-sm text-slate-400">
-          Point InterviewBudAI at a folder that already holds your notes (the
-          one containing <code>notes/</code>), or a new folder to start fresh.
-          Use an absolute path or one starting with <code>~/</code>.
-        </p>
-        <form
-          className="mt-4 space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (trimmed) void chooseFolder(pathInput, 'switch');
-          }}
-        >
-          <label htmlFor="data-path" className="block text-sm text-slate-300">
-            Folder path
-          </label>
-          <input
-            id="data-path"
-            type="text"
-            value={pathInput}
-            disabled={status.pinned}
-            onChange={(e) => {
-              setPathInput(e.target.value);
-              setInspection(null);
-              setFormError(null);
+      {/* 3. Use an existing folder (never offered under Docker: pinned) */}
+      {!status.docker && (
+        <section aria-labelledby="use-existing" className={CARD}>
+          <h2 id="use-existing" className="font-semibold text-slate-100">
+            Use an existing notes folder
+          </h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Point InterviewBudAI at a folder that already holds your notes (the
+            one containing <code>notes/</code>), or a new folder to start fresh.
+            Use an absolute path or one starting with <code>~/</code>.
+          </p>
+          <form
+            className="mt-4 space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (trimmed) void chooseFolder(pathInput, 'switch');
             }}
-            placeholder="~/Documents/interview-notes"
-            aria-invalid={formError ? true : undefined}
-            aria-describedby={formError ? 'data-path-error' : undefined}
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-600 transition-all duration-200 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
-          />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className={SECONDARY_BTN}
-              disabled={status.pinned || !trimmed || busy !== null}
-              onClick={() => void onCheck()}
-            >
-              {busy === 'check' ? 'Checking…' : 'Check'}
-            </button>
-            <button
-              type="submit"
-              className={PRIMARY_BTN}
-              disabled={status.pinned || !trimmed || busy !== null}
-            >
-              {busy === 'switch' ? 'Switching…' : 'Use this folder'}
-            </button>
-          </div>
-          {formError && (
-            <p
-              id="data-path-error"
-              role="alert"
-              className="text-sm text-status-blocked"
-            >
-              {formError}
-            </p>
-          )}
-          {inspection && (
-            <InspectionResult
-              inspection={inspection}
-              onUsePath={setPathInput}
+          >
+            <label htmlFor="data-path" className="block text-sm text-slate-300">
+              Folder path
+            </label>
+            <input
+              id="data-path"
+              type="text"
+              value={pathInput}
+              disabled={status.pinned}
+              onChange={(e) => {
+                setPathInput(e.target.value);
+                setInspection(null);
+                setFormError(null);
+              }}
+              placeholder="~/Documents/interview-notes"
+              aria-invalid={formError ? true : undefined}
+              aria-describedby={formError ? 'data-path-error' : undefined}
+              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-600 transition-all duration-200 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
             />
-          )}
-        </form>
-      </section>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={SECONDARY_BTN}
+                disabled={status.pinned || !trimmed || busy !== null}
+                onClick={() => void onCheck()}
+              >
+                {busy === 'check' ? 'Checking…' : 'Check'}
+              </button>
+              <button
+                type="submit"
+                className={PRIMARY_BTN}
+                disabled={status.pinned || !trimmed || busy !== null}
+              >
+                {busy === 'switch' ? 'Switching…' : 'Use this folder'}
+              </button>
+            </div>
+            {formError && (
+              <p
+                id="data-path-error"
+                role="alert"
+                className="text-sm text-status-blocked"
+              >
+                {formError}
+              </p>
+            )}
+            {inspection && (
+              <InspectionResult
+                inspection={inspection}
+                onUsePath={setPathInput}
+              />
+            )}
+          </form>
+        </section>
+      )}
 
       {/* 4. Import CSV (ADR 0009 D2) */}
       <CsvImport

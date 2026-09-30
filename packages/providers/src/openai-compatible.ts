@@ -66,7 +66,13 @@ export const OPENAI_DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_BODY_BYTES = 1024 * 1024;
 
 /** Hosts a key may be sent to over plain `http:` — loopback only (ADR 0011 D1). */
-function isLoopbackHost(hostname: string): boolean {
+/**
+ * True for a loopback hostname as `URL#hostname` gives it: `localhost`,
+ * `*.localhost`, `127.x.x.x` and `[::1]`. The ONE loopback rule shared by the
+ * key-transport check, the DMR bare-host normalization and the web settings
+ * DMR label.
+ */
+export function isLoopbackHostname(hostname: string): boolean {
   const h = hostname.toLowerCase();
   return (
     h === 'localhost' ||
@@ -91,7 +97,7 @@ export function openAIKeyTransportAllowed(
   try {
     const url = new URL(rawBaseUrl.trim());
     if (url.protocol === 'https:') return true;
-    return url.protocol === 'http:' && isLoopbackHost(url.hostname);
+    return url.protocol === 'http:' && isLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
@@ -165,10 +171,7 @@ function isBareDmrHost(url: URL): boolean {
   const host = url.hostname.toLowerCase();
   if (host === 'model-runner.docker.internal') return true;
   return (
-    url.port === DMR_PORT &&
-    (host === 'localhost' ||
-      /^127(\.\d{1,3}){3}$/.test(host) ||
-      host === '172.17.0.1')
+    url.port === DMR_PORT && (isLoopbackHostname(host) || host === '172.17.0.1')
   );
 }
 

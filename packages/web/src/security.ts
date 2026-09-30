@@ -46,6 +46,46 @@ export function allowedHostsFor(port: number): ReadonlySet<string> {
   return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 }
 
+/**
+ * Which `Host` values are accepted, split by what they may do (ADR 0011 D2).
+ * The hostnames are always loopback-only (`127.0.0.1`, `localhost`, `[::1]`);
+ * only the port differs:
+ *
+ *  - `publicHosts` — the port the browser uses (`IBAI_PUBLIC_PORT`, default
+ *    the listen port). Every request is allowed, and it is the ONLY port the
+ *    same-origin (Origin) check accepts.
+ *  - `readOnlyHosts` — the container's listen port when it differs from the
+ *    public port (the in-container HEALTHCHECK). Non-mutating requests only;
+ *    a mutating request gets 403. Empty when the two ports are equal.
+ *
+ * These are browser defenses (DNS rebinding, CSRF). A LAN client can forge
+ * any Host; LAN isolation comes from the `127.0.0.1:` publish, not from here.
+ */
+export interface HostPolicy {
+  readonly publicHosts: ReadonlySet<string>;
+  readonly readOnlyHosts: ReadonlySet<string>;
+}
+
+export function hostPolicyFor(
+  listenPort: number,
+  publicPort: number = listenPort,
+): HostPolicy {
+  return {
+    publicHosts: allowedHostsFor(publicPort),
+    readOnlyHosts:
+      publicPort === listenPort ? new Set() : allowedHostsFor(listenPort),
+  };
+}
+
+/** A plain host set is a policy with no read-only hosts. */
+export function toHostPolicy(
+  hosts: ReadonlySet<string> | HostPolicy,
+): HostPolicy {
+  return 'publicHosts' in hosts
+    ? hosts
+    : { publicHosts: hosts, readOnlyHosts: new Set() };
+}
+
 type Headers = Record<string, string | string[] | undefined>;
 
 /** Read a single header value case-insensitively (first value if repeated). */

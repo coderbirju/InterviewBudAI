@@ -88,7 +88,7 @@ export function localConfigPathFor(homeDir: string = os.homedir()): string {
 }
 
 /** config.json is tiny; anything larger is treated as invalid. */
-const MAX_LOCAL_CONFIG_BYTES = 64 * 1024;
+export const MAX_LOCAL_CONFIG_BYTES = 64 * 1024;
 
 export type LocalConfigRead =
   | { readonly status: 'absent' }
@@ -124,6 +124,19 @@ export function readLocalConfig(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+  return parseLocalConfigText(text);
+}
+
+/**
+ * Validate the TEXT of a config.json (untrusted): a JSON object whose
+ * `dataDir` is a non-empty absolute string without NUL bytes that is not a
+ * filesystem root. `pathApi` picks the path flavour (the container reads a
+ * host file whose path may be POSIX or Windows — `container.ts`). Never throws.
+ */
+export function parseLocalConfigText(
+  text: string,
+  pathApi: path.PlatformPath = path,
+): LocalConfigRead {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -140,11 +153,11 @@ export function readLocalConfig(
   if (dataDir.includes('\0')) {
     return { status: 'invalid', error: '"dataDir" must not contain NUL bytes' };
   }
-  if (!path.isAbsolute(dataDir)) {
+  if (!pathApi.isAbsolute(dataDir)) {
     return { status: 'invalid', error: '"dataDir" must be an absolute path' };
   }
-  const normalized = path.resolve(dataDir);
-  if (path.parse(normalized).root === normalized) {
+  const normalized = pathApi.resolve(dataDir);
+  if (pathApi.parse(normalized).root === normalized) {
     return {
       status: 'invalid',
       error: '"dataDir" must not be a filesystem root',
@@ -551,11 +564,58 @@ export function resolvePort(
   return port;
 }
 
+/** Bind hosts accepted anywhere (loopback only). */
+const LOOPBACK_BIND_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', '::1']);
+
+/** The all-interfaces bind, accepted ONLY inside a container. */
+export const CONTAINER_BIND_HOST = '0.0.0.0';
+
+/** True when `IBAI_CONTAINER=1` (set by the Dockerfile, ADR 0011 D2). */
+export function isContainer(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.IBAI_CONTAINER?.trim() === '1';
+}
+
 /**
- * Resolve the host. Always 127.0.0.1 (localhost-only, not configurable).
+ * Resolve the bind host (`IBAI_BIND_HOST`, ADR 0011 D2). Default and normal
+ * value `127.0.0.1`; `::1` is also accepted. `0.0.0.0` is accepted ONLY with
+ * `IBAI_CONTAINER=1` (inside a container loopback is unreachable from the
+ * published port; LAN isolation then comes from Compose's `127.0.0.1:`
+ * publish). Anything else throws, so the server refuses to start.
  */
-export function resolveHost(): string {
-  return '127.0.0.1';
+export function resolveHost(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.IBAI_BIND_HOST?.trim();
+  if (!raw) return '127.0.0.1';
+  if (LOOPBACK_BIND_HOSTS.has(raw)) return raw;
+  if (raw === CONTAINER_BIND_HOST) {
+    if (isContainer(env)) return raw;
+    throw new Error(
+      'IBAI_BIND_HOST=0.0.0.0 is only allowed inside the Docker image (IBAI_CONTAINER=1); outside Docker, leave IBAI_BIND_HOST unset (127.0.0.1)',
+    );
+  }
+  throw new Error(
+    'Invalid IBAI_BIND_HOST: use 127.0.0.1 (default) or ::1 (0.0.0.0 only inside the Docker image)',
+  );
+}
+
+/**
+ * The port the BROWSER uses (`IBAI_PUBLIC_PORT`, ADR 0011 D2): Compose
+ * publishes the container's listen port on another host port, and the Host /
+ * Origin allowlist must match what the browser sends. Defaults to the listen
+ * port; an invalid value throws (refuse to start).
+ */
+export function resolvePublicPort(
+  env: NodeJS.ProcessEnv,
+  listenPort: number,
+): number {
+  const raw = env.IBAI_PUBLIC_PORT?.trim();
+  if (!raw) return listenPort;
+  const port = /^\d{1,5}$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      'Invalid IBAI_PUBLIC_PORT: must be an integer between 1 and 65535',
+    );
+  }
+  return port;
 }
 
 /**

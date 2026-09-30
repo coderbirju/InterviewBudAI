@@ -131,6 +131,7 @@ export {
   OpenAICompatibleProvider,
   normalizeOpenAIBaseUrl,
   openAIKeyTransportAllowed,
+  isLoopbackHostname,
   OPENAI_DEFAULT_TIMEOUT_MS,
 } from './openai-compatible.js';
 export type { OpenAICompatibleProviderConfig } from './openai-compatible.js';
