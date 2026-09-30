@@ -34,8 +34,31 @@ and is listed there with what you need to do (ADR 0009 D4).
   prompt, so the app can offer the folder it points to. The cookie still
   never selects the data folder — using it always takes an explicit click.
   Nothing to do.
+- **Under Docker the data folder comes from `IBAI_HOST_DATA_DIR`** (default
+  `~/.interviewbudai/data`), **not from the folder chosen at `/setup` or
+  `/data`** (ADR 0011 D3). Only affects the new `docker compose up` path;
+  `npm start` is unchanged and nothing on disk changes. If you picked another
+  folder outside Docker, the app shows a banner with its path: set
+  `IBAI_HOST_DATA_DIR=<that path>` in `.env` and restart. Inside Docker, `/data`
+  shows "Pinned by Docker (`IBAI_HOST_DATA_DIR=…`)" and does not offer
+  switching.
 
 ### Added
+
+- **Run with local AI: `docker compose up`** (ADR 0011 PR B). A `Dockerfile`
+  and `compose.yaml` start the app plus a local model through Docker Model
+  Runner (default `ai/qwen3:4b-instruct-2507-q4_K_M`, ~2.5 GB, change it in
+  `compose.yaml`) — no account, no key. Published on `127.0.0.1` only; your
+  `.env` is never passed into the container. Notes live in your host folder
+  (`IBAI_HOST_DATA_DIR`), bind-mounted at `/data`; the app checks on boot that
+  it is writable and says how to fix it if not. Docker Engine (Linux):
+  `compose.engine.yaml`. New optional server settings: `IBAI_BIND_HOST`
+  (`127.0.0.1` / `::1`; `0.0.0.0` only inside the image, else the server
+  refuses to start) and `IBAI_PUBLIC_PORT` (the Host/Origin allowlist port
+  when the published port differs; state-changing requests are accepted only
+  there). A failed connection to Docker Model Runner now asks "Is Docker
+  Model Runner enabled in Docker Desktop → Settings → AI?". CI builds the
+  image and smoke-tests it against a fake OpenAI-compatible server.
 
 - **OpenAI-compatible provider — run the Quiz Master on Docker Model Runner**
   (ADR 0011 PR A). Set `IBAI_OPENAI_BASE_URL` (e.g.
