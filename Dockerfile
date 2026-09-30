@@ -35,7 +35,11 @@ COPY packages/curriculum/package.json packages/curriculum/
 COPY packages/providers/package.json packages/providers/
 COPY packages/storage/package.json packages/storage/
 COPY packages/web/package.json packages/web/
-RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+# The CLI package is not copied into the runtime image: drop its workspace
+# link so no dangling symlink ships. (React & co. are devDependencies of
+# @ibai/web — only the SPA build uses them — so --omit=dev leaves them out.)
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    && rm -f node_modules/@ibai/cli
 
 # ---------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
