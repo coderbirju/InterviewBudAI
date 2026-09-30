@@ -139,7 +139,7 @@ describe('Home search & filters', () => {
 
     await user.type(screen.getByLabelText(/search problems/i), 'SUM');
 
-    const header = screen.getByRole('button', { name: /Arrays & Hashing/ });
+    const header = screen.getByRole('button', { name: /^Arrays & Hashing/ });
     expect(header).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Two Sum')).toBeInTheDocument();
     expect(screen.queryByText('Group Anagrams')).not.toBeInTheDocument();
@@ -205,7 +205,7 @@ describe('Home search & filters', () => {
     expect(screen.getByText('Stack')).toBeInTheDocument();
     expect(screen.getByText('Arrays & Hashing')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /Arrays & Hashing/ }),
+      screen.getByRole('button', { name: /^Arrays & Hashing/ }),
     ).toHaveAttribute('aria-expanded', 'false');
     expect(
       screen.queryByRole('button', { name: /clear filters/i }),
@@ -282,18 +282,18 @@ describe('Home search & filters', () => {
     const user = userEvent.setup();
     await renderBig();
     // User opens Stack before filtering.
-    await user.click(screen.getByRole('button', { name: /Stack/ }));
+    await user.click(screen.getByRole('button', { name: /^Stack/ }));
     await user.type(screen.getByLabelText(/search problems/i), 'sum');
     // Stack hidden (no matches), Arrays auto-expanded.
     expect(screen.queryByText('Stack')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /clear filters/i }));
 
-    expect(screen.getByRole('button', { name: /Stack/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /^Stack/ })).toHaveAttribute(
       'aria-expanded',
       'true',
     );
     expect(
-      screen.getByRole('button', { name: /Arrays & Hashing/ }),
+      screen.getByRole('button', { name: /^Arrays & Hashing/ }),
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -302,7 +302,7 @@ describe('Home search & filters', () => {
     await renderBig();
     const search = screen.getByLabelText(/search problems/i);
     await user.type(search, 's');
-    const arrays = screen.getByRole('button', { name: /Arrays & Hashing/ });
+    const arrays = screen.getByRole('button', { name: /^Arrays & Hashing/ });
     expect(arrays).toHaveAttribute('aria-expanded', 'true');
     await user.click(arrays);
     expect(arrays).toHaveAttribute('aria-expanded', 'false');
@@ -313,7 +313,7 @@ describe('Home search & filters', () => {
     await user.type(search, '{Backspace>3/}u');
     expect(search).toHaveValue('su');
     expect(
-      screen.getByRole('button', { name: /Arrays & Hashing/ }),
+      screen.getByRole('button', { name: /^Arrays & Hashing/ }),
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -449,7 +449,7 @@ describe('Home', () => {
     await screen.findByText('Arrays & Hashing');
 
     // Expand the category.
-    await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
+    await user.click(screen.getByRole('button', { name: /^Arrays & Hashing/ }));
 
     // Open the status control and pick "Done".
     const statusTrigger = screen.getByRole('button', {
@@ -482,7 +482,7 @@ describe('Home', () => {
 
     render(<Home />);
     await screen.findByText('Arrays & Hashing');
-    await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
+    await user.click(screen.getByRole('button', { name: /^Arrays & Hashing/ }));
 
     await user.click(
       screen.getByRole('button', { name: /Status: Not started/i }),

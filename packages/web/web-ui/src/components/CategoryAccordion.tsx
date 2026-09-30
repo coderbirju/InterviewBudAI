@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import type { CatalogProblem, CatalogTopic, NoteStatus } from '../lib/api';
 import { formatFraction, topicCompletion } from '../lib/home';
 import { ProblemRow } from './ProblemRow';
@@ -23,6 +23,7 @@ export function CategoryAccordion({
   matches,
   open: controlledOpen,
   onToggle,
+  onAdd,
 }: {
   topic: CatalogTopic;
   defaultOpen?: boolean;
@@ -31,6 +32,8 @@ export function CategoryAccordion({
   /** Controlled expansion (Home owns it); omitted = internal state. */
   open?: boolean;
   onToggle?: () => void;
+  /** "+" in the header: add a custom problem with this topic pre-selected. */
+  onAdd?: () => void;
   busyIds: ReadonlySet<string>;
   onStatusChange: (id: string, next: NoteStatus) => void;
 }): JSX.Element {
@@ -44,41 +47,54 @@ export function CategoryAccordion({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-800/30">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={toggle}
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-all duration-200 hover:bg-slate-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
-      >
-        <span className="flex items-center gap-2">
-          <ChevronRight
-            className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${
-              open ? 'rotate-90' : ''
-            }`}
-            aria-hidden
-          />
-          <span className="text-base font-semibold text-slate-100">
-            {label}
-          </span>
-        </span>
-        <span className="flex items-center gap-2">
-          {matches && (
-            <span
-              className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400"
-              aria-label={`${matches.length} matching in ${label}`}
-            >
-              {matches.length} {matches.length === 1 ? 'match' : 'matches'}
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={toggle}
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-5 py-4 text-left transition-all duration-200 hover:bg-slate-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+        >
+          <span className="flex items-center gap-2">
+            <ChevronRight
+              className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${
+                open ? 'rotate-90' : ''
+              }`}
+              aria-hidden
+            />
+            <span className="text-base font-semibold text-slate-100">
+              {label}
             </span>
-          )}
-          <span
-            className="rounded-full bg-slate-700/50 px-2.5 py-0.5 text-xs font-medium text-slate-300"
-            aria-label={`${done} of ${total} done in ${label}`}
-          >
-            {formatFraction(done, total)}
           </span>
-        </span>
-      </button>
+          <span className="flex items-center gap-2">
+            {matches && (
+              <span
+                className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400"
+                aria-label={`${matches.length} matching in ${label}`}
+              >
+                {matches.length} {matches.length === 1 ? 'match' : 'matches'}
+              </span>
+            )}
+            <span
+              className="rounded-full bg-slate-700/50 px-2.5 py-0.5 text-xs font-medium text-slate-300"
+              aria-label={`${done} of ${total} done in ${label}`}
+            >
+              {formatFraction(done, total)}
+            </span>
+          </span>
+        </button>
+        {onAdd && (
+          <button
+            type="button"
+            onClick={onAdd}
+            aria-label={`Add a problem to ${label}`}
+            title={`Add a problem to ${label}`}
+            className="flex items-center px-4 text-slate-400 transition-all duration-200 hover:bg-slate-800/60 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+          >
+            <Plus className="h-5 w-5" aria-hidden />
+          </button>
+        )}
+      </div>
 
       {open && (
         <div id={panelId} className="overflow-x-auto">
