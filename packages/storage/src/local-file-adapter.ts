@@ -13,9 +13,21 @@
  *   ${basePath}/quiz-sessions/${sessionId}.json -> QuizSession (ADR 0007)
  *   ${basePath}/quiz-sessions/active.json    -> { sessionId } active pointer (ADR 0007)
  *   ${basePath}/competency-signals.json      -> CompetencySignals (ADR 0007)
+ *   ${basePath}/problems/${id}.json          -> CustomProblem (ADR 0010)
  */
 
-import { mkdir, readFile, writeFile, readdir, unlink } from 'node:fs/promises';
+import {
+  mkdir,
+  open,
+  readFile,
+  rename,
+  stat,
+  writeFile,
+  readdir,
+  unlink,
+  lstat,
+} from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { join, dirname, normalize, isAbsolute } from 'node:path';
 import type {
   StorageAdapter,
@@ -41,8 +53,11 @@ import type {
   TopicCompetency,
   PatternSignal,
   TopicStrength,
+  CustomProblem,
 } from './index.js';
 import { resolveNoteStatus, isNoteStatus } from './index.js';
+import { isCustomProblemId, parseCustomProblem } from './custom-problems.js';
+import type { CustomTopicMapper } from './custom-problems.js';
 
 // ---------------------------------------------------------------------------
 // Type Guards (validate untrusted JSON)
@@ -263,13 +278,27 @@ function safeJoin(basePath: string, ...parts: string[]): string {
 // LocalFileStorageAdapter
 // ---------------------------------------------------------------------------
 
+/** Options for {@link LocalFileStorageAdapter}. */
+export interface LocalFileStorageOptions {
+  /**
+   * Topic rule for custom problems (ADR 0010, deviation b): applied BEFORE
+   * the 1–3 topic count on read and write, so unknown topics are dropped
+   * first and the adapter agrees with the caller's own validation. Default:
+   * any well-formed topic slug.
+   */
+  readonly customTopic?: CustomTopicMapper;
+}
+
 export class LocalFileStorageAdapter implements StorageAdapter {
   /**
    * Create a new LocalFileStorageAdapter.
    * @param basePath - The root directory for storing progress files.
    *                   Must be an absolute path or will be resolved relative to cwd.
    */
-  constructor(private readonly basePath: string) {
+  constructor(
+    private readonly basePath: string,
+    private readonly options: LocalFileStorageOptions = {},
+  ) {
     // Normalize the base path
     this.basePath = isAbsolute(basePath) ? basePath : normalize(basePath);
   }
@@ -404,6 +433,45 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       }
       // Other errors -> return null (never throw)
       return null;
+    }
+  }
+
+  /** `<basePath>/notes/<id>.md`, or `null` if it would leave `notes/`. */
+  private notePath(problemId: string): string | null {
+    const dir = safeJoin(this.basePath, 'notes');
+    const file = safeJoin(
+      this.basePath,
+      'notes',
+      `${sanitizeProblemId(problemId)}.md`,
+    );
+    return dirname(file) === dir ? file : null;
+  }
+
+  /**
+   * True when ANY entry exists at the note's path — even an empty or
+   * unparsable file, or a symlink — so a caller never deletes a problem while
+   * leaving a note file behind (ADR 0010 D3 amendment). Never throws.
+   */
+  async hasIntuitionNote(problemId: string): Promise<boolean> {
+    const filePath = this.notePath(problemId);
+    if (filePath === null) return false;
+    return lstat(filePath).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /**
+   * Delete a problem's intuition note (the link itself for a symlink, never
+   * its target). Missing ⇒ no-op (ADR 0010 D3 amendment).
+   */
+  async deleteIntuitionNote(problemId: string): Promise<void> {
+    const filePath = this.notePath(problemId);
+    if (filePath === null) return;
+    try {
+      await unlink(filePath);
+    } catch (err) {
+      if (!(isNodeError(err) && err.code === 'ENOENT')) throw err;
     }
   }
 
@@ -701,6 +769,127 @@ export class LocalFileStorageAdapter implements StorageAdapter {
 
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, JSON.stringify(signals, null, 2) + '\n', 'utf-8');
+  }
+
+  // -------------------------------------------------------------------------
+  // Custom Problem Methods (ADR 0010 D1–D3)
+  // -------------------------------------------------------------------------
+
+  /** `<basePath>/problems/<id>.json` for a VALID id (else `null`). */
+  private customProblemPath(id: string): string | null {
+    if (!isCustomProblemId(id)) return null;
+    const dir = safeJoin(this.basePath, 'problems');
+    const file = safeJoin(this.basePath, 'problems', `${id}.json`);
+    // `safeJoin` falls back to `_invalid_/…` on traversal; the strict id
+    // regex already rules that out, but never accept a path outside the dir.
+    return dirname(file) === dir ? file : null;
+  }
+
+  /** Read + validate one file; `null` on any problem (never throws). */
+  private async readCustomProblemFile(
+    id: string,
+  ): Promise<CustomProblem | null> {
+    const filePath = this.customProblemPath(id);
+    if (filePath === null) return null;
+    try {
+      const parsed: unknown = JSON.parse(await readFile(filePath, 'utf-8'));
+      return parseCustomProblem(parsed, {
+        expectedId: id,
+        topic: this.options.customTopic,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Validate a record for writing (same rules as reading) or throw. */
+  private serializeCustomProblem(problem: CustomProblem): {
+    filePath: string;
+    content: string;
+  } {
+    const filePath = this.customProblemPath(problem.id);
+    const valid = parseCustomProblem(problem, {
+      expectedId: problem.id,
+      topic: this.options.customTopic,
+    });
+    if (filePath === null || valid === null) {
+      throw new RangeError('invalid custom problem');
+    }
+    return { filePath, content: JSON.stringify(valid, null, 2) + '\n' };
+  }
+
+  /** Write `content` to a temp file in the same dir, then rename over it. */
+  private async atomicWrite(filePath: string, content: string): Promise<void> {
+    const tmp = `${filePath}.tmp-${randomBytes(6).toString('hex')}`;
+    try {
+      await writeFile(tmp, content, { encoding: 'utf-8', mode: 0o600 });
+      await rename(tmp, filePath);
+    } catch (err) {
+      await unlink(tmp).catch(() => {});
+      throw err;
+    }
+  }
+
+  /** Sorted by `createdAt`, then `id`; invalid files skipped. */
+  async listCustomProblems(): Promise<CustomProblem[]> {
+    let names: string[];
+    try {
+      names = await readdir(safeJoin(this.basePath, 'problems'));
+    } catch {
+      return [];
+    }
+    const problems: CustomProblem[] = [];
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const problem = await this.readCustomProblemFile(
+        name.slice(0, -'.json'.length),
+      );
+      if (problem !== null) problems.push(problem);
+    }
+    return problems.sort(
+      (a, b) =>
+        Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  }
+
+  async readCustomProblem(id: string): Promise<CustomProblem | null> {
+    return this.readCustomProblemFile(id);
+  }
+
+  /**
+   * Exclusive create: the id is reserved with an `'wx'` open (throws
+   * `EEXIST` if taken — never overwrites), then the content is written
+   * atomically over the reservation.
+   */
+  async createCustomProblem(problem: CustomProblem): Promise<void> {
+    const { filePath, content } = this.serializeCustomProblem(problem);
+    await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+    const handle = await open(filePath, 'wx', 0o600);
+    await handle.close();
+    try {
+      await this.atomicWrite(filePath, content);
+    } catch (err) {
+      await unlink(filePath).catch(() => {});
+      throw err;
+    }
+  }
+
+  /** Replace an existing problem atomically (`ENOENT` if missing). */
+  async writeCustomProblem(problem: CustomProblem): Promise<void> {
+    const { filePath, content } = this.serializeCustomProblem(problem);
+    await stat(filePath);
+    await this.atomicWrite(filePath, content);
+  }
+
+  async deleteCustomProblem(id: string): Promise<void> {
+    const filePath = this.customProblemPath(id);
+    if (filePath === null) return;
+    try {
+      await unlink(filePath);
+    } catch (err) {
+      if (!(isNodeError(err) && err.code === 'ENOENT')) throw err;
+    }
   }
 
   /**

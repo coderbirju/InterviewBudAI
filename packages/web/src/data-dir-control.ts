@@ -151,12 +151,12 @@ function readFrontmatterId(file: string): { id?: string } | undefined {
 }
 
 /**
- * Decides whether a problem id is one the app knows. Today that is the shipped
- * catalog. NOTE: when Wave 2(b) adds user-created custom problems, their ids
- * MUST be included here too, or their notes stop counting (noteCount,
- * legacy-candidate eligibility, dry-run hints).
+ * Decides whether a problem id is one the app knows IN `dir` (the folder being
+ * inspected): a shipped catalog id, or a custom problem whose
+ * `<dir>/problems/<id>.json` exists and validates (ADR 0010 D4). Drives
+ * noteCount, legacy-candidate eligibility and dry-run hints.
  */
-export type ProblemIdCheck = (id: string) => boolean;
+export type ProblemIdCheck = (id: string, dir: string) => boolean;
 
 /** Regular-file entries of a directory (empty on any error). */
 function filesIn(dir: string): string[] {
@@ -185,7 +185,9 @@ export function countNotes(dir: string, isKnownId?: ProblemIdCheck): number {
   return filesIn(notesDir).filter((name) => {
     if (!name.endsWith('.md')) return false;
     const id = name.slice(0, -'.md'.length);
-    if (id === '' || (isKnownId !== undefined && !isKnownId(id))) return false;
+    if (id === '' || (isKnownId !== undefined && !isKnownId(id, dir))) {
+      return false;
+    }
     const frontmatter = readFrontmatterId(path.join(notesDir, name));
     if (frontmatter === undefined) return false;
     return frontmatter.id === undefined || frontmatter.id === id;
@@ -228,7 +230,7 @@ export interface DataDirControlInit {
   readonly source: DataDirSource;
   /** Home directory holding `.interviewbudai/config.json` and `.ibai/data`. */
   readonly homeDir: string;
-  /** Catalog membership for note counting (see {@link countNotes}). */
+  /** Known-id check for note counting (see {@link countNotes}). */
   readonly isKnownProblemId?: ProblemIdCheck;
 }
 
@@ -264,7 +266,7 @@ export class DataDirControl {
     this.isKnownId = init.isKnownProblemId;
   }
 
-  /** {@link countNotes} with this server's catalog. */
+  /** {@link countNotes} with this server's known-id check. */
   private notesIn(dir: string): number {
     return countNotes(dir, this.isKnownId);
   }

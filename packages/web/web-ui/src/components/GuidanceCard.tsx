@@ -164,15 +164,23 @@ function NextUpRow({ item }: { item: GuidanceNextUp }): JSX.Element {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 font-medium text-slate-100 transition-all duration-200 hover:text-emerald-400"
-          >
-            {item.title}
-            <ExternalLink className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-          </a>
+          {item.url ? (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 font-medium text-slate-100 transition-all duration-200 hover:text-emerald-400"
+            >
+              {item.title}
+              <ExternalLink
+                className="h-3.5 w-3.5 text-slate-500"
+                aria-hidden
+              />
+            </a>
+          ) : (
+            // A custom problem without a link: plain text, no dead anchor.
+            <span className="font-medium text-slate-100">{item.title}</span>
+          )}
           <DifficultyBadge difficulty={item.difficulty} />
         </div>
         <p className="mt-0.5 text-sm text-slate-400">{item.reason}</p>

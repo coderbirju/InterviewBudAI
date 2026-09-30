@@ -1,5 +1,5 @@
 import * as http from 'node:http';
-import { LocalFileStorageAdapter } from '@ibai/storage';
+import { createLocalStorage } from './problems.js';
 import { AnthropicProvider, OllamaProvider } from '@ibai/providers';
 import type { LlmProvider } from '@ibai/providers';
 import {
@@ -74,6 +74,9 @@ export function formatStartupBanner(input: {
     '  Press Ctrl+C to stop.',
   ];
 }
+
+/** Methods whose request body is read (capped at `MAX_BODY_BYTES`). */
+const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PATCH', 'DELETE']);
 
 /** Server timeouts: whole request, headers, idle keep-alive (ms). */
 export const REQUEST_TIMEOUT_MS = 30_000;
@@ -167,10 +170,10 @@ export async function startServer(
   const ollamaModel = resolveOllamaModel(env);
 
   // Storage adapter for the boot data dir (the handler requires one).
-  const storage = new LocalFileStorageAdapter(dataDir);
+  const storage = createLocalStorage(dataDir);
 
   // Storage factory for the server's CURRENT data dir (/setup can switch it).
-  const createStorage = (dir: string) => new LocalFileStorageAdapter(dir);
+  const createStorage = (dir: string) => createLocalStorage(dir);
 
   // Create provider: Anthropic if key+model, else Ollama if model, else undefined (NO demo fallback)
   let provider: LlmProvider | undefined;
@@ -217,13 +220,14 @@ export async function startServer(
         headers: req.headers as Record<string, string | string[] | undefined>,
       };
 
-      // Read the body only for POST, and only after the header-only checks
-      // (Host / Origin / Content-Type) pass and the declared length fits.
+      // Read the body only for POST / PATCH / DELETE (ADR 0010 D5), and only
+      // after the header-only checks (Host / Origin / Content-Type) pass and
+      // the declared length fits.
       let body: string | undefined;
       let bodyTooLarge = false;
       // The body was not (fully) read: don't reuse the connection.
       let closeAfter = false;
-      if (req.method === 'POST') {
+      if (BODY_METHODS.has(req.method ?? '')) {
         if (precheckRequest(base, allowedHosts) !== null) {
           closeAfter = true;
         } else if (declaresTooLarge(req)) {

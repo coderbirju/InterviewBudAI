@@ -18,6 +18,7 @@ import {
   settlesLegacy,
 } from './data-dir-control.js';
 import { isSpaRequest, handleSpaRequest } from './spa.js';
+import { createKnownProblemIdCheck } from './problems.js';
 import { isApiRoute, handleApiRoute } from './api.js';
 import { createProviderTester } from './settings.js';
 import {
@@ -255,7 +256,7 @@ export function createCoachHandler(
   const catalog = deps.catalog ?? createCatalogSource();
   const state = new DataDirControl({
     homeDir,
-    isKnownProblemId: (id) => catalog.getById(id) !== undefined,
+    isKnownProblemId: createKnownProblemIdCheck(catalog),
     ...((): { dataDir: string; source: DataDirSource } => {
       if (deps.dataDir !== undefined) {
         return {

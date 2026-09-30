@@ -37,6 +37,29 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Custom problems API** (ADR 0010, PR 1 — the UI follows in PR 2): add your
+  own problems (a book, an interview) with `POST /api/problems`, edit them
+  with `PATCH /api/problems/:id`, delete them with `DELETE /api/problems/:id`
+  (a problem with a note needs `deleteNote: true` and is backed up to
+  `.backups/` first). Each problem is one file,
+  `<data folder>/problems/<id>.json` (ids `u-…`), with a title, optional
+  link, optional plain-text statement (≤ 2000 chars, never an answer),
+  difficulty and 1–3 topics. Custom problems appear everywhere catalog ones
+  do: Home catalog and totals, notes, progress, guidance, Analytics, the quiz
+  deck (the grader gets your statement as delimited context) and CSV import
+  matching. A problem that already exists (same LeetCode link or number) is
+  refused; a similar title can be confirmed. Additive: no migration, nothing
+  existing is rewritten. **Downgrade note:** an older build ignores
+  `problems/`: your custom notes are hidden (not deleted, and not counted — a
+  folder with only custom notes shows 0), and an active quiz whose next card
+  is custom ends early. Upgrading again restores everything. Also: a quiz
+  now skips a card whose problem was deleted instead of ending (an answer
+  typed for the deleted card is not graded: `409`, and the next card is
+  shown), and `"""` in
+  a note or answer can no longer close its block in the grading prompt.
+  Storage adapters gain optional `hasIntuitionNote` / `deleteIntuitionNote`
+  (ADR 0010 D3 amendment).
+
 - **Settings page** (`/settings`, gear in the nav): shows the active model
   (provider, model, Ollama endpoint, whether an Anthropic key is configured),
   a **Test connection** button (Ollama: checks the model is pulled; Anthropic:

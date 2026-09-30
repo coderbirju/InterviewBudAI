@@ -40,6 +40,12 @@
  *   POST /api/quiz/resume       — re-activate a listed session by id
  *   POST /api/quiz/delete       — delete a session by id ({ sessionId })
  *   DELETE /api/quiz/session/:id — delete a session by id (REST form)
+ *   POST   /api/problems      — add a custom problem (ADR 0010 D5)
+ *   PATCH  /api/problems/:id  — edit a custom problem
+ *   DELETE /api/problems/:id  — delete a custom problem (+ its note, with a backup)
+ *
+ * Every problem-aware route resolves ids through the per-request merged
+ * source (catalog + the data dir's custom problems, ADR 0010 D4).
  */
 
 import type {
@@ -57,10 +63,12 @@ import type {
 import {
   isNoteStatus,
   resolveNoteStatus,
-  LocalFileStorageAdapter,
   deriveTopicStrength,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
+import { createLocalStorage, loadProblemSource } from './problems.js';
+import type { ProblemSource, ProblemView } from './problems.js';
+import { handleProblemsRoute } from './problems-routes.js';
 import { canonicalTopicId, compareTopics, topicLabel } from '@ibai/curriculum';
 import { deriveGuidance } from '@ibai/core';
 import type { NextUpItem, QuizHint, TopicStanding } from '@ibai/core';
@@ -77,6 +85,7 @@ import {
   currentProbe,
   presentProblem,
   currentProblemId,
+  skipToResolvable,
   isDeckExhausted,
   quizProgress,
   updateCompetencySignals,
@@ -116,10 +125,15 @@ function json(status: number, payload: unknown): HandlerResponse {
 export interface ApiCatalogProblem {
   readonly id: string;
   readonly title: string;
-  readonly url: string;
+  /** External link; absent for a custom problem without one (ADR 0010 D4). */
+  readonly url?: string;
   readonly difficulty: Problem['difficulty'];
   readonly status: NoteStatus;
   readonly completed: boolean;
+  /** Present (true) only for a user-added problem. */
+  readonly custom?: true;
+  /** A custom problem's own statement (plain text; render escaped). */
+  readonly statement?: string;
 }
 
 /** A topic group in the catalog response. */
@@ -314,6 +328,8 @@ export interface ApiDeps {
     readonly env: NodeJS.ProcessEnv;
     readonly testProvider: () => Promise<ProviderTestOutcome>;
   };
+  /** Snapshot hook for custom-problem deletes (defaults to `createBackup`). */
+  readonly backup?: (dataDir: string, now: Date) => Promise<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +350,7 @@ interface ResolvedNote {
  * no DB is configured.
  */
 async function resolveStatuses(
-  problems: readonly Problem[],
+  problems: readonly ProblemView[],
   storage: StorageAdapter | null,
 ): Promise<Map<string, ResolvedNote>> {
   const notesById = new Map<string, ResolvedNote>();
@@ -376,7 +392,7 @@ function resolveActiveStorage(deps: ApiDeps): {
   }
   const storage = deps.createStorage
     ? deps.createStorage(dataDir)
-    : new LocalFileStorageAdapter(dataDir);
+    : createLocalStorage(dataDir);
   return { dataDir, storage };
 }
 
@@ -387,7 +403,7 @@ function resolveActiveStorage(deps: ApiDeps): {
  * as-is and never re-sorts.
  */
 function groupByTopic(
-  problems: readonly Problem[],
+  problems: readonly ProblemView[],
   statusById: ReadonlyMap<string, ResolvedNote>,
 ): ApiCatalogTopic[] {
   const byTopic = new Map<string, ApiCatalogProblem[]>();
@@ -396,10 +412,12 @@ function groupByTopic(
     const enriched: ApiCatalogProblem = {
       id: problem.id,
       title: problem.title,
-      url: problem.url,
+      ...(problem.url !== undefined && { url: problem.url }),
       difficulty: problem.difficulty,
       status,
       completed: status === 'done',
+      ...(problem.custom && { custom: true as const }),
+      ...(problem.statement !== undefined && { statement: problem.statement }),
     };
     for (const topic of problem.topics) {
       const list = byTopic.get(topic) ?? [];
@@ -418,7 +436,7 @@ function groupByTopic(
 
 /** Count how many problems resolve to a given status across the catalog. */
 function statusCountsFor(
-  problems: readonly Problem[],
+  problems: readonly ProblemView[],
   statusById: ReadonlyMap<string, ResolvedNote>,
 ): StatusCounts {
   const statuses: NoteStatus[] = problems.map(
@@ -446,8 +464,10 @@ export interface ApiQuizQuestion {
   readonly title: string;
   /** The problem's difficulty (additive, A8). */
   readonly difficulty: Problem['difficulty'];
-  /** External problem link from the catalog (additive, A8). */
-  readonly url: string;
+  /** External problem link (additive, A8); absent for a custom problem without one. */
+  readonly url?: string;
+  /** Present (true) only for a user-added problem (ADR 0010 D4). */
+  readonly custom?: true;
   /**
    * The `on_track` probe already given for this question, if any (additive,
    * A8) — shown separately from the problem so the title never disappears.
@@ -526,7 +546,7 @@ function providerErrorResponse(error: unknown): HandlerResponse {
  * to "not done" so this never throws.
  */
 async function readDoneProblemIds(
-  problems: readonly Problem[],
+  problems: readonly ProblemView[],
   storage: StorageAdapter,
 ): Promise<string[]> {
   const notesById = await resolveStatuses(problems, storage);
@@ -541,7 +561,7 @@ async function readDoneProblemIds(
  * any.
  */
 function toQuizQuestion(
-  problem: Problem,
+  problem: ProblemView,
   probe?: string | null,
 ): ApiQuizQuestion {
   return {
@@ -549,37 +569,46 @@ function toQuizQuestion(
     wrapped: presentProblem(problem),
     title: problem.title,
     difficulty: problem.difficulty,
-    url: problem.url,
+    ...(problem.url !== undefined && { url: problem.url }),
+    ...(problem.custom && { custom: true as const }),
     ...(probe ? { probe } : {}),
   };
 }
 
 /**
  * Resolve the CURRENT question of a session for (re-)presentation, healing a
- * missing presentation turn in memory (legacy orphans). Returns `null` when the
- * deck is exhausted or the current id is no longer in the catalog — i.e. the
+ * missing presentation turn in memory (legacy orphans). A current card whose
+ * problem no longer resolves (a deleted custom problem, ADR 0010 D4) is
+ * skipped forward to the next resolvable one, which gets its own
+ * presentation turn. Returns `null` when nothing resolvable remains — the
  * session has nothing to present and must not be reported as an answerable
- * active quiz.
+ * active quiz. All changes are in memory; callers that write persist them.
  */
 function presentCurrent(
   deps: ApiDeps,
-  session: QuizSession,
+  source: ProblemSource,
+  stored: QuizSession,
 ): {
   session: QuizSession;
-  problem: Problem;
+  problem: ProblemView;
   question: ApiQuizQuestion;
 } | null {
+  const { session, skipped } = skipToResolvable(
+    stored,
+    (id) => source.getById(id) !== undefined,
+  );
   const currentId = currentProblemId(session);
-  const problem = currentId ? deps.catalog.getById(currentId) : undefined;
+  const problem = currentId ? source.getById(currentId) : undefined;
   if (!problem) {
     return null;
   }
   const at = nowDate(deps).toISOString() as IsoTimestamp;
-  const healed = ensureCurrentQuestionPresented(
-    session,
-    presentProblem(problem),
-    at,
-  );
+  // A skipped-to card starts a new question block (its own presentation), so
+  // the removed card's spent nudge never carries over.
+  const healed =
+    skipped > 0
+      ? appendAssistantTurn(session, presentProblem(problem), at)
+      : ensureCurrentQuestionPresented(session, presentProblem(problem), at);
   return {
     session: healed,
     problem,
@@ -650,7 +679,8 @@ async function startFreshSession(
   deps: ApiDeps,
   storage: StorageAdapter,
 ): Promise<HandlerResponse> {
-  const problems = deps.catalog.list();
+  const source = await loadProblemSource(deps.catalog, storage);
+  const problems = source.list();
   const done = await readDoneProblemIds(problems, storage);
   if (done.length === 0) {
     return json(200, {
@@ -670,9 +700,9 @@ async function startFreshSession(
     .toString(36)
     .padStart(6, '0')}`;
 
-  // The deck is built from catalog ids, so its first problem always resolves;
+  // The deck is built from resolvable ids, so its first problem resolves;
   // guard anyway BEFORE writing so we never persist an unpresentable session.
-  const problem = deps.catalog.getById(deck[0]!);
+  const problem = source.getById(deck[0]!);
   if (!problem) {
     return json(200, { empty: true, message: 'mark problems complete first' });
   }
@@ -727,8 +757,8 @@ export async function handleApiRoute(
       if (method !== 'GET') {
         return json(405, { error: 'method not allowed' });
       }
-      const problems = deps.catalog.list();
       const { storage } = resolveActiveStorage(deps);
+      const problems = (await loadProblemSource(deps.catalog, storage)).list();
       const statusById = await resolveStatuses(problems, storage);
       const response: ApiCatalogResponse = {
         topics: groupByTopic(problems, statusById),
@@ -745,8 +775,8 @@ export async function handleApiRoute(
       if (method !== 'GET') {
         return json(405, { error: 'method not allowed' });
       }
-      const problems = deps.catalog.list();
       const { storage } = resolveActiveStorage(deps);
+      const problems = (await loadProblemSource(deps.catalog, storage)).list();
       const statusById = await resolveStatuses(problems, storage);
       const byStatus = statusCountsFor(problems, statusById);
       const response: ApiProgressResponse = {
@@ -833,8 +863,27 @@ export async function handleApiRoute(
     }
 
     // ----- /api/import/csv/preview|commit (POST, ADR 0009 D2) -----
+    // Matches against the merged source (ADR 0010 D4): a row can match an
+    // existing custom problem; commit re-analyzes with the same source.
     if (pathname.startsWith('/api/import/')) {
+      const { storage } = resolveActiveStorage(deps);
       const imported = await handleImportRoute(
+        method,
+        pathname,
+        {
+          catalog: await loadProblemSource(deps.catalog, storage),
+          dataDir: deps.dataDir,
+          storage,
+          ...(deps.now !== undefined && { now: deps.now }),
+        },
+        body,
+      );
+      if (imported !== null) return imported;
+    }
+
+    // ----- /api/problems, /api/problems/:id (ADR 0010 D5) -----
+    if (pathname === '/api/problems' || pathname.startsWith('/api/problems/')) {
+      const handled = await handleProblemsRoute(
         method,
         pathname,
         {
@@ -842,10 +891,11 @@ export async function handleApiRoute(
           dataDir: deps.dataDir,
           storage: resolveActiveStorage(deps).storage,
           ...(deps.now !== undefined && { now: deps.now }),
+          ...(deps.backup !== undefined && { backup: deps.backup }),
         },
         body,
       );
-      if (imported !== null) return imported;
+      if (handled !== null) return handled;
     }
 
     // ----- /api/notes/:id (GET, POST) -----
@@ -858,16 +908,18 @@ export async function handleApiRoute(
         return json(405, { error: 'method not allowed' });
       }
 
-      // Validate the id against the catalog first (independent of DB state).
-      const problem = deps.catalog.getById(problemId);
+      // Validate the id against the merged source (catalog + this data dir's
+      // custom problems) before any read or write.
+      const { storage } = resolveActiveStorage(deps);
+      const problem = (await loadProblemSource(deps.catalog, storage)).getById(
+        problemId,
+      );
       if (!problem) {
         return json(404, {
           error: 'unknown problem',
           problemId,
         });
       }
-
-      const { storage } = resolveActiveStorage(deps);
 
       if (method === 'GET') {
         // No DB configured: return a clear state rather than erroring.
@@ -1045,7 +1097,11 @@ export async function handleApiRoute(
       // present (deck exhausted / problem gone from the catalog) the session
       // is NOT re-activated — an active session must always be answerable —
       // and it is returned as complete, viewable only.
-      const presented = presentCurrent(deps, target);
+      const presented = presentCurrent(
+        deps,
+        await loadProblemSource(deps.catalog, storage),
+        target,
+      );
       if (!presented) {
         const finished: QuizSession = { ...target, status: 'complete' };
         if (target.status !== 'complete') {
@@ -1123,7 +1179,11 @@ export async function handleApiRoute(
       // Re-present the CURRENT question deterministically from the catalog
       // (read-only: any legacy repair is only in memory here; /answer and
       // /resume persist it). Nothing presentable → not an active quiz.
-      const presented = presentCurrent(deps, session);
+      const presented = presentCurrent(
+        deps,
+        await loadProblemSource(deps.catalog, storage),
+        session,
+      );
       if (!presented) {
         return json(200, { active: false });
       }
@@ -1173,6 +1233,12 @@ export async function handleApiRoute(
         return json(400, { error: 'answer must be a non-empty string' });
       }
       const answer = rawAnswer.trim();
+      // Optional: the card the client was showing. Lets a client that already
+      // saw the skipped-to card (GET /api/quiz/session) answer it directly.
+      const rawProblemId = (parsed as Record<string, unknown>).problemId;
+      if (rawProblemId !== undefined && typeof rawProblemId !== 'string') {
+        return json(400, { error: 'problemId must be a string' });
+      }
 
       const stored = await storage.readActiveQuizSession();
       if (!stored || stored.status !== 'active') {
@@ -1181,7 +1247,49 @@ export async function handleApiRoute(
       // Resolve (and, for legacy orphans, heal in memory) the current
       // question — the same one GET /api/quiz/session presented. The repair is
       // only persisted together with this turn's write (fail-closed intact).
-      const presented = presentCurrent(deps, stored);
+      const source = await loadProblemSource(deps.catalog, storage);
+      // The stored current card no longer resolves (a deleted custom problem,
+      // ADR 0010 D4), or the client names a different card: the typed answer
+      // was written for another card, so it is never graded against the
+      // current one. Persist any skip (with the next card's presentation
+      // turn) and report the change — no model call, no verdict, no note /
+      // competency writes. A client that names the skipped-to card (it saw it
+      // via GET /api/quiz/session) is graded normally.
+      const { session: skippedSession, skipped } = skipToResolvable(
+        stored,
+        (id) => source.getById(id) !== undefined,
+      );
+      const currentId = currentProblemId(skippedSession);
+      const changed =
+        rawProblemId !== undefined ? rawProblemId !== currentId : skipped > 0;
+      if (changed) {
+        const next = presentCurrent(deps, source, stored);
+        if (!next && skipped === 0) {
+          return json(404, { error: 'no current question' });
+        }
+        if (!next) {
+          const done: QuizSession = { ...skippedSession, status: 'complete' };
+          await storage.writeQuizSession(done);
+          return json(409, {
+            error: 'question changed',
+            skipped: true,
+            complete: true,
+            session: toQuizState(done),
+            question: null,
+          });
+        }
+        if (skipped > 0) {
+          await storage.writeQuizSession(next.session);
+        }
+        return json(409, {
+          error: 'question changed',
+          skipped: skipped > 0,
+          complete: false,
+          session: toQuizState(next.session),
+          question: next.question,
+        });
+      }
+      const presented = presentCurrent(deps, source, stored);
       if (!presented) {
         return json(404, { error: 'no current question' });
       }
@@ -1320,11 +1428,16 @@ export async function handleApiRoute(
         });
       }
 
-      // Otherwise present the next question.
+      // Otherwise present the next question, skipping forward past ids that
+      // no longer resolve (a deleted custom problem, ADR 0010 D4).
+      advanced = skipToResolvable(
+        advanced,
+        (id) => source.getById(id) !== undefined,
+      ).session;
       const nextId = currentProblemId(advanced);
-      const nextProblem = nextId ? deps.catalog.getById(nextId) : undefined;
+      const nextProblem = nextId ? source.getById(nextId) : undefined;
       if (!nextProblem) {
-        // Next id unknown (catalog changed): persist progress + report complete.
+        // Nothing resolvable remains: persist progress + report complete.
         const forced: QuizSession = { ...advanced, status: 'complete' };
         await storage.writeQuizSession(forced);
         return json(200, {
@@ -1381,7 +1494,7 @@ async function buildGuidanceResponse(
       quiz: { doneCount: 0, lastQuizAt: null, suggested: false },
     };
   }
-  const problems = deps.catalog.list();
+  const problems = (await loadProblemSource(deps.catalog, storage)).list();
   const notesById = await resolveStatuses(problems, storage);
   let signals: CompetencySignals = emptyCompetencySignals(generatedAt);
   if (storage.readCompetencySignals) {

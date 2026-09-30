@@ -14,7 +14,7 @@
 
 import type { NoteStatus, StorageAdapter } from '@ibai/storage';
 import { isNoteStatus } from '@ibai/storage';
-import type { CurriculumSource } from '@ibai/curriculum';
+import type { ProblemSource } from '../problems.js';
 import type { HandlerResponse } from '../handler.js';
 import { createBackup } from './backup.js';
 import { createCatalogMatcher } from './match.js';
@@ -36,7 +36,8 @@ export const IMPORT_COMMIT_PATH = '/api/import/csv/commit';
 
 /** What the import routes need from the API layer. */
 export interface ImportRouteDeps {
-  readonly catalog: CurriculumSource;
+  /** The merged source (catalog + custom problems, ADR 0010 D4). */
+  readonly catalog: ProblemSource;
   /** Active data dir (server state). */
   readonly dataDir: string;
   /** Storage for `dataDir`, or null when the folder does not exist. */
@@ -92,7 +93,7 @@ type Parsed =
 /** Parse the shared `{ files, defaultStatus? }` part and analyze the files. */
 function parseAndAnalyze(
   raw: string | undefined,
-  catalog: CurriculumSource,
+  catalog: ProblemSource,
 ): Parsed {
   let body: unknown;
   try {

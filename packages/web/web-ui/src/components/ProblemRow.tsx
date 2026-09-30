@@ -41,15 +41,20 @@ export function ProblemRow({
         />
       </td>
       <td className="px-4 py-2 align-middle">
-        <a
-          href={problem.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 font-medium text-slate-100 transition-all duration-200 hover:text-emerald-400"
-        >
-          {problem.title}
-          <ExternalLink className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-        </a>
+        {problem.url ? (
+          <a
+            href={problem.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 font-medium text-slate-100 transition-all duration-200 hover:text-emerald-400"
+          >
+            {problem.title}
+            <ExternalLink className="h-3.5 w-3.5 text-slate-500" aria-hidden />
+          </a>
+        ) : (
+          // A custom problem without a link: plain text, no dead anchor.
+          <span className="font-medium text-slate-100">{problem.title}</span>
+        )}
       </td>
       <td className="px-4 py-2 align-middle">
         <DifficultyBadge difficulty={problem.difficulty} />

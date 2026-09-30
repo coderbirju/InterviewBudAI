@@ -407,6 +407,32 @@ export interface CompetencySignals {
   readonly lastUpdated: IsoTimestamp;
 }
 
+// ---------------------------------------------------------------------------
+// Custom Problem Types (ADR 0010 — user-added problems)
+// ---------------------------------------------------------------------------
+
+/**
+ * A problem the user added themselves (ADR 0010 D2). PROGRESS layer: stored
+ * in the user's data directory, never shipped in the curriculum, never
+ * committed. Carries no answer, solution or hint (§6.2) — the user's thinking
+ * stays in their intuition note.
+ */
+export interface CustomProblem {
+  /** `u-<slug>-<rand6>`, server-generated, immutable, never reused. */
+  readonly id: string;
+  /** 1–200 chars, one line (C0 controls stripped). */
+  readonly title: string;
+  /** `http:` / `https:` only, ≤ 2048 chars. */
+  readonly url?: string;
+  /** The user's own problem statement: plain text, ≤ 2000 chars. Not an answer. */
+  readonly statement?: string;
+  readonly difficulty: 'easy' | 'medium' | 'hard';
+  /** 1–3 curriculum topic ids (canonical). */
+  readonly topics: readonly TopicId[];
+  readonly createdAt: IsoTimestamp;
+  readonly updatedAt: IsoTimestamp;
+}
+
 // `deriveTopicStrength` lives in a side-effect-free module so consumers that
 // only need the pure rule (e.g. `@ibai/core`) can import
 // `@ibai/storage/competency` without loading the concrete adapter.
@@ -580,6 +606,49 @@ export interface StorageAdapter {
    * @param signals - The competency-signals dataset to persist.
    */
   writeCompetencySignals?(signals: CompetencySignals): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Custom Problem Methods (ADR 0010 D3 — optional, additive)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Every valid custom problem, sorted by `createdAt` then `id`. Invalid or
+   * unreadable records are skipped (never throws); a missing store is `[]`.
+   */
+  listCustomProblems?(): Promise<CustomProblem[]>;
+
+  /** One custom problem, or `null` if missing, invalid or not a `u-` id. */
+  readCustomProblem?(id: string): Promise<CustomProblem | null>;
+
+  /**
+   * Store a NEW custom problem. Exclusive: never overwrites — if the id is
+   * taken it throws (code `EEXIST`) and the caller picks a new id. Throws a
+   * `RangeError` for a record that fails validation.
+   */
+  createCustomProblem?(problem: CustomProblem): Promise<void>;
+
+  /**
+   * Replace an EXISTING custom problem atomically. Throws (code `ENOENT`) if
+   * it does not exist, `RangeError` for an invalid record.
+   */
+  writeCustomProblem?(problem: CustomProblem): Promise<void>;
+
+  /** Delete a custom problem. Missing (or not a `u-` id) ⇒ no-op. */
+  deleteCustomProblem?(id: string): Promise<void>;
+
+  /**
+   * True when a note exists for `problemId` — ANY stored entry, even one that
+   * `readIntuitionNote` cannot parse — so deleting a problem never orphans a
+   * note (ADR 0010 D3 amendment). Never throws.
+   */
+  hasIntuitionNote?(problemId: string): Promise<boolean>;
+
+  /**
+   * Delete the intuition note for `problemId`. Missing ⇒ no-op (ADR 0010 D3
+   * amendment). Used when a custom problem is deleted together with its note.
+   */
+  deleteIntuitionNote?(problemId: string): Promise<void>;
 }
 
+export * from './custom-problems.js';
 export * from './local-file-adapter.js';
