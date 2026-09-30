@@ -102,6 +102,8 @@ writeCustomProblem?(problem: CustomProblem): Promise<void>;  // replace existing
 deleteCustomProblem?(id: string): Promise<void>;             // missing ⇒ no-op
 ```
 
+> **Amendment (2026-09-27, PR 1 review):** two more optional methods, so the web never owns the note layout — `hasIntuitionNote?(problemId): Promise<boolean>` (any stored entry, even unparseable) and `deleteIntuitionNote?(problemId): Promise<void>` (missing ⇒ no-op); `DELETE /api/problems/:id` answers `501` when the adapter lacks `deleteIntuitionNote` rather than risk orphaning a note.
+
 `LocalFileStorageAdapter` implements them (strict id regex + `safeJoin`).
 Request validation (limits, duplicates, topics) lives in the web layer; the
 adapter re-validates on read (D2). `@ibai/core` stays interface-only;

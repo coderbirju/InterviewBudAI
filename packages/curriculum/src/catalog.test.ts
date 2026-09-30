@@ -23,6 +23,12 @@ describe('@ibai/curriculum CATALOG', () => {
     }
   });
 
+  it('no catalog id starts with u- (reserved for custom problems, ADR 0010 D2)', () => {
+    for (const problem of CATALOG) {
+      expect(problem.id.startsWith('u-')).toBe(false);
+    }
+  });
+
   it('all ids match expected pattern', () => {
     const idPattern = /^(lc-\d+|sysd-[a-z0-9-]+|misc-[a-z0-9-]+)$/;
     for (const problem of CATALOG) {

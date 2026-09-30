@@ -283,3 +283,15 @@ describe('GuidanceCard — untrusted text', () => {
     expect(screen.getAllByText(evil).length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('GuidanceCard — custom problem without a url', () => {
+  it('renders the next-up title as plain text (no anchor)', () => {
+    const custom: GuidanceNextUp = { ...next('u-book-abc123', 'continue') };
+    delete (custom as { url?: string }).url;
+    render(<GuidanceCard guidance={ready({ nextUp: [custom] })} />);
+    expect(screen.getByText('Title u-book-abc123')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Title u-book-abc123' }),
+    ).not.toBeInTheDocument();
+  });
+});
