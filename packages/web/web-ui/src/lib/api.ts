@@ -716,14 +716,17 @@ export function dismissLegacyData(): Promise<DataDirStatus> {
 // shapes carry presence booleans, never a secret value.
 // ---------------------------------------------------------------------------
 
-export type ProviderKind = 'anthropic' | 'ollama' | 'none';
+export type ProviderKind = 'anthropic' | 'openai' | 'ollama' | 'none';
 
 export interface SettingsProvider {
   readonly kind: ProviderKind;
   readonly model: string | null;
-  /** Ollama origin (scheme://host:port) only; null otherwise. */
+  /** Ollama / OpenAI-compatible origin (scheme://host:port) only; null otherwise. */
   readonly endpoint: string | null;
+  /** The active provider's key is present (OpenAI-compatible: optional key). */
   readonly keyConfigured: boolean;
+  /** `openai` only: "Docker Model Runner (local)" or "OpenAI-compatible". */
+  readonly label?: string;
   readonly hint?: string;
 }
 
