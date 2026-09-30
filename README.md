@@ -61,11 +61,20 @@ Then open <http://localhost:4173>. The first run downloads the model
   `ai/…` tags; lighter options are listed there, e.g. `ai/qwen2.5:3B-Q4_K_M`
   for tight RAM), then run `docker compose up` again.
 - **Use your existing notes:** under Docker the notes folder is
-  `IBAI_HOST_DATA_DIR` (default `~/.interviewbudai/data`, the same default as
-  `npm start`). A folder you picked at `/setup` or `/data` outside Docker is
-  **not** used automatically — the app shows a banner with the path. Put
-  `IBAI_HOST_DATA_DIR=/path/to/your/folder` in a `.env` next to
-  `compose.yaml` and restart. Windows users should always set it.
+  `IBAI_HOST_DATA_DIR`, else `IBAI_DATA_DIR` (so a folder you pinned for
+  `npm start` in `.env` is used here too), else `~/.interviewbudai/data` (the
+  same default as `npm start`). Use absolute paths. A folder you picked at
+  `/setup` or `/data` outside Docker is **not** used automatically — the app
+  shows a banner with the path. Put `IBAI_HOST_DATA_DIR=/path/to/your/folder`
+  in a `.env` next to `compose.yaml` and restart.
+- **Windows:** always set `IBAI_HOST_DATA_DIR` (or `IBAI_DATA_DIR`). `HOME`
+  is often unset there; Compose then falls back to `%USERPROFILE%` for `~`
+  (not verified on Windows), so without it the "other folder" banner may not
+  show.
+- **Runs only while you want it:** `restart: "no"` in `compose.yaml`, so the
+  app and the model do not start again by themselves after a Docker restart
+  or reboot. Change it to `unless-stopped` to keep it running in the
+  background (`docker compose down` stops it).
 - **Port:** `IBAI_WEB_PORT=8080` in `.env` (the app is published on
   127.0.0.1 only, never on your network).
 - Your `.env` is only used to fill in `compose.yaml`; it is never passed into
@@ -86,7 +95,9 @@ published ports to hosts on the same network; not verified here). Rootless
 Docker / Podman: set `IBAI_UID`/`IBAI_GID` to match your uid mapping.
 
 If the quiz says it can't reach Docker Model Runner, check that Model Runner
-is enabled (Settings → AI). **Settings → Test connection** tells you whether
+is enabled: Docker Desktop → Settings → AI → Enable Docker Model Runner; on
+Docker Engine, install the `docker-model-plugin` package (`docker model
+status` checks it). **Settings → Test connection** tells you whether
 the model is available.
 
 ## Build and verify
@@ -135,8 +146,8 @@ and Settings shows a hint.
 | `IBAI_OLLAMA_URL` | Ollama endpoint | `http://127.0.0.1:11434` |
 | `IBAI_DATA_DIR` | Your private progress directory (not auto-created when you set it) | web: `~/.interviewbudai/data` (auto-created on first run) |
 | `IBAI_WEB_PORT` | Web server port | `4173` |
-| `IBAI_BIND_HOST` | Bind address: `127.0.0.1` or `::1`; `0.0.0.0` only inside the Docker image (the server refuses it otherwise) | `127.0.0.1` |
-| `IBAI_HOST_DATA_DIR` | Docker only: the host folder mounted at `/data` | `~/.interviewbudai/data` |
+| `IBAI_BIND_HOST` | Bind address: `127.0.0.1` or `::1`. `0.0.0.0` is accepted only together with `IBAI_CONTAINER=1`; the Docker image sets both. **Never set these outside Docker:** on a normal computer they make the app listen on all network interfaces with **no authentication** (only a startup warning) | `127.0.0.1` |
+| `IBAI_HOST_DATA_DIR` | Docker only: the host folder mounted at `/data` | `IBAI_DATA_DIR`, else `~/.interviewbudai/data` |
 
 ## Run
 
