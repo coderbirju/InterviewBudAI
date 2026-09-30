@@ -10,7 +10,7 @@
  *  - Compose mounts the host's `~/.interviewbudai` read-only at
  *    `/host-config`. Only the FIXED file `/host-config/config.json` is read
  *    (no symlink, ≤ 64 KiB, same validation as config.json), to tell the user
- *    when their non-Docker setup uses another folder. No data path is ever
+ *    when their /setup choice outside Docker is another folder. No data path is ever
  *    resolved under `/host-config`.
  *
  * Node built-ins only. Nothing here throws.
@@ -173,9 +173,14 @@ export function sameHostPath(a: string, b: string): boolean {
   return na !== undefined && nb !== undefined && na === nb;
 }
 
-/** The mismatch banner copy (ADR 0011 D3). */
+/**
+ * The mismatch banner copy (ADR 0011 D3). The value comes from the host's
+ * config.json, i.e. the /setup choice. `npm start` ignores that choice when
+ * IBAI_DATA_DIR is set, so the copy names its source instead of claiming the
+ * non-Docker app uses it (#78 review).
+ */
 export function hostMismatchText(hostConfigDataDir: string): string {
-  return `Your non-Docker setup uses ${hostConfigDataDir}. To use the same notes in Docker, set IBAI_HOST_DATA_DIR=${hostConfigDataDir} in .env and restart.`;
+  return `Your /setup choice outside Docker is ${hostConfigDataDir} (saved in ~/.interviewbudai/config.json; npm start ignores it when IBAI_DATA_DIR is set). To use that folder in Docker, set IBAI_HOST_DATA_DIR=${hostConfigDataDir} in .env and restart.`;
 }
 
 /** `GET /api/data-dir` `docker` block (present only inside the container). */
@@ -187,7 +192,7 @@ export interface DockerDataInfo {
   /** Fixed help text when not writable. */
   readonly writableHelp?: string;
   /**
-   * The host folder the NON-Docker app uses (from the host's config.json),
+   * The /setup choice outside Docker (the host config.json `dataDir`),
    * set only when it differs from `hostDataDir` (the mismatch banner).
    */
   readonly hostConfigDataDir?: string;

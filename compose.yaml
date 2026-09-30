@@ -61,7 +61,7 @@ services:
         bind:
           create_host_path: true
       # Read-only: the app reads ONLY /host-config/config.json from it, to
-      # tell you when your non-Docker setup uses another folder. HOME falls
+      # tell you when your /setup choice outside Docker is another folder. HOME falls
       # back to USERPROFILE so Windows does not get a stray /.interviewbudai;
       # a missing config.json there just means "no banner".
       - type: bind
