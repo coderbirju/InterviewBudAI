@@ -122,13 +122,36 @@ jobs:
             (.services.app.env_file == null) and
             ((.services.app.environment | keys) == ["IBAI_HOST_DATA_DIR", "IBAI_PUBLIC_PORT"]) and
             (.services.app.ports | length == 1 and .[0].host_ip == "127.0.0.1" and .[0].target == 4173) and
-            ([.services.app.volumes[] | select(.target == "/host-config")][0].read_only == true)
+            ([.services.app.volumes[] | select(.target == "/host-config")][0].read_only == true) and
+            ((.services.app.restart // "no") == "no")
           ' /tmp/compose.json
           if grep -q 'canary' /tmp/compose.json; then
             echo "A key from .env / the shell reached the rendered compose config" >&2
             exit 1
           fi
           rm .env
+          # Host data folder: IBAI_HOST_DATA_DIR > IBAI_DATA_DIR (shell or .env,
+          # as for `npm start`) > default; the display-only env always equals
+          # the /data bind source.
+          data_dir_is() {
+            jq -e --arg d "$1" '
+              ([.services.app.volumes[] | select(.target == "/data")][0].source == $d) and
+              (.services.app.environment.IBAI_HOST_DATA_DIR == $d) and
+              ([.services.app.volumes[] | select(.target == "/host-config")][0].source == ($ENV.HOME + "/.interviewbudai"))
+            ' >/dev/null || { echo "data dir is not $1" >&2; exit 1; }
+          }
+          for f in "-f compose.yaml" "-f compose.yaml -f compose.engine.yaml"; do
+            env -u IBAI_DATA_DIR -u IBAI_HOST_DATA_DIR docker compose $f config --format json |
+              data_dir_is "$HOME/.interviewbudai/data"
+            env -u IBAI_HOST_DATA_DIR IBAI_DATA_DIR=/tmp/ibai-pinned docker compose $f config --format json |
+              data_dir_is /tmp/ibai-pinned
+            printf 'IBAI_DATA_DIR=/tmp/ibai-dotenv\n' > .env
+            env -u IBAI_DATA_DIR -u IBAI_HOST_DATA_DIR docker compose $f config --format json |
+              data_dir_is /tmp/ibai-dotenv
+            rm .env
+            IBAI_DATA_DIR=/tmp/ibai-pinned IBAI_HOST_DATA_DIR=/tmp/ibai-host docker compose $f config --format json |
+              data_dir_is /tmp/ibai-host
+          done
 
       - name: Build the image
         run: docker build -t interviewbudai:local .

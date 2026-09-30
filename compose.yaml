@@ -9,9 +9,13 @@
 # Optional settings go in a `.env` file next to this one (Compose reads it for
 # the ${...} values below ONLY — it is never passed into the container, so API
 # keys in it stay out of the app):
-#   IBAI_HOST_DATA_DIR   your notes folder (default ~/.interviewbudai/data)
+#   IBAI_HOST_DATA_DIR   your notes folder (default: IBAI_DATA_DIR if set —
+#                        the folder `npm start` uses — else
+#                        ~/.interviewbudai/data)
 #   IBAI_WEB_PORT        the port on your computer (default 4173)
 #   IBAI_UID / IBAI_GID  Linux: your `id -u` / `id -g` (default 1000)
+# "~" is $HOME, falling back to %USERPROFILE% on Windows (where HOME is often
+# unset). Windows: set IBAI_HOST_DATA_DIR (or IBAI_DATA_DIR) explicitly.
 
 name: interviewbudai
 
@@ -45,19 +49,23 @@ services:
     environment:
       # The Host/Origin allowlist must match the port your browser uses.
       IBAI_PUBLIC_PORT: '${IBAI_WEB_PORT:-4173}'
-      # Display only: shown on /data as the host folder behind /data.
-      IBAI_HOST_DATA_DIR: '${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}'
+      # Display only: shown on /data as the host folder behind /data (the
+      # same resolved value as the bind source below).
+      IBAI_HOST_DATA_DIR: '${IBAI_HOST_DATA_DIR:-${IBAI_DATA_DIR:-${HOME:-${USERPROFILE}}/.interviewbudai/data}}'
     volumes:
-      # Your notes folder (the same default as `npm start`).
+      # Your notes folder: IBAI_HOST_DATA_DIR, else IBAI_DATA_DIR (so a folder
+      # pinned for `npm start` in .env is the same here), else the default.
       - type: bind
-        source: '${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}'
+        source: '${IBAI_HOST_DATA_DIR:-${IBAI_DATA_DIR:-${HOME:-${USERPROFILE}}/.interviewbudai/data}}'
         target: /data
         bind:
           create_host_path: true
       # Read-only: the app reads ONLY /host-config/config.json from it, to
-      # tell you when your non-Docker setup uses another folder.
+      # tell you when your non-Docker setup uses another folder. HOME falls
+      # back to USERPROFILE so Windows does not get a stray /.interviewbudai;
+      # a missing config.json there just means "no banner".
       - type: bind
-        source: '${HOME}/.interviewbudai'
+        source: '${HOME:-${USERPROFILE}}/.interviewbudai'
         target: /host-config
         read_only: true
         bind:
@@ -66,4 +74,8 @@ services:
       llm:
         endpoint_var: IBAI_OPENAI_BASE_URL
         model_var: IBAI_OPENAI_MODEL
-    restart: unless-stopped
+    # Off by default: the app (and with it the model) does not come back on
+    # its own after a Docker restart or reboot. To keep it running in the
+    # background, change this to `unless-stopped` (stop it with
+    # `docker compose down`).
+    restart: 'no'

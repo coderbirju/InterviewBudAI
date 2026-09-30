@@ -4,10 +4,11 @@
 #   export IBAI_UID=$(id -u) IBAI_GID=$(id -g)
 #   docker compose -f compose.yaml -f compose.engine.yaml up
 #
-# Run the mkdir even when IBAI_HOST_DATA_DIR points elsewhere: it also creates
-# ~/.interviewbudai (mounted read-only below). Docker Engine would create
-# missing folders as root, which the app (and a later `npm start`) could not
-# write to — so here a missing folder is an error instead.
+# Run the mkdir even when IBAI_HOST_DATA_DIR (or IBAI_DATA_DIR) points
+# elsewhere: it also creates ~/.interviewbudai (mounted read-only below).
+# Docker Engine would create missing folders as root, which the app (and a
+# later `npm start`) could not write to — so here a missing folder is an error
+# instead.
 #
 # Docker Desktop (macOS, Windows, and Docker Desktop for Linux) does NOT need
 # this file.
@@ -15,12 +16,12 @@ services:
   app:
     volumes:
       - type: bind
-        source: '${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}'
+        source: '${IBAI_HOST_DATA_DIR:-${IBAI_DATA_DIR:-${HOME:-${USERPROFILE}}/.interviewbudai/data}}'
         target: /data
         bind:
           create_host_path: false
       - type: bind
-        source: '${HOME}/.interviewbudai'
+        source: '${HOME:-${USERPROFILE}}/.interviewbudai'
         target: /host-config
         read_only: true
         bind:

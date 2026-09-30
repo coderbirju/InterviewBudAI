@@ -466,14 +466,14 @@ node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 |---------|----------|---------------------|----------|
 | Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/config.json` (set via `/setup`), else `~/.interviewbudai/data` (auto-created) |
 | Port | `--port=<port>` | `IBAI_WEB_PORT` | `4173` |
-| Bind host | — | `IBAI_BIND_HOST` | `127.0.0.1` (`::1` allowed; `0.0.0.0` only with `IBAI_CONTAINER=1`, else the server refuses to start) |
+| Bind host | — | `IBAI_BIND_HOST` | `127.0.0.1` (`::1` allowed; `0.0.0.0` only with `IBAI_CONTAINER=1`, else the server refuses to start). The image sets both; never set them outside Docker — the app would listen on all interfaces with no authentication (only a warning) |
 | Public port (Docker) | — | `IBAI_PUBLIC_PORT` | the listen port |
 | Ollama URL | — | `IBAI_OLLAMA_URL` | `http://127.0.0.1:11434` |
 | Ollama Model | — | `IBAI_OLLAMA_MODEL` | *(required for Ollama)* |
 | Anthropic API Key | — | `IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
 | Anthropic Model | — | `IBAI_ANTHROPIC_MODEL` | *(required for Anthropic)* |
 
-Precedence: CLI flag > environment variable (shell > `.env`) > default (for the data directory: > `config.json` > default). The host is `127.0.0.1` unless `IBAI_BIND_HOST` says otherwise; `0.0.0.0` is accepted only inside the Docker image (ADR 0011 D2), where Compose publishes the port on `127.0.0.1` only. With `IBAI_PUBLIC_PORT` ≠ listen port, `Host` on the listen port is accepted for non-mutating requests only (the HEALTHCHECK) and `Origin` only on the public port.
+Precedence: CLI flag > environment variable (shell > `.env`) > default (for the data directory: > `config.json` > default). The host is `127.0.0.1` unless `IBAI_BIND_HOST` says otherwise; `0.0.0.0` is accepted only with `IBAI_CONTAINER=1`, which only the Docker image should set (ADR 0011 D2), where Compose publishes the port on `127.0.0.1` only. With `IBAI_PUBLIC_PORT` ≠ listen port, `Host` on the listen port is accepted for non-mutating requests only (the HEALTHCHECK) and `Origin` only on the public port.
 
 ## Privacy & Security
 
