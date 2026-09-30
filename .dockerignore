@@ -1,0 +1,34 @@
+# Docker build context filter (ADR 0011 D2). The image is built from source
+# inside the build stage; nothing local, secret or generated goes in.
+**/node_modules
+**/dist
+**/dist-ui
+**/*.tsbuildinfo
+.git
+.github
+.claude
+.kiro
+.idea
+.vscode
+.DS_Store
+# Secrets / env files (charter §7.2) — .env.example too: the image never reads one
+.env
+.env.*
+**/.env
+**/.env.*
+# Test / coverage / logs
+coverage
+**/coverage
+*.log
+**/*.log
+# Local data folders and agent worktrees (user data never enters the image)
+data
+**/data
+.interviewbudai
+.ibai
+worktrees
+**/worktrees
+# Docker files themselves
+compose*.yaml
+Dockerfile
+.dockerignore

@@ -78,3 +78,60 @@ jobs:
       - name: Test
         if: steps.detect.outputs.scaffolded == 'true'
         run: npm test --if-present
+
+  # ADR 0011 D6: the Docker path (Dockerfile + compose.yaml). No real model and
+  # no secrets: Docker Model Runner is not available on GitHub runners, so the
+  # smoke test runs compose.ci.yaml with scripts/ci/fake-openai.mjs instead.
+  docker:
+    name: docker build / compose config / smoke
+    runs-on: ubuntu-latest
+    env:
+      # Pinned Compose plugin (>= 2.38 is needed for top-level `models:`).
+      COMPOSE_VERSION: v5.5.1
+      COMPOSE_SHA256: db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Docker Compose plugin
+        run: |
+          mkdir -p "$HOME/.docker/cli-plugins"
+          curl -fsSL -o "$HOME/.docker/cli-plugins/docker-compose" \
+            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+          echo "${COMPOSE_SHA256}  $HOME/.docker/cli-plugins/docker-compose" | sha256sum -c -
+          chmod +x "$HOME/.docker/cli-plugins/docker-compose"
+          docker version --format 'Engine {{.Server.Version}}'
+          docker compose version
+
+      - name: Validate compose files (models / endpoint_var / model_var)
+        run: |
+          # Canary keys in a .env AND the shell: Compose may use .env for
+          # interpolation, but no key may reach the app service.
+          printf 'ANTHROPIC_API_KEY=sk-ant-ci-canary\nOPENAI_API_KEY=sk-ci-canary\nIBAI_OPENAI_API_KEY=sk-ci-canary\n' > .env
+          export ANTHROPIC_API_KEY=sk-ant-ci-canary OPENAI_API_KEY=sk-ci-canary
+          docker compose -f compose.yaml config -q
+          docker compose -f compose.yaml -f compose.engine.yaml config -q
+          IBAI_CI_DATA_DIR=/tmp/x IBAI_CI_HOST_CONFIG=/tmp/y docker compose -f compose.ci.yaml config -q
+          # The JSON rendering omits top-level `models:`; check it separately.
+          test "$(docker compose -f compose.yaml config --models)" = "ai/qwen3:4b-instruct-2507-q4_K_M"
+          docker compose -f compose.yaml config | grep -qE '^ +context_size: 4096$'
+          docker compose -f compose.yaml config --format json > /tmp/compose.json
+          jq -e '
+            .services.app.models.llm.endpoint_var == "IBAI_OPENAI_BASE_URL" and
+            .services.app.models.llm.model_var == "IBAI_OPENAI_MODEL" and
+            (.services.app.env_file == null) and
+            ((.services.app.environment | keys) == ["IBAI_HOST_DATA_DIR", "IBAI_PUBLIC_PORT"]) and
+            (.services.app.ports | length == 1 and .[0].host_ip == "127.0.0.1" and .[0].target == 4173) and
+            ([.services.app.volumes[] | select(.target == "/host-config")][0].read_only == true)
+          ' /tmp/compose.json
+          if grep -q 'canary' /tmp/compose.json; then
+            echo "A key from .env / the shell reached the rendered compose config" >&2
+            exit 1
+          fi
+          rm .env
+
+      - name: Build the image
+        run: docker build -t interviewbudai:local .
+
+      - name: Smoke test (fake OpenAI-compatible server)
+        run: bash scripts/ci/docker-smoke.sh

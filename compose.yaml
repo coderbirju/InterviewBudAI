@@ -1,0 +1,69 @@
+# InterviewBudAI + a local model via Docker Model Runner (ADR 0011).
+#
+#   docker compose up        then open http://localhost:4173
+#
+# Needs Docker Desktop with Model Runner enabled (Settings → AI → Enable Docker
+# Model Runner) and Docker Compose >= 2.38. Linux / Docker Engine: see
+# compose.engine.yaml. The first run downloads the model (~2.5 GB).
+#
+# Optional settings go in a `.env` file next to this one (Compose reads it for
+# the ${...} values below ONLY — it is never passed into the container, so API
+# keys in it stay out of the app):
+#   IBAI_HOST_DATA_DIR   your notes folder (default ~/.interviewbudai/data)
+#   IBAI_WEB_PORT        the port on your computer (default 4173)
+#   IBAI_UID / IBAI_GID  Linux: your `id -u` / `id -g` (default 1000)
+
+name: interviewbudai
+
+# The model. Swap it by editing `model:` (any Docker Hub `ai/…` tag, pinned —
+# never `latest`), or delete this block and the service's `models:` to use
+# another provider. The app itself never names a model.
+models:
+  llm:
+    # Default: ~2.5 GB download, ~3.5 GB RAM estimated with 4096 context.
+    model: ai/qwen3:4b-instruct-2507-q4_K_M
+    # Lighter alternatives (tight RAM):
+    # model: ai/qwen2.5:3B-Q4_K_M     # ~1.9 GB
+    # model: ai/llama3.2:3B-Q4_K_M    # ~2.0 GB
+    context_size: 4096
+
+services:
+  app:
+    build: .
+    image: interviewbudai:local
+    init: true
+    # Linux Docker Engine writes files as this uid; set IBAI_UID/IBAI_GID to
+    # your `id -u`/`id -g` (rootless Docker / Podman: match your mapping).
+    user: '${IBAI_UID:-1000}:${IBAI_GID:-1000}'
+    # Loopback only: never 0.0.0.0 / a bare "4173:4173" (this is what keeps
+    # the app off your local network).
+    ports:
+      - '127.0.0.1:${IBAI_WEB_PORT:-4173}:4173'
+    # Only these variables reach the app (no env_file: keys in .env or your
+    # shell never enter the container). Compose adds IBAI_OPENAI_BASE_URL and
+    # IBAI_OPENAI_MODEL from `models:` below.
+    environment:
+      # The Host/Origin allowlist must match the port your browser uses.
+      IBAI_PUBLIC_PORT: '${IBAI_WEB_PORT:-4173}'
+      # Display only: shown on /data as the host folder behind /data.
+      IBAI_HOST_DATA_DIR: '${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}'
+    volumes:
+      # Your notes folder (the same default as `npm start`).
+      - type: bind
+        source: '${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}'
+        target: /data
+        bind:
+          create_host_path: true
+      # Read-only: the app reads ONLY /host-config/config.json from it, to
+      # tell you when your non-Docker setup uses another folder.
+      - type: bind
+        source: '${HOME}/.interviewbudai'
+        target: /host-config
+        read_only: true
+        bind:
+          create_host_path: true
+    models:
+      llm:
+        endpoint_var: IBAI_OPENAI_BASE_URL
+        model_var: IBAI_OPENAI_MODEL
+    restart: unless-stopped

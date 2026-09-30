@@ -1,0 +1,31 @@
+# Override for Docker ENGINE (Linux without Docker Desktop), ADR 0011 D2/D3:
+#
+#   mkdir -p -m 700 ~/.interviewbudai/data
+#   export IBAI_UID=$(id -u) IBAI_GID=$(id -g)
+#   docker compose -f compose.yaml -f compose.engine.yaml up
+#
+# Run the mkdir even when IBAI_HOST_DATA_DIR points elsewhere: it also creates
+# ~/.interviewbudai (mounted read-only below). Docker Engine would create
+# missing folders as root, which the app (and a later `npm start`) could not
+# write to — so here a missing folder is an error instead.
+#
+# Docker Desktop (macOS, Windows, and Docker Desktop for Linux) does NOT need
+# this file.
+services:
+  app:
+    volumes:
+      - type: bind
+        source: '${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}'
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: '${HOME}/.interviewbudai'
+        target: /host-config
+        read_only: true
+        bind:
+          create_host_path: false
+    # Docker Model Runner on Engine listens on the host (TCP 12434); Docker's
+    # documented fix for reaching it from Compose (unverified on Engine CE).
+    extra_hosts:
+      - 'model-runner.docker.internal:host-gateway'
