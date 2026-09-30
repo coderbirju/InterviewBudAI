@@ -9,8 +9,9 @@
  *
  * Keys stay env-only (founder decision D5.2 pending): nothing here accepts,
  * stores or returns a secret. Secrets are only ever checked for PRESENCE; the
- * Ollama endpoint is reduced to its origin (no userinfo/path/query); provider
- * errors are mapped to fixed, sanitized text and never echoed.
+ * Ollama / OpenAI-compatible endpoint is reduced to its origin (no
+ * userinfo/path/query); provider errors are mapped to fixed, sanitized text
+ * and never echoed.
  *
  * The only outbound call is to the provider the user configured (§6.4), and
  * only on an explicit POST.
@@ -18,11 +19,13 @@
 
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { AnthropicProvider } from '@ibai/providers';
+import { AnthropicProvider, normalizeOpenAIBaseUrl } from '@ibai/providers';
 import {
   resolveAnthropicApiKey,
   resolveAnthropicModel,
   resolveOllamaUrl,
+  resolveOpenAIApiKey,
+  resolveOpenAIBaseUrl,
   resolveProviderStatus,
 } from './config.js';
 import type { DataDirSource } from './config.js';
@@ -31,16 +34,32 @@ import type { DataDirSource } from './config.js';
 // Shapes
 // ---------------------------------------------------------------------------
 
-export type SettingsProviderKind = 'anthropic' | 'ollama' | 'none';
+export type SettingsProviderKind = 'openai' | 'anthropic' | 'ollama' | 'none';
 
 export interface ApiSettingsProvider {
   readonly kind: SettingsProviderKind;
   readonly model: string | null;
-  /** Ollama origin (scheme://host:port) only; null for other kinds. */
+  /**
+   * Ollama / OpenAI-compatible origin (scheme://host:port) only; null for
+   * other kinds or an unparseable URL.
+   */
   readonly endpoint: string | null;
-  /** True when an Anthropic API key is present in the environment. */
+  /**
+   * True when the active provider's key is present: for `openai` the key that
+   * would actually be sent (`IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only
+   * for https://api.openai.com), an Anthropic key otherwise.
+   */
   readonly keyConfigured: boolean;
-  /** Why no provider is active, when a config is half-set. */
+  /**
+   * Display label, `openai` only: "Docker Model Runner (local)" for
+   * a Docker Model Runner host, else "OpenAI-compatible".
+   */
+  readonly label?: string;
+  /**
+   * Why no provider is active (a config is half-set or rejected), or — on an
+   * active Anthropic/Ollama provider — why a set OpenAI-compatible config is
+   * not used.
+   */
   readonly hint?: string;
 }
 
@@ -89,8 +108,32 @@ const ENV_VARS: readonly { readonly name: string; readonly purpose: string }[] =
       purpose: 'Anthropic model name (needed with a key)',
     },
     {
+      name: 'IBAI_OPENAI_BASE_URL',
+      purpose:
+        'OpenAI-compatible base URL, e.g. Docker Model Runner http://localhost:12434/engines/v1 (used when Anthropic is not configured)',
+    },
+    {
+      name: 'IBAI_OPENAI_MODEL',
+      purpose: 'OpenAI-compatible model id (needed with the base URL)',
+    },
+    {
+      name: 'IBAI_OPENAI_API_KEY',
+      purpose:
+        'OpenAI-compatible bearer key, optional; wins over OPENAI_API_KEY (secret)',
+    },
+    {
+      name: 'OPENAI_API_KEY',
+      purpose:
+        'OpenAI bearer key, optional; used only when IBAI_OPENAI_BASE_URL is https://api.openai.com (secret)',
+    },
+    {
+      name: 'IBAI_OPENAI_TIMEOUT_MS',
+      purpose: 'OpenAI-compatible request timeout in ms (default 120000)',
+    },
+    {
       name: 'IBAI_OLLAMA_MODEL',
-      purpose: 'Ollama model name (used when Anthropic is not configured)',
+      purpose:
+        'Ollama model name (used when neither Anthropic nor OpenAI-compatible is configured)',
     },
     {
       name: 'IBAI_OLLAMA_URL',
@@ -129,9 +172,55 @@ function readAppVersion(): string {
 
 let cachedVersion: string | undefined;
 
+/** Docker Model Runner's host-side TCP port (ADR 0011 verified facts). */
+const DMR_PORT = '12434';
+
+function isLoopbackHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === 'localhost' || /^127(\.\d{1,3}){3}$/.test(h) || h === '[::1]';
+}
+
+/**
+ * Display label (ADR 0011 D5): "Docker Model Runner (local)" when the base URL
+ * host is `model-runner.docker.internal` (any port), or a loopback host or
+ * `172.17.0.1` (Linux Docker Engine) on port 12434 with a path under
+ * `/engines/`; otherwise "OpenAI-compatible".
+ */
+export function openAICompatibleLabel(rawBaseUrl: string): string {
+  try {
+    // Judge the NORMALIZED URL, so `…:12434/engines` or a bare DMR host
+    // (both normalized to `…/engines/v1`) are labeled too.
+    const url = new URL(normalizeOpenAIBaseUrl(rawBaseUrl));
+    const host = url.hostname.toLowerCase();
+    if (host === 'model-runner.docker.internal') {
+      return 'Docker Model Runner (local)';
+    }
+    if (
+      (isLoopbackHostname(host) || host === '172.17.0.1') &&
+      url.port === DMR_PORT &&
+      url.pathname.startsWith('/engines/')
+    ) {
+      return 'Docker Model Runner (local)';
+    }
+  } catch {
+    // fall through
+  }
+  return 'OpenAI-compatible';
+}
+
 /** Describe the active provider WITHOUT secrets (mirrors startServer). */
 export function settingsProvider(env: NodeJS.ProcessEnv): ApiSettingsProvider {
   const status = resolveProviderStatus(env);
+  if (status.kind === 'openai') {
+    const baseUrl = resolveOpenAIBaseUrl(env) ?? '';
+    return {
+      kind: 'openai',
+      model: status.model,
+      endpoint: sanitizeEndpoint(baseUrl.trim()),
+      keyConfigured: Boolean(resolveOpenAIApiKey(env)),
+      label: openAICompatibleLabel(baseUrl),
+    };
+  }
   const keyConfigured = Boolean(resolveAnthropicApiKey(env));
   if (status.kind === 'ollama') {
     return {
@@ -139,6 +228,7 @@ export function settingsProvider(env: NodeJS.ProcessEnv): ApiSettingsProvider {
       model: status.model,
       endpoint: sanitizeEndpoint(resolveOllamaUrl(env)),
       keyConfigured,
+      ...(status.hint !== undefined && { hint: status.hint }),
     };
   }
   if (status.kind === 'anthropic') {
@@ -147,6 +237,7 @@ export function settingsProvider(env: NodeJS.ProcessEnv): ApiSettingsProvider {
       model: status.model,
       endpoint: null,
       keyConfigured,
+      ...(status.hint !== undefined && { hint: status.hint }),
     };
   }
   return {
@@ -239,7 +330,7 @@ async function errorTypeOf(res: Response): Promise<string | undefined> {
 
 /** Fixed, sanitized text for an HTTP status — never the provider's body. */
 function describeStatus(
-  provider: 'Anthropic' | 'Ollama',
+  provider: string,
   status: number,
   errorType?: string,
 ): string {
@@ -276,6 +367,31 @@ function hasUserinfo(raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Fixed detail when IBAI_OPENAI_BASE_URL carries credentials (URL never echoed). */
+export const OPENAI_USERINFO_DETAIL =
+  'IBAI_OPENAI_BASE_URL must not contain a username/password (use IBAI_OPENAI_API_KEY)';
+
+/** Fixed detail when IBAI_OPENAI_BASE_URL does not parse (value never echoed). */
+export const OPENAI_INVALID_URL_DETAIL =
+  'IBAI_OPENAI_BASE_URL is not a valid http(s) URL';
+
+/**
+ * Does an OpenAI-style `/models` (`{ data: [{ id }] }`) list the model?
+ * `m` ≡ `m:latest` (Docker Model Runner tags). null = not a model list.
+ */
+function openAIHasModel(data: unknown, model: string): boolean | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const list = (data as { data?: unknown }).data;
+  if (!Array.isArray(list)) return null;
+  const strip = (id: string): string => id.replace(/:latest$/, '');
+  const wanted = strip(model);
+  return list.some((m) => {
+    if (typeof m !== 'object' || m === null) return false;
+    const { id } = m as { id?: unknown };
+    return typeof id === 'string' && strip(id) === wanted;
+  });
 }
 
 /** Does Ollama's `/api/tags` list the configured model? (`llama3` ≡ `llama3:latest`) */
@@ -350,9 +466,65 @@ export function createProviderTester(
         detail,
       },
     });
-    const label = provider.kind === 'anthropic' ? 'Anthropic' : 'Ollama';
+    const label =
+      provider.kind === 'anthropic'
+        ? 'Anthropic'
+        : provider.kind === 'ollama'
+          ? 'Ollama'
+          : provider.label === 'Docker Model Runner (local)'
+            ? 'Docker Model Runner'
+            : 'The OpenAI-compatible server';
 
     const run = async (): Promise<ProviderTestOutcome> => {
+      if (provider.kind === 'openai') {
+        const model = provider.model ?? '';
+        let baseUrl: string;
+        try {
+          baseUrl = normalizeOpenAIBaseUrl(resolveOpenAIBaseUrl(env) ?? '');
+        } catch {
+          return done(false, OPENAI_INVALID_URL_DETAIL);
+        }
+        if (hasUserinfo(baseUrl)) {
+          return done(false, OPENAI_USERINFO_DETAIL);
+        }
+        const apiKey = resolveOpenAIApiKey(env);
+        // Same base as OpenAICompatibleProvider (`${baseUrl}/chat/completions`).
+        const res = await fetchImpl(`${baseUrl}/models`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
+          },
+        });
+        if (!res.ok) {
+          return done(false, describeStatus(label, res.status, seen.errorType));
+        }
+        let data: unknown;
+        try {
+          data = await res.json();
+        } catch {
+          return done(
+            false,
+            `${label} answered, but not with the expected JSON.`,
+          );
+        }
+        const found = openAIHasModel(data, model);
+        if (found === null) {
+          return done(false, `${label} answered, but not with a model list.`);
+        }
+        if (found) {
+          return done(
+            true,
+            `${label} is reachable and lists the model "${model}".`,
+          );
+        }
+        return done(
+          false,
+          label === 'Docker Model Runner'
+            ? `Docker Model Runner is reachable, but the model "${model}" is not listed. Run: docker model pull ${model}`
+            : `${label} is reachable, but does not list the model "${model}". Check IBAI_OPENAI_MODEL.`,
+        );
+      }
       if (provider.kind === 'ollama') {
         const model = provider.model ?? '';
         const rawUrl = resolveOllamaUrl(env);
@@ -421,13 +593,18 @@ export function createProviderTester(
         );
       }
       const where =
-        provider.kind === 'ollama' && provider.endpoint
+        provider.kind !== 'anthropic' && provider.endpoint
           ? ` at ${provider.endpoint}`
           : '';
-      return done(
-        false,
-        `Could not reach ${label}${where}. ${provider.kind === 'ollama' ? 'Is Ollama running?' : 'Check your network connection.'}`,
-      );
+      const who =
+        provider.kind === 'openai' ? label.replace(/^The /, 'the ') : label;
+      const tip =
+        provider.kind === 'ollama'
+          ? 'Is Ollama running?'
+          : provider.kind === 'openai'
+            ? 'Is the server running?'
+            : 'Check your network connection.';
+      return done(false, `Could not reach ${who}${where}. ${tip}`);
     } finally {
       clearTimeout(timer);
       inFlight = false;

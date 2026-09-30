@@ -49,6 +49,16 @@ export interface CompletionOptions {
   readonly topP?: number;
   /** Sequences that, if produced, stop generation. */
   readonly stop?: readonly string[];
+  /**
+   * OPTIONAL, additive (ADR 0002 optional-field pattern; ADR 0011 D1): `'json'`
+   * asks the backend to constrain its output to a JSON object; `'text'` (or
+   * omitting it) is the default free-text behavior. A HINT only — adapters
+   * that support it map it to their native switch (OpenAI-compatible:
+   * `response_format: { type: 'json_object' }`; Ollama: `format: 'json'`);
+   * adapters that do not (Anthropic) ignore it. Callers MUST still validate the
+   * returned text; omitting it keeps today's behavior exactly.
+   */
+  readonly responseFormat?: 'text' | 'json';
 }
 
 /**
@@ -116,3 +126,14 @@ export type { OllamaProviderConfig } from './ollama.js';
 
 export { AnthropicProvider } from './anthropic.js';
 export type { AnthropicProviderConfig } from './anthropic.js';
+
+export {
+  OpenAICompatibleProvider,
+  normalizeOpenAIBaseUrl,
+  openAIKeyTransportAllowed,
+  OPENAI_DEFAULT_TIMEOUT_MS,
+} from './openai-compatible.js';
+export type { OpenAICompatibleProviderConfig } from './openai-compatible.js';
+
+export { HttpProviderError } from './http-provider.js';
+export type { HttpProviderErrorKind } from './http-provider.js';
