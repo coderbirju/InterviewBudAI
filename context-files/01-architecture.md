@@ -48,7 +48,9 @@
 packages/
   core/         Engine: assess / plan / coach, session orchestration,
                 persona logic, prompt building. Depends on interfaces only.
-  providers/    LLM provider interface + adapters (OpenAI, Anthropic, Ollama…).
+  providers/    LLM provider interface + adapters (Anthropic, Ollama,
+                OpenAI-compatible — covers OpenAI, Docker Model Runner,
+                LM Studio, vLLM, llama.cpp; ADR 0011).
   storage/      Storage interface + adapters (git/local default, then others).
   cli/          CLI front-end. Thin; delegates to core.
   web/          Locally hosted web front-end (the v1 product). Delegates to
@@ -78,7 +80,12 @@ exact shape; the sketch below is the intent.
 ### LLM provider interface
 - Purpose: send prompts to whatever model the user configured and get
   completions back.
-- Adapters: OpenAI, Anthropic, Ollama (local), and community-added ones.
+- Adapters: Anthropic, Ollama (local), OpenAI-compatible chat completions
+  (OpenAI, Docker Model Runner, LM Studio, vLLM, llama.cpp — ADR 0011), and
+  community-added ones.
+- Optional packaging: a Dockerfile + Compose file (ADR 0011) with a default,
+  swappable local model via Docker Model Runner. The non-Docker `npm start`
+  path is unchanged and needs no Docker.
 - The engine builds prompts; the provider only transports them to a model.
 - Configuration (keys, endpoints, model names) is user-supplied and never
   committed.
