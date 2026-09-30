@@ -206,6 +206,9 @@ describe('normalizeOpenAIBaseUrl', () => {
     ],
     ['http://localhost:12434', 'http://localhost:12434/engines/v1'],
     ['http://127.0.0.1:12434/', 'http://127.0.0.1:12434/engines/v1'],
+    // PR #77 review nit: IPv6 loopback is a bare DMR host too.
+    ['http://[::1]:12434', 'http://[::1]:12434/engines/v1'],
+    ['http://dmr.localhost:12434', 'http://dmr.localhost:12434/engines/v1'],
     ['http://172.17.0.1:12434', 'http://172.17.0.1:12434/engines/v1'],
     [
       'http://localhost:12434/engines/chat/completions',

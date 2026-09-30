@@ -399,6 +399,61 @@ describe('POST /api/quiz/answer', () => {
     expect(active?.answered).toHaveLength(0);
   });
 
+  it('connection error with Docker Model Runner → DMR hint (ADR 0011 D4)', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider({
+      rejectWith: new TypeError('fetch failed'),
+    });
+    const deps = makeQuizDeps(provider, {
+      settings: {
+        env: {
+          IBAI_OPENAI_BASE_URL:
+            'http://model-runner.docker.internal/engines/v1',
+          IBAI_OPENAI_MODEL: 'ai/qwen3:4b-instruct-2507-q4_K_M',
+        },
+        testProvider: () => Promise.reject(new Error('unused')),
+      },
+    });
+    await start(provider);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'x' }),
+    );
+    expect(res.status).toBe(502);
+    expect((JSON.parse(res.body) as { error: string }).error).toBe(
+      'Could not reach Docker Model Runner. Is Docker Model Runner enabled? Docker Desktop: Settings → AI → Enable Docker Model Runner. Docker Engine: install the docker-model-plugin package (check with `docker model status`).',
+    );
+  });
+
+  it('connection error with a non-DMR OpenAI-compatible server → generic text', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider({
+      rejectWith: new TypeError('fetch failed'),
+    });
+    const deps = makeQuizDeps(provider, {
+      settings: {
+        env: {
+          IBAI_OPENAI_BASE_URL: 'http://localhost:1234/v1',
+          IBAI_OPENAI_MODEL: 'm',
+        },
+        testProvider: () => Promise.reject(new Error('unused')),
+      },
+    });
+    await start(provider);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'x' }),
+    );
+    expect(res.status).toBe(502);
+    expect((JSON.parse(res.body) as { error: string }).error).not.toContain(
+      'Settings → AI',
+    );
+  });
+
   it('missing/empty answer → 400', async () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider();

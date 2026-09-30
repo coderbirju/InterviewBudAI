@@ -1,0 +1,56 @@
+# CI-only stack for the Docker smoke test (ADR 0011 D6) — standalone, NOT an
+# override of compose.yaml. Same Dockerfile, but no `models:`: GitHub runners
+# have no Docker Model Runner, so scripts/ci/fake-openai.mjs stands in for it
+# under DMR's in-container hostname (the app then labels it
+# "Docker Model Runner (local)", as it would the real one).
+#
+# The workflow sets IBAI_CI_DATA_DIR / IBAI_CI_HOST_CONFIG to runner temp dirs
+# and IBAI_UID / IBAI_GID to the runner's uid/gid. Never used by end users.
+name: interviewbudai-ci
+
+services:
+  fake-llm:
+    image: node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
+    user: node
+    command: ['node', '/fake/fake-openai.mjs']
+    environment:
+      FAKE_OPENAI_PORT: '12434'
+      FAKE_OPENAI_MODEL: 'ai/fake-model'
+    volumes:
+      - type: bind
+        source: ./scripts/ci/fake-openai.mjs
+        target: /fake/fake-openai.mjs
+        read_only: true
+    networks:
+      default:
+        aliases:
+          - model-runner.docker.internal
+
+  app:
+    build: .
+    image: interviewbudai:ci
+    init: true
+    user: '${IBAI_UID:-1000}:${IBAI_GID:-1000}'
+    depends_on:
+      - fake-llm
+    ports:
+      - '127.0.0.1:${IBAI_WEB_PORT:-4180}:4173'
+    environment:
+      IBAI_PUBLIC_PORT: '${IBAI_WEB_PORT:-4180}'
+      IBAI_HOST_DATA_DIR: '${IBAI_CI_DATA_DIR:?set IBAI_CI_DATA_DIR}'
+      # What Compose would inject from `models:` (the bare DMR host; the app
+      # normalizes it to /engines/v1).
+      IBAI_OPENAI_BASE_URL: 'http://model-runner.docker.internal:12434'
+      IBAI_OPENAI_MODEL: 'ai/fake-model'
+    volumes:
+      - type: bind
+        source: '${IBAI_CI_DATA_DIR:?set IBAI_CI_DATA_DIR}'
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: '${IBAI_CI_HOST_CONFIG:?set IBAI_CI_HOST_CONFIG}'
+        target: /host-config
+        read_only: true
+        bind:
+          create_host_path: false

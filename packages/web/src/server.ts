@@ -6,6 +6,7 @@ import {
   OpenAICompatibleProvider,
 } from '@ibai/providers';
 import type { LlmProvider } from '@ibai/providers';
+import { openAICompatibleLabel, DMR_LABEL } from './settings.js';
 import {
   prepareBootDataDir,
   resolveProviderStatus,
@@ -16,14 +17,18 @@ import {
   resolveOpenAIApiKey,
   resolveOpenAIBaseUrl,
   resolveOpenAITimeoutMs,
+  resolvePublicPort,
+  isContainer,
 } from './config.js';
+import {
+  checkDataDirWritable,
+  dockerDataInfo,
+  hostMismatchText,
+} from './container.js';
+import type { DockerDataInfo } from './container.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
 import { createCoachHandler, precheckRequest } from './handler.js';
-import {
-  allowedHostsFor,
-  securityHeaders,
-  MAX_BODY_BYTES,
-} from './security.js';
+import { hostPolicyFor, securityHeaders, MAX_BODY_BYTES } from './security.js';
 
 export interface ServerHandle {
   readonly url: string;
@@ -51,11 +56,17 @@ export function formatStartupBanner(input: {
   url: string;
   data: BootDataDir;
   provider: ProviderStatus;
+  docker?: DockerDataInfo;
 }): string[] {
-  const { url, data, provider } = input;
+  const { url, data, provider, docker } = input;
 
   let dataLine = `  Data:     ${data.dataDir}`;
-  if (data.created) {
+  if (docker !== undefined) {
+    dataLine +=
+      docker.hostDataDir !== null
+        ? ` (pinned by Docker: IBAI_HOST_DATA_DIR=${docker.hostDataDir})`
+        : ' (pinned by Docker)';
+  } else if (data.created) {
     dataLine += ' (created on first run)';
   } else if (!data.exists) {
     dataLine +=
@@ -79,6 +90,9 @@ export function formatStartupBanner(input: {
   return [
     `InterviewBudAI is running at ${url}/`,
     dataLine,
+    ...(docker?.hostConfigDataDir !== undefined
+      ? [`  Note:     ${hostMismatchText(docker.hostConfigDataDir)}`]
+      : []),
     providerLine,
     '  Press Ctrl+C to stop.',
   ];
@@ -116,7 +130,10 @@ export function selectProvider(env: NodeJS.ProcessEnv): {
           timeoutMs: resolveOpenAITimeoutMs(env),
           ...(apiKey !== undefined && { apiKey }),
         }),
-        label: `Using OpenAI-compatible: ${status.model}`,
+        label:
+          openAICompatibleLabel(resolveOpenAIBaseUrl(env) ?? '') === DMR_LABEL
+            ? `Using ${DMR_LABEL}: ${status.model}`
+            : `Using OpenAI-compatible: ${status.model}`,
       };
     }
     case 'ollama':
@@ -195,7 +212,8 @@ export function readRequestBody(
  * Start the web server. Composition root: resolves config, constructs adapters,
  * builds handler, and starts HTTP server.
  *
- * The server binds to localhost (127.0.0.1) only. No external network access.
+ * The server binds to localhost (127.0.0.1) only — `0.0.0.0` only inside the
+ * Docker image (`IBAI_CONTAINER=1`, ADR 0011 D2). No external network access.
  *
  * Provider is now REQUIRED for coach operations (ADR 0005 D6); see
  * {@link selectProvider} for the precedence (Anthropic → OpenAI-compatible →
@@ -217,7 +235,27 @@ export async function startServer(
   }
   const dataDir = bootData.dataDir;
   const port = resolvePort(env, argv);
-  const host = resolveHost();
+  // Refuses to start on a non-loopback bind outside the container (ADR 0011 D2).
+  const host = resolveHost(env);
+  const publicPort = resolvePublicPort(env, port);
+
+  // Inside the Docker image (ADR 0011 D3): check that /data is writable
+  // (best-effort chmod 0700 first) and read the host's config.json for the
+  // mismatch hint. Never falls back to another folder.
+  let docker: DockerDataInfo | undefined;
+  if (isContainer(env)) {
+    const writable = bootData.exists
+      ? checkDataDirWritable(dataDir)
+      : { writable: false as const, error: 'ENOENT' };
+    docker = dockerDataInfo({ env, writable });
+    if (!writable.writable) {
+      log(
+        `Error: data folder ${dataDir} is not writable (${writable.error}). ${docker?.writableHelp ?? ''}`.trim(),
+      );
+    } else if (writable.chmodWarning !== undefined) {
+      log(`Warning: ${writable.chmodWarning}`);
+    }
+  }
 
   // Storage adapter for the boot data dir (the handler requires one).
   const storage = createLocalStorage(dataDir);
@@ -240,11 +278,14 @@ export async function startServer(
     homeDir: opts?.homeDir,
     env,
     argv,
-    // The Host allowlist is pinned to the port we actually bind.
+    // The Host allowlist is pinned to the port we actually bind, plus the
+    // published port the browser uses (ADR 0011 D2).
     port,
+    publicPort,
+    ...(docker !== undefined && { docker }),
   });
 
-  const allowedHosts = allowedHostsFor(port);
+  const allowedHosts = hostPolicyFor(port, publicPort);
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -315,13 +356,20 @@ export async function startServer(
     server.once('error', reject);
     server.listen(port, host, () => {
       server.off('error', reject);
-      const url = `http://${host}:${port}`;
+      const url = `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
       for (const line of formatStartupBanner({
-        url,
+        // Inside the container the browser uses the published port.
+        url: docker !== undefined ? `http://localhost:${publicPort}` : url,
         data: bootData,
         provider: resolveProviderStatus(env),
+        ...(docker !== undefined && { docker }),
       })) {
         log(line);
+      }
+      if (host !== '127.0.0.1' && host !== '::1') {
+        log(
+          `  Warning: listening on ${host}:${port} (all interfaces) because IBAI_CONTAINER=1; keep the Compose publish on 127.0.0.1 only.`,
+        );
       }
 
       resolve({

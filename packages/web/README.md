@@ -149,7 +149,7 @@ generic interview chat (`POST /api/chat`) was removed (ADR 0008 D4) — it now
 
 | Route | Response |
 |---|---|
-| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the normalized base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the key that would be sent — `IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only for `https://api.openai.com`; otherwise Anthropic). `hint` explains a half-set/rejected config, or an OpenAI-compatible config ignored next to an active Anthropic/Ollama provider. Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT` with `set` booleans — never values. `405` non-GET. |
+| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the normalized base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the key that would be sent — `IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only for `https://api.openai.com`; otherwise Anthropic). `hint` explains a half-set/rejected config, or an OpenAI-compatible config ignored next to an active Anthropic/Ollama provider. Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT`, `IBAI_HOST_DATA_DIR` with `set` booleans — never values. `405` non-GET. |
 | `POST /api/settings/test-provider` | Same prechecks as every mutating `/api` route (Host 421, cross-site 403, non-JSON 415). Rate limited in-process: one test per 5 s (and one at a time) → else `429 { error }`. No provider → `400 { error: 'no model configured' }`. Ollama: `GET <IBAI_OLLAMA_URL>/api/tags` (5 s timeout), `ok` only if the configured model is pulled (`llama3` ≡ `llama3:latest`). OpenAI-compatible: `GET <base URL>/models` (Bearer only when a key is set; 5 s timeout), `ok` only if `data[].id` lists the configured model (`m` ≡ `m:latest`); "not listed" gets its own detail (DMR: a `docker model pull` hint). Anthropic: one `max_tokens: 1` messages call through `AnthropicProvider` (billable, 5 s timeout). `200 { ok, latencyMs, detail }`; `detail` is fixed, sanitized text (HTTP status class + a plain `error.type` identifier at most) — provider bodies, headers, keys and URL userinfo are never echoed. |
 
 ### Your data (`/data` — ADR 0009 D1)
@@ -169,7 +169,7 @@ problems? …" whenever the active folder has **0 notes** (not dismissible), or
 
 | Method & path | Body | Result |
 |---|---|---|
-| `GET /api/data-dir` | — | `{ dataDir, source: 'flag'\|'env'\|'config'\|'default', pinned, exists, noteCount, formatVersion, legacyCandidates: [{ path, noteCount, origin: 'cookie'\|'legacy-default' }] }` |
+| `GET /api/data-dir` | — | `{ dataDir, source: 'flag'\|'env'\|'config'\|'default', pinned, exists, noteCount, formatVersion, legacyCandidates: [{ path, noteCount, origin: 'cookie'\|'legacy-default' }], docker? }`. `docker` only inside the Docker image: `{ hostDataDir, writable, writableHelp?, hostConfigDataDir? }` (display-only host folder, boot writability check, and the folder from the host's read-only `/host-config/config.json` when it differs). |
 | `POST /api/data-dir` | `{ path, dryRun?: boolean }` | **Dry run:** `{ dryRun: true, path, exists, noteCount, quizSessionCount, hint? }` — no writes; `hint` is `{ kind: 'use-parent', path }` for a `…/notes` folder whose parent holds notes, or `{ kind: 'not-ibai-format' }` for Markdown that is not `notes/<id>.md`. **Otherwise:** validated exactly like `POST /setup` (absolute or `~/`, normalized, no NUL, not a root, not a file), created `0700` if missing, `config.json` written atomically (`0600`), the running server switched; returns the `GET` shape. Invalid path / pinned dir → `400 { error }` (the pinned message names the flag/env). |
 | `POST /api/data-dir/legacy/dismiss` | `{}` | Stops offering the current candidates (this server process); returns the `GET` shape. |
 
@@ -466,16 +466,18 @@ node packages/web/dist/server-bin.js --data-dir=/path/to/data --port=8080
 |---------|----------|---------------------|----------|
 | Data directory | `--data-dir=<path>` | `IBAI_DATA_DIR` | `~/.interviewbudai/config.json` (set via `/setup`), else `~/.interviewbudai/data` (auto-created) |
 | Port | `--port=<port>` | `IBAI_WEB_PORT` | `4173` |
+| Bind host | — | `IBAI_BIND_HOST` | `127.0.0.1` (`::1` allowed; `0.0.0.0` only with `IBAI_CONTAINER=1`, else the server refuses to start). The image sets both; never set them outside Docker — the app would listen on all interfaces with no authentication (only a warning) |
+| Public port (Docker) | — | `IBAI_PUBLIC_PORT` | the listen port |
 | Ollama URL | — | `IBAI_OLLAMA_URL` | `http://127.0.0.1:11434` |
 | Ollama Model | — | `IBAI_OLLAMA_MODEL` | *(required for Ollama)* |
 | Anthropic API Key | — | `IBAI_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY` | *(required for Anthropic)* |
 | Anthropic Model | — | `IBAI_ANTHROPIC_MODEL` | *(required for Anthropic)* |
 
-Precedence: CLI flag > environment variable (shell > `.env`) > default (for the data directory: > `config.json` > default). The host is always `127.0.0.1` (not configurable).
+Precedence: CLI flag > environment variable (shell > `.env`) > default (for the data directory: > `config.json` > default). The host is `127.0.0.1` unless `IBAI_BIND_HOST` says otherwise; `0.0.0.0` is accepted only with `IBAI_CONTAINER=1`, which only the Docker image should set (ADR 0011 D2), where Compose publishes the port on `127.0.0.1` only. With `IBAI_PUBLIC_PORT` ≠ listen port, `Host` on the listen port is accepted for non-mutating requests only (the HEALTHCHECK) and `Origin` only on the public port.
 
 ## Privacy & Security
 
-- **Localhost-only** — Server always binds to 127.0.0.1 (not configurable)
+- **Localhost-only** — Server binds to 127.0.0.1 (`0.0.0.0` only inside the Docker image, published on 127.0.0.1 only)
 - **No telemetry** — No usage data is collected or transmitted
 - **Local-first** — All user data stored locally in your data directory
 - **Provider calls only** — The only network calls are to your configured LLM provider

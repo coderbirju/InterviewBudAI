@@ -43,6 +43,7 @@ import {
 import type { DataDirSource } from './config.js';
 import { LEGACY_DATA_DIR_COOKIE, hasLegacyDataDirCookie } from './security.js';
 import type { HandlerResponse } from './handler.js';
+import type { DockerDataInfo } from './container.js';
 
 /**
  * The on-disk format version reported by `GET /api/data-dir`. Every folder is
@@ -70,6 +71,11 @@ export interface DataDirStatus {
   readonly noteCount: number;
   readonly formatVersion: number;
   readonly legacyCandidates: readonly LegacyCandidate[];
+  /**
+   * Present only inside the Docker image (ADR 0011 D3): the display-only host
+   * folder, the boot writability check and the mismatch hint.
+   */
+  readonly docker?: DockerDataInfo;
 }
 
 /** A hint shown next to a dry-run result. */
@@ -108,6 +114,13 @@ export function pinnedBy(source: DataDirSource): string {
   return source === 'flag'
     ? 'the --data-dir flag'
     : 'the IBAI_DATA_DIR environment variable';
+}
+
+/** "Pinned by Docker (IBAI_HOST_DATA_DIR=<host path>)" (ADR 0011 D3). */
+export function dockerPinnedText(docker: DockerDataInfo): string {
+  return docker.hostDataDir !== null
+    ? `Pinned by Docker (IBAI_HOST_DATA_DIR=${docker.hostDataDir})`
+    : 'Pinned by Docker (the folder mounted at /data)';
 }
 
 /** `<home>/.ibai/data` — the pre-w2d default (ADR 0005 D2; frozen CLI). */
@@ -232,6 +245,8 @@ export interface DataDirControlInit {
   readonly homeDir: string;
   /** Known-id check for note counting (see {@link countNotes}). */
   readonly isKnownProblemId?: ProblemIdCheck;
+  /** Docker info (ADR 0011 D3); only set inside the container. */
+  readonly docker?: DockerDataInfo;
 }
 
 /**
@@ -253,6 +268,7 @@ export class DataDirControl {
   private currentSource: DataDirSource;
   private readonly homeDir: string;
   private readonly isKnownId: ProblemIdCheck | undefined;
+  private readonly docker: DockerDataInfo | undefined;
   /** Captured cookie paths, newest first (≤ {@link MAX_COOKIE_CANDIDATES}). */
   private cookiePaths: string[] = [];
   /** The last raw cookie value seen (skip re-checking an unchanged cookie). */
@@ -264,6 +280,7 @@ export class DataDirControl {
     this.currentSource = init.source;
     this.homeDir = init.homeDir;
     this.isKnownId = init.isKnownProblemId;
+    this.docker = init.docker;
   }
 
   /** {@link countNotes} with this server's known-id check. */
@@ -277,6 +294,11 @@ export class DataDirControl {
 
   get source(): DataDirSource {
     return this.currentSource;
+  }
+
+  /** Docker info (ADR 0011 D3), undefined outside the container. */
+  get dockerInfo(): DockerDataInfo | undefined {
+    return this.docker;
   }
 
   get pinned(): boolean {
@@ -297,7 +319,10 @@ export class DataDirControl {
       return {
         ok: false,
         kind: 'pinned',
-        error: `The data directory is pinned to ${this.current} by ${pinnedBy(this.currentSource)}, so it cannot be changed here. Restart the server without it to choose ${checked.path}.`,
+        error:
+          this.docker !== undefined
+            ? `${dockerPinnedText(this.docker)}, so it cannot be changed here. To use another folder, set IBAI_HOST_DATA_DIR=<path> in .env and restart (docker compose up).`
+            : `The data directory is pinned to ${this.current} by ${pinnedBy(this.currentSource)}, so it cannot be changed here. Restart the server without it to choose ${checked.path}.`,
       };
     }
 
@@ -319,7 +344,8 @@ export class DataDirControl {
       return {
         ok: true,
         path: checked.path,
-        pinnedBy: pinnedBy(this.currentSource),
+        pinnedBy:
+          this.docker !== undefined ? 'Docker' : pinnedBy(this.currentSource),
       };
     }
 
@@ -443,6 +469,7 @@ export class DataDirControl {
       noteCount: this.notesIn(this.current),
       formatVersion: CURRENT_FORMAT_VERSION,
       legacyCandidates: this.legacyCandidates(),
+      ...(this.docker !== undefined && { docker: this.docker }),
     };
   }
 
