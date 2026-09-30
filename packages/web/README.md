@@ -149,7 +149,7 @@ generic interview chat (`POST /api/chat`) was removed (ADR 0008 D4) — it now
 
 | Route | Response |
 |---|---|
-| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the optional key; otherwise Anthropic). Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT` with `set` booleans — never values. `405` non-GET. |
+| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the normalized base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the key that would be sent — `IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only for `https://api.openai.com`; otherwise Anthropic). `hint` explains a half-set/rejected config, or an OpenAI-compatible config ignored next to an active Anthropic/Ollama provider. Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT` with `set` booleans — never values. `405` non-GET. |
 | `POST /api/settings/test-provider` | Same prechecks as every mutating `/api` route (Host 421, cross-site 403, non-JSON 415). Rate limited in-process: one test per 5 s (and one at a time) → else `429 { error }`. No provider → `400 { error: 'no model configured' }`. Ollama: `GET <IBAI_OLLAMA_URL>/api/tags` (5 s timeout), `ok` only if the configured model is pulled (`llama3` ≡ `llama3:latest`). OpenAI-compatible: `GET <base URL>/models` (Bearer only when a key is set; 5 s timeout), `ok` only if `data[].id` lists the configured model (`m` ≡ `m:latest`); "not listed" gets its own detail (DMR: a `docker model pull` hint). Anthropic: one `max_tokens: 1` messages call through `AnthropicProvider` (billable, 5 s timeout). `200 { ok, latencyMs, detail }`; `detail` is fixed, sanitized text (HTTP status class + a plain `error.type` identifier at most) — provider bodies, headers, keys and URL userinfo are never echoed. |
 
 ### Your data (`/data` — ADR 0009 D1)
@@ -331,15 +331,22 @@ llama.cpp, vLLM, LM Studio, Ollama's `/v1`, or a hosted OpenAI-style API.
 # Docker Model Runner on the host (enable host-side TCP support; Linux: port 12434)
 export IBAI_OPENAI_BASE_URL=http://localhost:12434/engines/v1
 export IBAI_OPENAI_MODEL=<model-id>        # as the server names it, e.g. an ai/... tag
-export IBAI_OPENAI_API_KEY=...             # optional; OPENAI_API_KEY also works
+export IBAI_OPENAI_API_KEY=...             # optional; OPENAI_API_KEY only for https://api.openai.com
 export IBAI_OPENAI_TIMEOUT_MS=120000       # optional (clamped 5000–600000)
 ```
 
 The base URL is the one ending in `/v1`: trailing slashes are dropped, a bare
-origin gets `/v1` appended, a pasted `…/chat/completions` or `…/models` is
-trimmed, and any other path is kept (never a double `/v1`). A key is sent as
-`Authorization: Bearer …` only when set, and only over `https` or loopback
-`http` (else the provider is skipped with a Settings hint). The key never
+origin gets `/v1` appended, `/engines` or `/engines/<engine>` gets `/v1`, a
+bare Docker Model Runner host (`model-runner.docker.internal`, or loopback /
+`172.17.0.1` on `:12434`) becomes `…/engines/v1`, a pasted
+`…/chat/completions` or `…/models` is trimmed, and any other path is kept
+(never a double `/v1`). A key is sent as `Authorization: Bearer …` only when
+set, and only over `https` or loopback `http` (else the provider is skipped
+with a Settings hint). `OPENAI_API_KEY` is used only when the base URL is
+`https://api.openai.com`; for any other server set `IBAI_OPENAI_API_KEY`. A
+base URL with a username/password is rejected (provider `none`, Settings
+hint). When an OpenAI-compatible config is set but Anthropic wins, or it is
+rejected and Ollama is used, Settings and the startup banner show a hint. The key never
 appears in logs, errors or `/api/settings`.
 
 **Precedence** (first match wins; `resolveProviderStatus` / `selectProvider`):

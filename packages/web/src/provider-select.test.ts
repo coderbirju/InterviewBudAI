@@ -12,7 +12,10 @@ import {
   OpenAICompatibleProvider,
 } from '@ibai/providers';
 import {
+  OPENAI_IGNORED_HINT,
   OPENAI_INSECURE_KEY_HINT,
+  OPENAI_USERINFO_HINT,
+  isOfficialOpenAIBaseUrl,
   resolveOpenAIApiKey,
   resolveOpenAITimeoutMs,
   resolveProviderStatus,
@@ -75,7 +78,13 @@ describe('provider precedence matrix', () => {
       const status = resolveProviderStatus(env);
       expect(status.kind).toBe(kind);
       if (model !== undefined) {
-        expect(status).toEqual({ kind, model });
+        // Anthropic winning over a set OpenAI config says so (ADR 0011 D1).
+        const ignored = kind === 'anthropic' && env.IBAI_OPENAI_BASE_URL;
+        expect(status).toEqual({
+          kind,
+          model,
+          ...(ignored && { hint: OPENAI_IGNORED_HINT }),
+        });
       }
       const { provider, label: text } = selectProvider(env);
       if (cls === undefined) {
@@ -120,8 +129,12 @@ describe('provider precedence matrix', () => {
       hint: OPENAI_INSECURE_KEY_HINT,
     });
     expect(selectProvider(env).provider).toBeUndefined();
-    // ...and falls through to Ollama when that is configured.
-    expect(resolveProviderStatus({ ...env, ...OLLAMA }).kind).toBe('ollama');
+    // ...and falls through to Ollama when that is configured, saying why.
+    expect(resolveProviderStatus({ ...env, ...OLLAMA })).toEqual({
+      kind: 'ollama',
+      model: 'llama3',
+      hint: `${OPENAI_INSECURE_KEY_HINT}; using Ollama instead`,
+    });
     // Without the key the same URL is fine; https with a key is fine.
     expect(
       resolveProviderStatus({ ...env, IBAI_OPENAI_API_KEY: '' }).kind,
@@ -135,13 +148,115 @@ describe('provider precedence matrix', () => {
   });
 });
 
+/** Headers the selected OpenAI-compatible provider sends (fake fetch, no network). */
+async function sentHeaders(
+  env: NodeJS.ProcessEnv,
+): Promise<Record<string, string>> {
+  let seen: Record<string, string> = {};
+  const fetchImpl = (async (_input: unknown, init?: RequestInit) => {
+    seen = { ...(init?.headers as Record<string, string>) };
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+  const original = globalThis.fetch;
+  globalThis.fetch = fetchImpl;
+  try {
+    const { provider } = selectProvider(env);
+    expect(provider).toBeInstanceOf(OpenAICompatibleProvider);
+    await provider?.complete({ messages: [{ role: 'user', content: 'hi' }] });
+  } finally {
+    globalThis.fetch = original;
+  }
+  return seen;
+}
+
 describe('OpenAI-compatible env parsing', () => {
-  it('key: IBAI_OPENAI_API_KEY > OPENAI_API_KEY', () => {
+  it('key: IBAI_OPENAI_API_KEY > OPENAI_API_KEY (the latter only for api.openai.com)', () => {
+    const OFFICIAL = { IBAI_OPENAI_BASE_URL: 'https://api.openai.com/v1' };
     expect(resolveOpenAIApiKey({})).toBeUndefined();
-    expect(resolveOpenAIApiKey({ OPENAI_API_KEY: 'b' })).toBe('b');
+    expect(resolveOpenAIApiKey({ ...OFFICIAL, OPENAI_API_KEY: 'b' })).toBe('b');
     expect(
-      resolveOpenAIApiKey({ IBAI_OPENAI_API_KEY: 'a', OPENAI_API_KEY: 'b' }),
+      resolveOpenAIApiKey({
+        ...OFFICIAL,
+        IBAI_OPENAI_API_KEY: 'a',
+        OPENAI_API_KEY: 'b',
+      }),
     ).toBe('a');
+    // The explicit IBAI_OPENAI_API_KEY applies to any base URL.
+    expect(resolveOpenAIApiKey({ ...OPENAI, IBAI_OPENAI_API_KEY: 'a' })).toBe(
+      'a',
+    );
+    // No base URL → the ambient key is not used.
+    expect(resolveOpenAIApiKey({ OPENAI_API_KEY: 'b' })).toBeUndefined();
+  });
+
+  it.each([
+    ['https://api.openai.com/v1', true],
+    ['https://api.openai.com', true],
+    ['https://API.OpenAI.com/v1/', true],
+    ['https://api.openai.com:443/v1', true],
+    ['http://api.openai.com/v1', false],
+    ['https://api.openai.com:8443/v1', false],
+    ['https://u:p@api.openai.com/v1', false],
+    ['https://api.openai.com.evil.example/v1', false],
+    ['https://eu.api.openai.com/v1', false],
+    ['http://localhost:12434/engines/v1', false],
+    ['http://localhost:1234/v1', false],
+    ['https://llm.example.com/v1', false],
+    ['not a url', false],
+  ])('isOfficialOpenAIBaseUrl(%s) → %s', (url, official) => {
+    expect(isOfficialOpenAIBaseUrl(url)).toBe(official);
+  });
+
+  it.each([
+    ['DMR', 'http://localhost:12434/engines/v1'],
+    ['DMR in-container', 'http://model-runner.docker.internal/engines/v1'],
+    ['LM Studio', 'http://localhost:1234/v1'],
+    ['other https host', 'https://llm.example.com/v1'],
+  ])(
+    'OPENAI_API_KEY + %s → no Authorization header sent',
+    async (_, baseUrl) => {
+      const env = {
+        IBAI_OPENAI_BASE_URL: baseUrl,
+        IBAI_OPENAI_MODEL: 'm',
+        OPENAI_API_KEY: KEY,
+      };
+      expect(resolveProviderStatus(env)).toEqual({
+        kind: 'openai',
+        model: 'm',
+      });
+      const headers = await sentHeaders(env);
+      expect(headers.Authorization).toBeUndefined();
+      expect(JSON.stringify(headers)).not.toContain(KEY);
+    },
+  );
+
+  it('OPENAI_API_KEY + https://api.openai.com → sent as Bearer', async () => {
+    const headers = await sentHeaders({
+      IBAI_OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      IBAI_OPENAI_MODEL: 'gpt-x',
+      OPENAI_API_KEY: KEY,
+    });
+    expect(headers.Authorization).toBe(`Bearer ${KEY}`);
+  });
+
+  it('base URL with userinfo → none with a hint; no provider built (no quiz calls)', () => {
+    const env = {
+      IBAI_OPENAI_BASE_URL: `https://u:${KEY}@llm.example.com/v1`,
+      IBAI_OPENAI_MODEL: 'm',
+    };
+    expect(resolveProviderStatus(env)).toEqual({
+      kind: 'none',
+      hint: OPENAI_USERINFO_HINT,
+    });
+    expect(selectProvider(env).provider).toBeUndefined();
+    expect(resolveProviderStatus({ ...env, ...OLLAMA })).toEqual({
+      kind: 'ollama',
+      model: 'llama3',
+      hint: `${OPENAI_USERINFO_HINT}; using Ollama instead`,
+    });
   });
 
   it('timeout: default 120 s, clamped to 5 s–600 s, junk → default', () => {
@@ -175,5 +290,23 @@ describe('startup banner', () => {
       provider: { kind: 'openai', model: 'ai/qwen3' },
     }).join('\n');
     expect(text).toContain('Provider: OpenAI-compatible (model: ai/qwen3)');
+  });
+
+  it('shows an "ignored OpenAI config" hint next to the active provider', () => {
+    const text = formatStartupBanner({
+      url: 'http://127.0.0.1:4173',
+      data: {
+        dataDir: '/tmp/x',
+        source: 'default',
+        explicit: false,
+        created: false,
+        exists: true,
+      },
+      provider: resolveProviderStatus({ ...ANTHROPIC, ...OPENAI }),
+    }).join('\n');
+    expect(text).toContain(
+      `Provider: Anthropic (model: claude-x) (${OPENAI_IGNORED_HINT})`,
+    );
+    expect(text).not.toContain(KEY);
   });
 });

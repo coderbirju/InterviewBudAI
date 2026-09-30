@@ -65,25 +65,23 @@ export const OPENAI_DEFAULT_TIMEOUT_MS = 120_000;
 /** Cap on the (untrusted) response body (ADR 0011 D1). */
 const MAX_BODY_BYTES = 1024 * 1024;
 
-/** Hosts a key may be sent to over plain `http:`. */
-function isLoopbackOrDmrHost(hostname: string): boolean {
+/** Hosts a key may be sent to over plain `http:` — loopback only (ADR 0011 D1). */
+function isLoopbackHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   return (
     h === 'localhost' ||
     h.endsWith('.localhost') ||
     /^127(\.\d{1,3}){3}$/.test(h) ||
-    h === '[::1]' ||
-    // Docker Model Runner's in-container name (Docker Desktop's internal
-    // network; DMR needs no key anyway).
-    h === 'model-runner.docker.internal'
+    h === '[::1]'
   );
 }
 
 /**
  * Key-transport rule (ADR 0011 D1): with a key, the base URL must be
- * `https:`, or `http:` to a loopback host (or Docker Model Runner's internal
- * host) — never a key over plain HTTP to the network. Without a key any
- * http(s) base URL is fine. An unparseable URL → false.
+ * `https:`, or `http:` to a loopback host — never a key over plain HTTP to the
+ * network (Docker Model Runner's `model-runner.docker.internal` needs no key,
+ * so it gets no exception). Without a key any http(s) base URL is fine. An
+ * unparseable URL → false.
  */
 export function openAIKeyTransportAllowed(
   rawBaseUrl: string,
@@ -93,20 +91,61 @@ export function openAIKeyTransportAllowed(
   try {
     const url = new URL(rawBaseUrl.trim());
     if (url.protocol === 'https:') return true;
-    return url.protocol === 'http:' && isLoopbackOrDmrHost(url.hostname);
+    return url.protocol === 'http:' && isLoopbackHost(url.hostname);
   } catch {
     return false;
   }
 }
 
-/** Does an HTTP 400 body say the server rejected `response_format`? */
+const RESPONSE_FORMAT_RE = /response_format/i;
+
+/** A string field that names `response_format`. */
+function mentionsResponseFormat(value: unknown): boolean {
+  return typeof value === 'string' && RESPONSE_FORMAT_RE.test(value);
+}
+
+/**
+ * Does an HTTP 400 body say the server rejected `response_format`?
+ * Conservative (ADR 0011 D1): the mention must be in an error field — the
+ * error's `param`, or its `message` / `detail` text — not just anywhere in the
+ * body, so a server that echoes the request in an unrelated 400 does not turn
+ * JSON mode off. A non-JSON (plain text) body counts only when it does not
+ * look like an echoed request (no `"messages"`).
+ */
 function rejectsResponseFormat(error: unknown): boolean {
-  return (
-    error instanceof HttpProviderError &&
-    error.kind === 'http' &&
-    error.status === 400 &&
-    /response_format/i.test(error.bodySnippet ?? '')
-  );
+  if (
+    !(error instanceof HttpProviderError) ||
+    error.kind !== 'http' ||
+    error.status !== 400
+  ) {
+    return false;
+  }
+  const snippet = error.bodySnippet ?? '';
+  let data: unknown;
+  try {
+    data = JSON.parse(snippet);
+  } catch {
+    return RESPONSE_FORMAT_RE.test(snippet) && !/"messages"/.test(snippet);
+  }
+  const obj = asRecord(data);
+  if (obj === null) return false;
+  const candidates: unknown[] = [obj.message, obj.param, obj.detail];
+  const nested = asRecord(obj.error);
+  if (nested !== null) {
+    candidates.push(nested.message, nested.param, nested.detail);
+  } else {
+    candidates.push(obj.error);
+  }
+  if (Array.isArray(obj.detail)) {
+    // FastAPI-style `[{ loc: [...], msg }]` validation detail.
+    for (const item of obj.detail) {
+      const rec = asRecord(item);
+      if (rec === null) continue;
+      candidates.push(rec.msg);
+      if (Array.isArray(rec.loc)) candidates.push(rec.loc.join('.'));
+    }
+  }
+  return candidates.some(mentionsResponseFormat);
 }
 
 /** "20 ms" / "5 s" for error text. */
@@ -118,6 +157,21 @@ function formatMs(ms: number): string {
 // Base URL normalization
 // ---------------------------------------------------------------------------
 
+/** Docker Model Runner's host-side TCP port (ADR 0011 verified facts). */
+const DMR_PORT = '12434';
+
+/** A Docker Model Runner host (ADR 0011 D5), judged on host + port only. */
+function isBareDmrHost(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  if (host === 'model-runner.docker.internal') return true;
+  return (
+    url.port === DMR_PORT &&
+    (host === 'localhost' ||
+      /^127(\.\d{1,3}){3}$/.test(host) ||
+      host === '172.17.0.1')
+  );
+}
+
 /**
  * Normalize a user-supplied OpenAI-compatible base URL. Rules:
  *
@@ -125,9 +179,13 @@ function formatMs(ms: number): string {
  *  2. Query string and fragment are dropped; trailing slashes are removed.
  *  3. A pasted full endpoint (`…/chat/completions` or `…/models`) is cut back
  *     to its base.
- *  4. A bare origin (no path) gets `/v1` appended — the OpenAI convention
- *     (`http://localhost:11434` → `http://localhost:11434/v1`).
- *  5. Any other path is kept as-is — `/v1` is NEVER appended twice, and
+ *  4. Docker Model Runner (ADR 0011 D5): a path of `/engines` or
+ *     `/engines/<engine>` gets `/v1` appended, and a bare DMR host
+ *     (`model-runner.docker.internal` on any port, or a loopback host /
+ *     `172.17.0.1` on port 12434) becomes `…/engines/v1`.
+ *  5. Any other bare origin (no path) gets `/v1` appended — the OpenAI
+ *     convention (`http://localhost:11434` → `http://localhost:11434/v1`).
+ *  6. Any other path is kept as-is — `/v1` is NEVER appended twice, and
  *     custom prefixes (`/engines/v1`, `/engines/llama.cpp/v1`, `/openai`) are
  *     respected.
  *
@@ -148,7 +206,11 @@ export function normalizeOpenAIBaseUrl(raw: string): string {
   url.hash = '';
   let pathname = url.pathname.replace(/\/+$/, '');
   pathname = pathname.replace(/\/(chat\/completions|models)$/, '');
-  if (pathname === '') pathname = '/v1';
+  if (/^\/engines(\/(?!v1$)[^/]+)?$/i.test(pathname)) {
+    pathname = `${pathname}/v1`;
+  } else if (pathname === '') {
+    pathname = isBareDmrHost(url) ? '/engines/v1' : '/v1';
+  }
   const auth =
     url.username !== '' || url.password !== ''
       ? `${url.username}${url.password !== '' ? `:${url.password}` : ''}@`
@@ -373,16 +435,29 @@ export class OpenAICompatibleProvider implements LlmProvider {
     };
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
 
-    const send = (options: CompletionOptions | undefined): Promise<unknown> =>
-      postJson({
+    // ONE deadline per call (ADR 0011 D1): a JSON-mode retry only gets what
+    // is left of the original budget.
+    const deadline = Date.now() + this.timeoutMs;
+    const send = (options: CompletionOptions | undefined): Promise<unknown> => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return Promise.reject(
+          new HttpProviderError(
+            `${PROVIDER_NAME} request timed out`,
+            'timeout',
+          ),
+        );
+      }
+      return postJson({
         url: `${baseUrl}/chat/completions`,
         headers,
         body: buildRequestBody(this.model, request.messages, options),
         fetchImpl: this.fetchImpl ?? globalThis.fetch,
         providerName: PROVIDER_NAME,
-        timeoutMs: this.timeoutMs,
+        timeoutMs: remaining,
         maxBodyBytes: MAX_BODY_BYTES,
       });
+    };
     const withoutJsonMode = (
       options: CompletionOptions | undefined,
     ): CompletionOptions | undefined => {
