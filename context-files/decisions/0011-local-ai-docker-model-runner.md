@@ -4,7 +4,8 @@
 - **Date:** 2026-09-29
 - **Deciders:** Founder, Architect
 - **Supersedes:** —
-- **Amends:** `00-project-context.md` principle 2 (default model in the
+- **Amends:** `team-charter.md` §6.3 (one-line amendment);
+  `00-project-context.md` principle 2 (default model in the
   optional Compose setup); ADR 0002 D3 (additive optional
   `CompletionOptions.responseFormat`); ADR 0005 D7 ("OpenAI adapter is
   FUTURE" → scheduled here); the #58 localhost-hardening model (ADR 0008 W2:
@@ -172,7 +173,9 @@ command was run and no model was pulled. **Unverified** items are marked.
     no `.env`. Runs as the image's non-root **`node`** user (uid 1000).
     `CMD ["node", "packages/web/dist/server-bin.js"]` (not `start.mjs`: no
     build at runtime). `ENV IBAI_BIND_HOST=0.0.0.0 IBAI_CONTAINER=1
-    IBAI_DATA_DIR=/data`; `EXPOSE 4173`.
+    IBAI_DATA_DIR=/data HOME=/home/app`; `/home/app` is created and owned by
+    the runtime user, and stays writable when Compose overrides `user:` with
+    another uid. `EXPOSE 4173`.
   - `HEALTHCHECK` with Node's built-in `fetch` against the existing
     **`GET /api/config`** on `http://127.0.0.1:4173` (no curl in slim).
 - **`.dockerignore`**: `node_modules`, `**/dist`, `**/dist-ui`, `.git`,
@@ -189,16 +192,30 @@ command was run and no model was pulled. **Unverified** items are marked.
     published port, so the container must listen on all of its own
     interfaces; exposure to the host network is controlled by Compose's port
     publishing (below), not by the app.
-- **Host allowlist port** — `IBAI_PUBLIC_PORT` (new, default = listen port):
-  `allowedHostsFor` accepts the loopback names (`127.0.0.1`, `localhost`,
-  `[::1]`) on **both** the listen port and the public port. Hostnames stay
-  loopback-only — **no** free-form `IBAI_ALLOWED_HOSTS` (rejected: it would
-  invite LAN exposure and re-open DNS rebinding). Same-origin checks use the
-  same set. So even a mis-published port reachable from the LAN answers 403
-  to `Host: 192.168.x.y:…`.
+- **Host allowlist port**: `IBAI_PUBLIC_PORT` (new; defaults to the listen
+  port).
+  - The accepted hostnames stay loopback-only: `127.0.0.1`, `localhost` and
+    `[::1]`. **No** free-form `IBAI_ALLOWED_HOSTS` (rejected: it would invite
+    LAN exposure and reopen DNS rebinding).
+  - **Public port:** loopback hosts are allowed for every request. This is
+    the only port the **same-origin (Origin / Sec-Fetch-Site) check**
+    accepts, so all state-changing requests go through it.
+  - **Listen port** (4173 inside the container, when it differs from the
+    public port): loopback hosts are allowed for **non-mutating requests
+    only**, so the `HEALTHCHECK` works. Mutating requests on it get 403.
+  - **What this does and does not protect.** The Host and Origin checks stop
+    **browser**-borne attacks: DNS rebinding and cross-site requests. They do
+    **not** stop a LAN client, which can send any `Host` it likes. LAN
+    isolation comes from the Compose publish on `127.0.0.1:` below; the app
+    bind address and the allowlist are defense in depth only.
 - **Compose publishing:** `ports: ["127.0.0.1:${IBAI_WEB_PORT:-4173}:4173"]`
   only, with `IBAI_PUBLIC_PORT: ${IBAI_WEB_PORT:-4173}` so the allowlist
   matches the browser's `Host`. Never `0.0.0.0` / bare `4173:4173`.
+  - **Linux Engine:** loopback-published ports were reachable from other
+    hosts on the local network on older Docker Engine releases. The minimum
+    is **Docker Engine ≥ 28.0**, which is **not verified here**; PR B
+    verifies it and records it in the README, or lists it as a known
+    limitation. Docker Desktop is not affected by this.
 - **Linux Engine endpoint:** Compose injects the endpoint through
   `endpoint_var`. PR B checks that it is reachable on Linux Engine. If it is
   not, add `extra_hosts: ["model-runner.docker.internal:host-gateway"]`, the
@@ -209,36 +226,81 @@ command was run and no model was pulled. **Unverified** items are marked.
 
 ### D3 — Data: host bind mount, pinned `/data`
 
-- `compose.yaml` bind-mounts
-  `${IBAI_HOST_DATA_DIR:-${HOME}/.interviewbudai/data}` → `/data` (long
-  syntax, `bind.create_host_path: false`) and the image sets
-  `IBAI_DATA_DIR=/data`. The default host path **is** the canonical data dir
-  (ADR 0008 D3), so `npm start` and `docker compose up` share one folder.
-  Compose documents nested interpolation (`${A:-${B}}`) but does **not**
-  document `~` expansion [R12], hence `${HOME}`; Windows users (no `HOME`) set
-  `IBAI_HOST_DATA_DIR`.
-- `create_host_path: false` because the short syntax (and the long-syntax
-  default `true`) [R11] creates a missing host folder — on Linux as **root**, which
-  the non-root app then cannot write. Docs say `mkdir -p` the folder once
-  (mode 0700) before the first `up`.
-- The data dir is **pinned** (source `env`): `/data` shows it as pinned and
-  refuses switching, as already implemented (ADR 0005 w2d, ADR 0009 D1).
-  To use another folder, change `IBAI_HOST_DATA_DIR`.
-- **File ownership:** Docker Desktop (macOS/Windows) maps ownership to the
-  host user. On Linux Docker Engine files are written with the container
-  uid; `compose.yaml` sets `user: "${IBAI_UID:-1000}:${IBAI_GID:-1000}"` and
-  the docs tell Linux users whose uid ≠ 1000 to export `IBAI_UID=$(id -u)
-  IBAI_GID=$(id -g)`. Permission errors surface through the existing
-  read-only / not-writable data-dir messages.
-- **ADR 0009 D4:** no on-disk format change, no change to how the data dir is
-  resolved (Compose uses the existing `IBAI_DATA_DIR` precedence), and the
-  default host path is the canonical folder ⇒ no migration, no
-  `### Breaking changes`; CHANGELOG `### Added` only.
+- **Location under Docker.** The container's data dir comes from
+  **`IBAI_HOST_DATA_DIR`**, defaulting to
+  `${HOME}/.interviewbudai/data` (the canonical default, ADR 0008 D3). It
+  is bind-mounted at `/data`, and the image sets `IBAI_DATA_DIR=/data`. The
+  app's own `~/.interviewbudai/config.json` is **not** used to choose the
+  folder. A user who picked a custom folder at `/setup` or `/data` outside
+  Docker therefore gets the default folder under Docker until they set
+  `IBAI_HOST_DATA_DIR`; see the mismatch banner below.
+  - Compose documents nested interpolation (`${A:-${B}}`) but does **not**
+    document `~` expansion [R12], hence `${HOME}`.
+  - Windows users (no `HOME`) set `IBAI_HOST_DATA_DIR`.
+- **Mount options.** The default `compose.yaml` uses the long syntax with
+  `bind.create_host_path: true` [R11], so on Docker Desktop (macOS /
+  Windows) a plain `docker compose up` creates the folder and works on the
+  first run.
+  - **Linux:** there Docker creates a missing folder as **root**, and the
+    non-root app then cannot write to it. So a `compose.linux.yaml` override
+    sets `create_host_path: false`, and the docs tell Linux users to run
+    `mkdir -p -m 700 ~/.interviewbudai/data` first.
+  - **No named-volume fallback** (rejected: it would split the user's data
+    across two places, the #60 failure mode).
+- **Writability check on boot.** Inside a container (`IBAI_CONTAINER=1`),
+  the app checks on boot that `/data` is writable (a temp file create and
+  remove).
+  - If it is not, it logs a clear error and serves an error page / `/data`
+    state with the fix: the ownership and `mkdir` steps below. It never
+    falls back silently to another folder.
+- **Pinned, with the Docker source shown.** `compose.yaml` passes
+  `IBAI_HOST_DATA_DIR` into the container as a **display-only** variable. It
+  is never used as a path inside the container.
+  - `/data` shows "Pinned by Docker (`IBAI_HOST_DATA_DIR=<host path>`)" and
+    never offers switching. The switching refusal itself is already
+    implemented (ADR 0005 w2d, ADR 0009 D1).
+  - To use another folder, the user changes `IBAI_HOST_DATA_DIR`.
+- **Mismatch banner.** Compose also mounts
+  `${HOME}/.interviewbudai/config.json` **read-only** at a fixed path
+  (`/host-config/config.json`); it is optional, and a missing file is fine.
+  - If that file parses (same untrusted validation as today) and its
+    `dataDir` differs from the display-only `IBAI_HOST_DATA_DIR`, then `/data`
+    and Home show a banner: "Your non-Docker setup uses `<path>`. To use the
+    same notes in Docker, set `IBAI_HOST_DATA_DIR=<path>` in `.env` and
+    restart."
+  - The container cannot read that other folder, so the banner shows only
+    the path and never counts its notes.
+  - Implementation note for PR B: a bind mount of a missing file would make
+    Docker create a directory there. Mount the parent `${HOME}/.interviewbudai`
+    read-only at `/host-config` instead if needed; either way the mount is
+    read-only and missing content is tolerated.
+- **Container paths in the UI:** `/data` and backup messages show container
+  paths such as `/data/.backups/…`. Under Docker, a label next to them maps
+  `/data` to the host path (`IBAI_HOST_DATA_DIR`).
+- **File ownership.**
+  - On Linux Docker Engine, files are written with the container uid.
+    `compose.yaml` sets `user: "${IBAI_UID:-1000}:${IBAI_GID:-1000}"`, and
+    Linux users whose uid is not 1000 export `IBAI_UID=$(id -u)
+    IBAI_GID=$(id -g)`.
+  - **Rootless Docker / Podman** users should set `IBAI_UID`/`IBAI_GID` to
+    match or drop `user:`, because uids are remapped there.
+  - Docker Desktop is expected to map ownership to the host user, but that
+    is **unverified**; PR B checks it on macOS.
+  - Permission errors surface through the writability check above.
+- **ADR 0009 D4.** There is no on-disk format change and no change to
+  non-Docker resolution. Under Docker, however, the location is resolved
+  **differently** (`IBAI_HOST_DATA_DIR`, not `config.json`). That is covered
+  by the recovery path (mismatch banner + pinned label) and a CHANGELOG
+  **`### Breaking changes`** note in PR B ("Under Docker the data folder
+  comes from `IBAI_HOST_DATA_DIR` (default `~/.interviewbudai/data`), not
+  from the folder chosen at /setup"). No migration.
 
 ### D4 — Default model and small-model robustness
 
 - **Default** (in `compose.yaml` only, never in code): **`ai/qwen3:4b-instruct-2507-q4_K_M`**
-  (~2.5 GB, ≤ 3 GB). It follows instructions well and is reliable at JSON,
+  (~2.5 GB download, ≤ 3 GB). Its **estimated** total resident memory with
+  `context_size` 4096 is **~3.5 GB** (an estimate, not measured). Users with
+  tight RAM switch to `ai/qwen2.5:3B-Q4_K_M`. It follows instructions well and is reliable at JSON,
   and it is the non-thinking variant, so it emits no reasoning preamble that
   would break the JSON verdict. Chosen from the verified tags with **no
   benchmarking** (founder decision).
@@ -271,6 +333,8 @@ command was run and no model was pulled. **Unverified** items are marked.
     HTTP 503, or a DMR "loading" error map to a fixed, friendly message
     (quiz + settings): "The local model is starting or unavailable — try
     again in a moment." No writes on that path.
+  - When the D5 label is "Docker Model Runner (local)", a connection failure
+    adds: "Is Docker Model Runner enabled in Docker Desktop → Settings → AI?"
 
 ### D5 — Settings / test connection
 
@@ -281,6 +345,12 @@ command was run and no model was pulled. **Unverified** items are marked.
   `model-runner.docker.internal` (any port), or a loopback host or
   `172.17.0.1` on port `12434` with a path under `/engines/` (see the
   endpoints in Verified facts). Otherwise it shows **"OpenAI-compatible"**.
+- **Injected endpoint format: unverified.** It is not documented whether the
+  URL injected through `endpoint_var` already ends in `/engines/v1`, only
+  in `/engines/`, or is the bare host. So the provider and settings
+  **normalize** it: trailing slashes are dropped and `/v1` is appended when
+  the path is `/engines` or `/engines/<engine>`. A bare DMR host becomes
+  `…/engines/v1`. PR B's CI and README record the observed form.
 - `POST /api/settings/test-provider`: `GET {baseUrl}/models` (Bearer only
   when a key is set), same single deadline + rate limit as today; ok when the
   response is valid JSON whose `data[].id` list contains the configured
@@ -321,7 +391,17 @@ command was run and no model was pulled. **Unverified** items are marked.
 - **Positive:** `docker compose up` gives a keyless, local quiz on an 8 GB
   machine; one adapter also unlocks OpenAI, LM Studio, vLLM and llama.cpp.
 - **Positive:** the #58 protections still hold in the container; the only
-  new exposure is an explicitly loopback-published port.
+  new exposure is an explicitly loopback-published port (LAN isolation
+  comes from that publish; the Host allowlist stops browsers, not LAN
+  clients).
+- **First run:** on Docker Desktop, `docker compose up` works with no
+  preparation (`create_host_path: true`). Linux users must
+  `mkdir -p -m 700 ~/.interviewbudai/data` and use `compose.linux.yaml`,
+  otherwise the root-owned-folder problem hits; the boot writability check
+  turns that into a clear error instead of silent failures.
+- **Tradeoff:** a custom folder chosen at `/setup` outside Docker is not
+  picked up automatically under Docker; the mismatch banner tells the user
+  what to set.
 - **Tradeoff:** a 3–4B Q4 model judges less reliably than a frontier model;
   mitigated by JSON mode, the user's note as grounding, one retry, and
   fail-closed parsing. Users can swap the model.
@@ -333,12 +413,23 @@ command was run and no model was pulled. **Unverified** items are marked.
   machines, users run `npm start` or point the app at any OpenAI-compatible
   server.
 
+## Prerequisites (Docker path)
+
+- Docker Desktop with **Model Runner enabled** (Settings → AI → Enable
+  Docker Model Runner), on supported hardware (Apple silicon Mac; Windows
+  with NVIDIA or Qualcomm Adreno GPU), **or** Linux Docker Engine
+  (≥ 28.0, see D2) with `docker-model-plugin`.
+- Docker Compose **≥ v2.38**.
+- ~8 GB RAM (default model ~3.5 GB estimated; see D4).
+- Linux only: `mkdir -p -m 700 ~/.interviewbudai/data` and matching
+  `IBAI_UID`/`IBAI_GID`.
+
 ## Roadmap (small serial PRs, each with a `code-review` pass)
 
 | PR | Scope | Depends on |
 |---|---|---|
 | A | `OpenAICompatibleProvider` + `responseFormat` option + tests (fake fetch); config/env vars + precedence; settings kind/label/test-connection; `.env.example`, README, CHANGELOG `### Added` | this ADR |
-| B | Dockerfile, `.dockerignore`, `compose.yaml` (default model, endpoint_var/model_var, loopback publish, `/data` bind, `user:`), `IBAI_BIND_HOST`/`IBAI_CONTAINER`/`IBAI_PUBLIC_PORT` + tests; CI `docker` job with fake server; README "Run with Docker" | A |
+| B | Dockerfile (`HOME=/home/app`), `.dockerignore`, `compose.yaml` (default model, endpoint_var/model_var, loopback publish, `/data` bind with `create_host_path: true`, read-only config mount, display-only `IBAI_HOST_DATA_DIR`, `user:`) + `compose.linux.yaml`; `IBAI_BIND_HOST`/`IBAI_CONTAINER`/`IBAI_PUBLIC_PORT` (Origin on public port only) + tests; `/data` writability check, pinned-by-Docker label, mismatch banner; CHANGELOG `### Breaking changes` note (D3); CI `docker` job with fake server; README "Run with Docker" | A |
 | C | Quiz small-model robustness: JSON mode, one retry, prompt compaction/note cap, loading/unavailable state (quiz + settings) | A |
 
 ## References

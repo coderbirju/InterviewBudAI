@@ -113,6 +113,8 @@ competency data) to this repository.
 curriculum layer. The catalog is links + difficulty only.
 
 6.3. Agents **MUST NOT** hardcode or require a specific LLM provider or model.
+*Amended by ADR 0011:* a default model may appear in optional packaging
+config (e.g. `compose.yaml`); code must never name or require a model.
 
 6.4. Agents **MUST NOT** add mandatory network calls, telemetry, or cloud
 dependencies. The tool runs local-first.
