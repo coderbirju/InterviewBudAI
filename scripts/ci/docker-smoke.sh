@@ -139,4 +139,20 @@ echo "ok - no ANTHROPIC_* / OPENAI_* key variables in the container"
   fail "an env file is baked into the image"
 echo "ok - no .env in the image"
 
+# 7. Built output and production deps only: no source, no dev tooling, no
+#    SPA build-time deps, no dangling workspace links.
+"${compose[@]}" exec -T app sh -c '
+  cd /app &&
+  test -z "$(find packages -maxdepth 2 -name src)" &&
+  test ! -e node_modules/typescript &&
+  test ! -e node_modules/vite &&
+  test ! -e node_modules/react &&
+  test ! -e node_modules/react-dom &&
+  test ! -e node_modules/lucide-react &&
+  test ! -L node_modules/@ibai/cli &&
+  test -z "$(find node_modules -xtype l)" &&
+  test -z "$(find /app /home/app -name .env)"
+' || fail "the image contains source, dev dependencies, a dangling link or a .env"
+echo "ok - no src/, typescript, vite, react or .env in the image; no dangling links"
+
 echo "Docker smoke test passed."
