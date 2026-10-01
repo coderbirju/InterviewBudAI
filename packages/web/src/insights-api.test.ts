@@ -28,6 +28,11 @@ import type { ApiDeps } from './api.js';
 import { INSIGHTS_UNLOCK_SESSIONS, buildInsights } from './insights.js';
 import type { ApiInsightsResponse } from './insights.js';
 import { MISS_LABELS } from './miss-labels.js';
+// The SPA's client boundary (dependency-free) — the integration check below
+// feeds the real server JSON through it.
+import { normalizeInsights } from '../web-ui/src/lib/api.js';
+import type { InsightsResponse } from '../web-ui/src/lib/api.js';
+import { MISS_LABELS as UI_MISS_LABELS } from '../web-ui/src/lib/analytics.js';
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const AT = '2026-09-29T18:00:00.000Z' as IsoTimestamp;
@@ -419,6 +424,55 @@ describe('GET /api/insights (ADR 0012 D3)', () => {
     expect(out.slips[0]?.topics).toEqual([
       { topicId: 'mystery-topic', label: 'mystery-topic', count: 4 },
     ]);
+  });
+});
+
+describe('server /api/insights through the UI normalizeInsights (#82 + #83)', () => {
+  const viaUi = (body: ApiInsightsResponse): InsightsResponse =>
+    normalizeInsights(body as InsightsResponse);
+
+  it('locked: the UI view model equals the server payload (lists empty)', async () => {
+    await seedRich();
+    await writeSession('quiz-a', 1);
+    const body = await getInsights();
+    const view = viaUi(body);
+    expect(view).toEqual(body);
+    expect(view.state).toBe('locked');
+    expect(view.sessions).toEqual({ counted: 1, required: 2 });
+    expect(view.topics.map((t) => t.topicId)).toEqual([...TOPIC_ORDER]);
+    expect([view.focus, view.slips, view.strengths]).toEqual([[], [], []]);
+  });
+
+  it('unlocked: nothing is dropped; focus/slips/strengths pass through', async () => {
+    await seedRich();
+    await writeSession('quiz-a', 1);
+    await writeSession('quiz-b', 2);
+    const body = await getInsights();
+    const view = viaUi(body);
+    expect(view).toEqual(body);
+    expect(view.state).toBe('unlocked');
+    expect(view.focus.map((f) => f.topicId)).toEqual([
+      'graphs',
+      'trees',
+      'dynamic-programming',
+    ]);
+    expect(view.slips.map((s) => s.code)).toEqual([
+      'edge',
+      'vague',
+      'complexity',
+    ]);
+    expect(view.strengths.map((s) => s.topicId)).toEqual(['arrays', 'heap']);
+  });
+
+  it('no_db: the UI view model equals the server payload', async () => {
+    const body = await getInsights(
+      deps({ dataDir: path.join(tmpDir, 'missing') }),
+    );
+    expect(viaUi(body)).toEqual(body);
+  });
+
+  it('the UI fallback slip labels mirror the server MISS_LABELS', () => {
+    expect(UI_MISS_LABELS).toEqual(MISS_LABELS);
   });
 });
 
