@@ -339,6 +339,126 @@ export async function fetchGuidance(): Promise<GuidanceResponse> {
   return normalizeGuidance(await getJson<GuidanceResponse>('/api/guidance'));
 }
 
+// ---------------------------------------------------------------------------
+// Insights (ADR 0012 D3) — GET /api/insights. Mirrors the ADR's exact shape.
+// ---------------------------------------------------------------------------
+
+/** `no_db` (no data folder), `locked` (< 2 counted quiz sessions), `unlocked`. */
+export type InsightsState = 'no_db' | 'locked' | 'unlocked';
+
+/** Generic quiz miss code (ADR 0012 D1). The wire may carry codes we don't know yet. */
+export type MissCode =
+  | 'edge'
+  | 'complexity'
+  | 'brute'
+  | 'technique'
+  | 'vague'
+  | 'boundary'
+  | 'misread';
+
+export interface InsightsSessions {
+  /** Quiz sessions with at least one terminal answer. */
+  readonly counted: number;
+  /** Sessions needed to unlock insights (`INSIGHTS_UNLOCK_SESSIONS`, 2). */
+  readonly required: number;
+}
+
+export interface InsightsStatus {
+  readonly done: number;
+  readonly toRevisit: number;
+  readonly didNotUnderstand: number;
+  readonly notStarted: number;
+  readonly total: number;
+}
+
+/** One of the 13 topics, in `TOPIC_ORDER` (never re-sorted client-side). */
+export interface InsightsTopic {
+  readonly topicId: string;
+  readonly label: string;
+  readonly done: number;
+  readonly total: number;
+}
+
+export interface InsightsFocus {
+  readonly topicId: string;
+  readonly label: string;
+  readonly band: TopicStrength;
+  /** Count-based reason (never a hint); rendered as JSX text. */
+  readonly reason: string;
+}
+
+export interface InsightsSlipTopic {
+  readonly topicId: string;
+  readonly label: string;
+  readonly count: number;
+}
+
+export interface InsightsSlip {
+  /** Usually a {@link MissCode}; a string so unknown codes degrade gracefully. */
+  readonly code: string;
+  readonly label: string;
+  readonly count: number;
+  readonly lastSeen: string;
+  readonly topics: readonly InsightsSlipTopic[];
+}
+
+export interface InsightsStrength {
+  readonly topicId: string;
+  readonly label: string;
+  readonly correct: number;
+  readonly incorrect: number;
+}
+
+/** GET /api/insights response shape (ADR 0012 D3). */
+export interface InsightsResponse {
+  readonly state: InsightsState;
+  readonly generatedAt: string;
+  readonly sessions: InsightsSessions;
+  readonly status: InsightsStatus;
+  readonly topics: readonly InsightsTopic[];
+  readonly focus: readonly InsightsFocus[];
+  readonly slips: readonly InsightsSlip[];
+  readonly strengths: readonly InsightsStrength[];
+}
+
+/**
+ * Normalize a raw /api/insights payload at the client boundary: an unknown
+ * `state` reads as `locked`, missing lists read as `[]`, and missing
+ * sessions/status read as zeros, so a partial payload renders the calm locked
+ * view instead of crashing. Lists stay empty unless `state` is `unlocked`.
+ */
+export function normalizeInsights(raw: InsightsResponse): InsightsResponse {
+  const state: InsightsState =
+    raw.state === 'no_db' || raw.state === 'unlocked' ? raw.state : 'locked';
+  const list = <T>(xs: readonly T[] | undefined): readonly T[] =>
+    state === 'unlocked' && Array.isArray(xs) ? xs : [];
+  const s = raw.status ?? ({} as Partial<InsightsStatus>);
+  return {
+    state,
+    generatedAt: raw.generatedAt,
+    sessions: {
+      counted: raw.sessions?.counted ?? 0,
+      required: raw.sessions?.required ?? 2,
+    },
+    status: {
+      done: s.done ?? 0,
+      toRevisit: s.toRevisit ?? 0,
+      didNotUnderstand: s.didNotUnderstand ?? 0,
+      notStarted: s.notStarted ?? 0,
+      total: s.total ?? 0,
+    },
+    topics: Array.isArray(raw.topics) ? raw.topics : [],
+    focus: list(raw.focus),
+    slips: list(raw.slips),
+    strengths: list(raw.strengths),
+  };
+}
+
+/** GET /api/insights — Analytics v2: status, topic tiles, focus/slips/strengths. Read-only. */
+export async function fetchInsights(): Promise<InsightsResponse> {
+  return normalizeInsights(await getJson<InsightsResponse>('/api/insights'));
+}
+
 /**
  * POST /api/notes/:id — set a problem's status. The server keeps `completed`
  * consistent with `status === 'done'` and preserves other note fields. Returns
