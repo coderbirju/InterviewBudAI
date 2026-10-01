@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr list`), and no other PRs are open. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-01. PRs #1–#83 are merged or closed (source: `gh pr list`). ADR 0012 has shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -43,6 +43,11 @@ _Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr lis
 - ✅ #78 Docker Compose + Docker Model Runner
 - ✅ #79 Quiz robustness on small models (JSON mode, one retry, "model not ready" state)
 
+**Analytics v2 (ADR 0012)**
+- ✅ #81 ADR 0012
+- ✅ #82 Analytics UI (donut, locked/unlocked, topic tiles)
+- ✅ #83 Quiz miss codes, prompt diet, `GET /api/insights`
+
 **Data lifecycle (ADR 0009)**
 - ✅ #61 ADR
 - ✅ #62 `/data` page
@@ -60,11 +65,11 @@ _Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 ADR 0012: Analytics v2, quiz miss codes, prompt diet (`architect/adr-0012-analytics-v2`).
+- 🟡 ADR 0013: "Check my intuition" coach, practice trends, Reference approach (`architect/adr-0013-intuition-check`).
 
 ## Next up
-1. **Analytics v2 (ADR 0012).** PR 1: quiz miss codes + prompt diet + storage aggregation + `GET /api/insights`. PR 2: Analytics UI (donut, locked/unlocked, topic tiles). They can run in parallel against the ADR's API shape.
-2. **"Reference approach" note field vs shipping solutions.** Waiting on a founder decision (§6.2).
+1. **Intuition check (ADR 0013).** PR 1: the Reference approach (storage section, editor, CSV column, quiz grounding). PR 2: the coach engine, `POST /api/notes/:id/check`, practice storage, `GET /api/practice` and reset. PR 3: the Notes UI. PR 4: the Analytics Practice section and the reset UI. PR 3 and PR 4 run in parallel against the ADR shapes.
+2. **"Reference approach" note field vs shipping solutions.** Decided in ADR 0013 D4: it is user-authored and never shipped.
 3. **Docs pass.** On hold until the founder says go.
 4. **Small follow-ups:**
    - Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
@@ -74,7 +79,7 @@ _Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr lis
 ## Open founder decisions
 - System Design: whether it is in scope, and in what shape.
 - Backups: git-backed or export.
-- Coaching beyond the quiz (free-form coach/plan in the web).
+- Coaching beyond the quiz and the Notes intuition check (ADR 0013): a free-form coach or plan in the web.
 - Quiz difficulty knob and per-topic quizzes.
 - Release zip and Docker image publishing (ADR 0009 D5 PR D is deferred; the founder pushes tags).
 - ⛔ Branch protection: GitHub returns 403 on this free private repo. The options are to go public, upgrade to Pro, or rely on the charter alone. See `.github/BRANCH_PROTECTION.md`.
