@@ -109,7 +109,8 @@ marked "needs ADR" or "pending founder" do not start until that lands.
    prebuilt zip from tagged GitHub Releases; no npm/`npx` for now.
 6. Branch protection — 403 on the free private repo: make public / Pro / accept
    charter-only enforcement.
-7. Delete ADR 0004 (superseded demo provider)?
+7. Delete ADR 0004 (superseded demo provider)? **Answered** 2026-09-30:
+   founder approved; ADR 0004 removed (see git history), numbering kept.
 8. Delete stale branches/worktrees?
 
 ## Consequences
