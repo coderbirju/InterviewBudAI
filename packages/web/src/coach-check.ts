@@ -499,19 +499,25 @@ const PAREN_CONDITION =
  *    `>`, `!`, ` in `, ` not `, ` and `, ` or ` — so prose like "For
  *    example:" or "If so:" passes (PR #84 nit 2, PR #88 review);
  *  - is a C-style `for (…;…;…)`;
- *  - unless it ends in `?`: starts with a code keyword and holds `->` /
+ *  - unless it ends in `?` in a ONE-line field: starts with a code keyword and holds `->` /
  *    `=>`, is an assignment or subscript store (`seen = {}`, `a[i] = j`), or
  *    is `if (cond-with-operator)`.
  * Pure.
  */
 export function containsCode(text: string): boolean {
   if (text.includes('```')) return true;
-  for (const rawLine of foldForGuard(text).split(/\r?\n/)) {
-    const line = rawLine.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, '');
+  const lines = foldForGuard(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, ''))
+    .filter((l) => l.length > 0);
+  // The `?` exemption is for a one-line field only: in a multi-line field a
+  // `seen = {}?` line is still part of a snippet (PR #88 re-review).
+  const exemptQuestions = lines.length <= 1;
+  for (const line of lines) {
     // Heuristic patterns skip a line ending in `?` (a question, not code).
-    const question = line.endsWith('?');
+    const question = exemptQuestions && line.endsWith('?');
     if (C_FOR.test(line)) return true;
-    if (!question && (ASSIGNMENT.test(line) || PAREN_CONDITION.test(line))) {
+    if (!question && (isAssignmentLine(line) || PAREN_CONDITION.test(line))) {
       return true;
     }
     const first = /^([a-z]+)\b/.exec(line)?.[1];
@@ -531,24 +537,57 @@ export function containsCode(text: string): boolean {
   return false;
 }
 
-/** A numbered item marker anywhere: `1.` / `2)` after a start or a space. */
-const NUMBERED_ITEM = /(?:^|\s)\d+[.)](?=\s)/g;
+/**
+ * An assignment / subscript-store line — unless it reads as a sentence: it
+ * ends in `.` with 3+ plain words after the `=` ("n = 1e5 means O(n log n)
+ * fits.", "Total = left + right is the idea."). Pure.
+ */
+function isAssignmentLine(line: string): boolean {
+  if (!ASSIGNMENT.test(line)) return false;
+  if (!line.endsWith('.')) return true;
+  const rhs = line.slice(line.indexOf('=') + 1);
+  return (rhs.match(/\b[a-z]{2,}\b/g)?.length ?? 0) < 3;
+}
+
+/** A numbered marker `1.` / `2)` + whitespace; group 2 = the next character. */
+const NUMBERED_ITEM = /(?<![\w.])(\d+)[.)]\s+(?=(\S))/g;
 /** A bullet item: `-` / `*` / `•` at a line start, or `•` anywhere. */
 const LINE_BULLET = /^\s*[-*•]\s/gm;
 const INLINE_BULLET = /\S\s*•\s/g;
 
 /**
+ * Numbers of the list-like numbered markers in `text`, in order: a marker
+ * counts when it starts the text or a line, follows `.`/`:` (spaces
+ * allowed), or is followed by a capital letter ("… 2. Use …"). So "Is it
+ * 1. sorted or 2. unsorted?" and "Between 1. and 2. which?" hold none.
+ */
+function numberedItems(text: string): number[] {
+  const out: number[] = [];
+  for (const m of text.matchAll(NUMBERED_ITEM)) {
+    const before = text.slice(0, m.index ?? 0).replace(/[ \t]+$/, '');
+    const atBoundary = before.length === 0 || /[\n.:]$/.test(before);
+    const capital = /\p{Lu}/u.test(m[2] ?? '');
+    if (atBoundary || capital) out.push(Number(m[1]));
+  }
+  return out;
+}
+
+/**
  * True when one field holds a step list (ADR 0013 D1 "Not allowed: … step
- * list"): two or more numbered (`1.`, `1)`) or bulleted (`-`, `*`, `•`)
- * items, inline or on separate lines. Pure.
+ * list"): numbered items in sequence from one (`1.` then `2.`, or `1)` then `2)`),
+ * each list-like (see {@link numberedItems}), inline or on separate lines; or
+ * two or more bulleted (`-`, `*`, `•`) items. Pure.
  */
 export function containsStepList(text: string): boolean {
-  const folded = foldForGuard(text);
-  const items =
-    (folded.match(NUMBERED_ITEM)?.length ?? 0) +
+  const folded = text.normalize('NFKC').replace(/\p{Cf}/gu, '');
+  const numbers = numberedItems(folded);
+  for (let i = 0; i + 1 < numbers.length; i++) {
+    if (numbers[i] === 1 && numbers[i + 1] === 2) return true;
+  }
+  const bullets =
     (folded.match(LINE_BULLET)?.length ?? 0) +
     (folded.match(INLINE_BULLET)?.length ?? 0);
-  return items >= 2;
+  return bullets >= 2;
 }
 
 /**
