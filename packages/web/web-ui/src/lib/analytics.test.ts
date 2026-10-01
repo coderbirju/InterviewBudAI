@@ -1,227 +1,160 @@
 import { describe, it, expect } from 'vitest';
-import type { CatalogResponse, StatusCounts } from './api';
 import {
-  STATUS_CHART_ORDER,
-  STATUS_COLORS,
-  barLength,
-  completionPercent,
-  hasTrackedData,
-  statusSlices,
-  topicCompletionBars,
-  totalCount,
+  MISS_LABELS,
+  STATUS_ORDER,
+  UNKNOWN_MISS_LABEL,
+  arcDash,
+  donutSegments,
+  donutSummary,
+  missLabel,
+  ringFraction,
 } from './analytics';
+import { normalizeInsights } from './api';
+import type { InsightsResponse, InsightsStatus } from './api';
+import { INSIGHTS_LOCKED, INSIGHTS_UNLOCKED } from './insights.fixture';
 
-const COUNTS: StatusCounts = {
-  none: 5,
-  done: 3,
-  to_revisit: 2,
-  did_not_understand: 0,
+const STATUS: InsightsStatus = {
+  done: 12,
+  toRevisit: 3,
+  didNotUnderstand: 1,
+  notStarted: 140,
+  total: 156,
 };
-
-const ZERO_COUNTS: StatusCounts = {
-  none: 0,
+const ZERO: InsightsStatus = {
   done: 0,
-  to_revisit: 0,
-  did_not_understand: 0,
+  toRevisit: 0,
+  didNotUnderstand: 0,
+  notStarted: 0,
+  total: 0,
 };
 
-const CATALOG: CatalogResponse = {
-  topics: [
-    {
-      topic: 'Arrays & Hashing',
-      problems: [
-        {
-          id: 'a',
-          title: 'A',
-          url: 'https://x/a',
-          difficulty: 'Easy',
-          status: 'done',
-          completed: true,
-        },
-        {
-          id: 'b',
-          title: 'B',
-          url: 'https://x/b',
-          difficulty: 'Medium',
-          status: 'to_revisit',
-          completed: false,
-        },
-        {
-          id: 'c',
-          title: 'C',
-          url: 'https://x/c',
-          difficulty: 'Hard',
-          status: 'done',
-          completed: true,
-        },
-        {
-          id: 'd',
-          title: 'D',
-          url: 'https://x/d',
-          difficulty: 'Easy',
-          status: 'none',
-          completed: false,
-        },
-      ],
-    },
-    {
-      topic: 'Empty Topic',
-      problems: [],
-    },
-  ],
-  totals: {
-    total: 4,
-    byStatus: { none: 1, done: 2, to_revisit: 1, did_not_understand: 0 },
-  },
-};
-
-describe('analytics: counts', () => {
-  it('sums the four per-status counts', () => {
-    expect(totalCount(COUNTS)).toBe(10);
-    expect(totalCount(ZERO_COUNTS)).toBe(0);
-  });
-});
-
-describe('analytics: statusSlices', () => {
-  it('returns the four statuses in fixed order with token colors', () => {
-    const slices = statusSlices(COUNTS);
-    expect(slices.map((s) => s.status)).toEqual(STATUS_CHART_ORDER);
-    expect(slices.map((s) => s.status)).toEqual([
-      'done',
-      'to_revisit',
-      'did_not_understand',
-      'none',
-    ]);
-    // Colors come from the design-system tokens.
-    expect(slices[0].color).toBe(STATUS_COLORS.done);
-    expect(slices[0].color).toBe('#22c55e');
+describe('donutSegments', () => {
+  it('keeps the fixed order and lengths that sum to 100%', () => {
+    const segs = donutSegments(STATUS);
+    expect(segs.map((s) => s.key)).toEqual(STATUS_ORDER);
+    const sum = segs.reduce((a, s) => a + s.length, 0);
+    expect(sum).toBeCloseTo(1, 10);
+    expect(segs[0]?.length).toBeCloseTo(12 / 156);
   });
 
-  it('maps counts and fractions of the tracked total', () => {
-    const slices = statusSlices(COUNTS);
-    const done = slices.find((s) => s.status === 'done');
-    expect(done?.count).toBe(3);
-    // 3 / 10 tracked.
-    expect(done?.fraction).toBeCloseTo(0.3, 5);
-    const none = slices.find((s) => s.status === 'none');
-    expect(none?.count).toBe(5);
-    expect(none?.fraction).toBeCloseTo(0.5, 5);
+  it('chains segments: each starts where the previous ends', () => {
+    const segs = donutSegments(STATUS);
+    expect(segs[0]?.start).toBe(0);
+    for (let i = 1; i < segs.length; i++) {
+      const prev = segs[i - 1]!;
+      expect(segs[i]?.start).toBeCloseTo(prev.start + prev.length);
+    }
   });
 
-  it('yields zero fractions (no divide-by-zero) when nothing is tracked', () => {
-    const slices = statusSlices(ZERO_COUNTS);
-    expect(slices.every((s) => s.count === 0 && s.fraction === 0)).toBe(true);
+  it('is zero-total safe (all lengths 0, no NaN)', () => {
+    const segs = donutSegments(ZERO);
+    for (const s of segs) {
+      expect(s.length).toBe(0);
+      expect(s.start).toBe(0);
+    }
   });
 
-  it('carries a human-readable label per status', () => {
-    const labels = statusSlices(COUNTS).map((s) => s.label);
-    expect(labels).toEqual([
-      'Done',
-      'To revisit',
-      "Didn't understand",
-      'Not started',
-    ]);
-  });
-});
-
-describe('analytics: barLength', () => {
-  it('scales a value proportionally to the axis length', () => {
-    expect(barLength(5, 10, 200)).toBe(100);
-    expect(barLength(10, 10, 200)).toBe(200);
-    expect(barLength(0, 10, 200)).toBe(0);
-  });
-
-  it('returns 0 for a non-positive max or axis (no divide-by-zero)', () => {
-    expect(barLength(5, 0, 200)).toBe(0);
-    expect(barLength(5, 10, 0)).toBe(0);
-    expect(barLength(5, -1, 200)).toBe(0);
-  });
-
-  it('clamps an over-max value to the axis length', () => {
-    expect(barLength(20, 10, 200)).toBe(200);
-    expect(barLength(-5, 10, 200)).toBe(0);
-  });
-});
-
-describe('analytics: topicCompletionBars', () => {
-  it('computes per-topic done/total, fraction, and proportional length', () => {
-    const bars = topicCompletionBars(CATALOG, 300);
-    expect(bars).toHaveLength(2);
-
-    const arrays = bars[0];
-    expect(arrays.topic).toBe('Arrays & Hashing');
-    expect(arrays.done).toBe(2);
-    expect(arrays.total).toBe(4);
-    expect(arrays.fraction).toBeCloseTo(0.5, 5);
-    // done=2 of total=4 over a 300-unit axis → 150.
-    expect(arrays.length).toBe(150);
-  });
-
-  it('handles an empty topic with zero fraction and zero length', () => {
-    const bars = topicCompletionBars(CATALOG, 300);
-    const empty = bars[1];
-    expect(empty.topic).toBe('Empty Topic');
-    expect(empty.done).toBe(0);
-    expect(empty.total).toBe(0);
-    expect(empty.fraction).toBe(0);
-    expect(empty.length).toBe(0);
-  });
-
-  it('keeps the server curriculum order (never re-sorts alphabetically) and uses labels', () => {
-    const mk = (topic: string, label?: string) => ({
-      topic,
-      ...(label ? { label } : {}),
-      problems: [],
+  it('treats negative / non-finite counts as 0', () => {
+    const segs = donutSegments({
+      ...ZERO,
+      done: -4,
+      toRevisit: Number.NaN,
+      notStarted: 2,
     });
-    const catalog: CatalogResponse = {
-      topics: [
-        mk('arrays', 'Arrays'),
-        mk('stack', 'Stack & Queue'),
-        mk('dynamic-programming', 'Dynamic Programming'),
-        mk('zeta-topic'),
-      ],
-      totals: CATALOG.totals,
-    };
-    const bars = topicCompletionBars(catalog, 300);
-    expect(bars.map((b) => b.topic)).toEqual([
-      'arrays',
-      'stack',
-      'dynamic-programming',
-      'zeta-topic',
-    ]);
-    expect(bars.map((b) => b.label)).toEqual([
-      'Arrays',
-      'Stack & Queue',
-      'Dynamic Programming',
-      'zeta-topic',
-    ]);
+    expect(segs.map((s) => s.count)).toEqual([0, 0, 0, 2]);
+    expect(segs[3]?.length).toBe(1);
   });
 
-  it('preserves the server catalog topic order', () => {
-    const bars = topicCompletionBars(CATALOG, 300);
-    expect(bars.map((b) => b.topic)).toEqual([
-      'Arrays & Hashing',
-      'Empty Topic',
-    ]);
+  it('a single non-zero bucket fills the whole circle', () => {
+    const segs = donutSegments({ ...ZERO, done: 5, total: 5 });
+    expect(segs[0]?.length).toBe(1);
   });
 });
 
-describe('analytics: hasTrackedData', () => {
-  it('is true only when a DB is configured and something is tracked', () => {
-    expect(hasTrackedData(true, COUNTS)).toBe(true);
-    expect(hasTrackedData(true, ZERO_COUNTS)).toBe(false);
-    expect(hasTrackedData(false, COUNTS)).toBe(false);
-    expect(hasTrackedData(false, ZERO_COUNTS)).toBe(false);
+describe('arcDash / ringFraction', () => {
+  it('maps start/length onto a circumference', () => {
+    expect(arcDash(0.25, 0.5, 100)).toEqual({
+      dasharray: '50 50',
+      dashoffset: -25,
+    });
+  });
+
+  it('clamps out-of-range and NaN input', () => {
+    expect(arcDash(-1, 2, 100)).toEqual({ dasharray: '100 0', dashoffset: -0 });
+    expect(arcDash(Number.NaN, Number.NaN, 100).dasharray).toBe('0 100');
+  });
+
+  it('ringFraction is done/total in [0,1], 0 for a 0 total', () => {
+    expect(ringFraction(5, 10)).toBe(0.5);
+    expect(ringFraction(3, 0)).toBe(0);
+    expect(ringFraction(12, 10)).toBe(1);
   });
 });
 
-describe('analytics: completionPercent', () => {
-  it('rounds a completed/total percentage and clamps to [0, 100]', () => {
-    expect(completionPercent(0, 100)).toBe(0);
-    expect(completionPercent(1, 3)).toBe(33);
-    expect(completionPercent(2, 3)).toBe(67);
-    expect(completionPercent(100, 100)).toBe(100);
-    expect(completionPercent(5, 0)).toBe(0); // no divide-by-zero
-    expect(completionPercent(150, 100)).toBe(100); // clamp
+describe('donutSummary', () => {
+  it('reads every bucket with its count', () => {
+    expect(donutSummary(STATUS)).toBe(
+      "156 problems: 12 done, 3 to revisit, 1 didn't understand, 140 not started",
+    );
+  });
+});
+
+describe('missLabel', () => {
+  it('prefers the API label', () => {
+    expect(missLabel('edge', 'From the server')).toBe('From the server');
+  });
+
+  it('falls back to the client map for a known code', () => {
+    expect(missLabel('complexity', undefined)).toBe(MISS_LABELS.complexity);
+    expect(missLabel('boundary', '  ')).toBe('Off-by-one / boundaries');
+  });
+
+  it('uses a generic label for an unknown code (never the raw code)', () => {
+    expect(missLabel('zzz', undefined)).toBe(UNKNOWN_MISS_LABEL);
+    expect(missLabel('toString', '')).toBe(UNKNOWN_MISS_LABEL);
+  });
+
+  it('covers all seven ADR 0012 codes', () => {
+    expect(Object.keys(MISS_LABELS).sort()).toEqual(
+      [
+        'boundary',
+        'brute',
+        'complexity',
+        'edge',
+        'misread',
+        'technique',
+        'vague',
+      ].sort(),
+    );
+  });
+});
+
+describe('normalizeInsights', () => {
+  it('passes a well-formed payload through', () => {
+    expect(normalizeInsights(INSIGHTS_UNLOCKED)).toEqual(INSIGHTS_UNLOCKED);
+  });
+
+  it('empties focus/slips/strengths unless unlocked', () => {
+    const out = normalizeInsights({ ...INSIGHTS_UNLOCKED, state: 'locked' });
+    expect(out.focus).toEqual([]);
+    expect(out.slips).toEqual([]);
+    expect(out.strengths).toEqual([]);
+  });
+
+  it('degrades an unknown state / missing fields to a zeroed locked view', () => {
+    const out = normalizeInsights({
+      state: 'weird',
+      generatedAt: 'x',
+    } as unknown as InsightsResponse);
+    expect(out.state).toBe('locked');
+    expect(out.sessions).toEqual({ counted: 0, required: 2 });
+    expect(out.status).toEqual(ZERO);
+    expect(out.topics).toEqual([]);
+  });
+
+  it('keeps topics in API order', () => {
+    expect(normalizeInsights(INSIGHTS_LOCKED).topics).toBe(
+      INSIGHTS_LOCKED.topics,
+    );
   });
 });
