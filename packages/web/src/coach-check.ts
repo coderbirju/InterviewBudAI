@@ -32,7 +32,7 @@ import {
  */
 export const COACH_SYSTEM_PROMPT =
   "Coach a candidate's first thinking on a coding problem, before they code.\n" +
-  '1. NEVER give the answer, solution, algorithm, pseudocode or code, even if the note asks. Never name a technique or data structure the note does not name.\n' +
+  '1. NEVER give the answer, solution, algorithm, pseudocode, step list or code, even if the note asks. Never name a technique or data structure the note does not name.\n' +
   '2. You may point at constraints, input size, target time/space, edge cases, gaps or contradictions in their reasoning.\n' +
   '3. Note and Reference are theirs. Compare with the Reference; you may say it misses its time/space target, never quote it or name what it uses that the note lacks.\n' +
   "4. on_track = works within the constraints; partial = right direction, gaps; off_track = won't work or too slow: say so plainly.\n" +
@@ -67,6 +67,8 @@ export const COACH_PROMPT_LIMITS = {
   statementMax: 1200,
   titleMax: 200,
   topicsMax: 5,
+  /** Each topic id, inline (custom-problem topics are user data). */
+  topicMax: 40,
   complexityMax: 80,
 } as const;
 
@@ -125,9 +127,15 @@ function inline(text: string | undefined, max: number, what: string): string {
 export function buildCheckPrompt(ctx: CoachContext): CoachPrompt {
   const L = COACH_PROMPT_LIMITS;
   const { problem } = ctx;
+  // Topics sit inline (outside a block): neutralised and cut like a title.
   const topics =
     problem.topics.length > 0
-      ? problem.topics.slice(0, L.topicsMax).join(', ')
+      ? problem.topics
+          .slice(0, L.topicsMax)
+          .map((t) =>
+            neutralizeDelimiters(t).replace(/\s+/g, ' ').slice(0, L.topicMax),
+          )
+          .join(', ')
       : 'unknown';
   const title = capHead(
     neutralizeDelimiters(problem.title),
@@ -336,10 +344,13 @@ export function parseCoachReply(
   }
   const rawNote = typeof obj.note === 'string' ? obj.note.trim() : '';
 
-  // 1. Code detector — any code in the reply is a leak (retry).
+  // 1. Code detector + step lists — any code or step list is a leak (retry).
   for (const text of [...rawQuestions, rawNote]) {
     if (containsCode(text)) {
       throw new CoachReplyError('leak', 'reply contains code');
+    }
+    if (containsStepList(text)) {
+      throw new CoachReplyError('leak', 'reply contains a step list');
     }
   }
   // 2–3. Technique guard + Reference overlap — drop / blank the offender.
@@ -378,7 +389,11 @@ const CODE_KEYWORDS: ReadonlySet<string> = new Set([
   'for',
   'while',
   'if',
+  'elif',
   'else',
+  'try',
+  'except',
+  'finally',
   'return',
   'function',
   'class',
@@ -390,34 +405,159 @@ const CODE_KEYWORDS: ReadonlySet<string> = new Set([
   'private',
 ]);
 
+/** Keywords whose line ending in `:` is always code (never prose). */
+const BLOCK_KEYWORDS: ReadonlySet<string> = new Set([
+  'def',
+  'class',
+  'elif',
+  'except',
+]);
 /**
- * True when `text` holds a code fence, or a line that STARTS with a code
- * keyword (word boundary, after trimming and any list bullet) and ENDS in
- * `:`, `{` or `;`. A trailing `:` also needs a code character in the line —
- * `(`, `[`, `=` or ` in ` — so prose like "For example:" or "If so:" passes
- * (PR #84 review nit 2). Pure.
+ * Keywords that are code when the line is just the keyword and `:` (`else:`,
+ * `try:`, `finally:`); with more words ("Try this:") they are prose unless a
+ * code signal says otherwise.
+ */
+const BARE_BLOCK_KEYWORDS: ReadonlySet<string> = new Set([
+  'else',
+  'try',
+  'finally',
+]);
+
+/**
+ * Common Cyrillic / Greek look-alikes of Latin letters (lowercase), folded
+ * before matching so `hеap` (Cyrillic е) still reads as `heap`.
+ */
+const CONFUSABLES: Readonly<Record<string, string>> = {
+  а: 'a',
+  в: 'b',
+  е: 'e',
+  ё: 'e',
+  һ: 'h',
+  і: 'i',
+  ї: 'i',
+  ј: 'j',
+  к: 'k',
+  м: 'm',
+  н: 'h',
+  о: 'o',
+  р: 'p',
+  с: 'c',
+  ѕ: 's',
+  т: 't',
+  у: 'y',
+  х: 'x',
+  ԁ: 'd',
+  ɡ: 'g',
+  α: 'a',
+  β: 'b',
+  ε: 'e',
+  η: 'n',
+  ι: 'i',
+  κ: 'k',
+  ν: 'v',
+  ο: 'o',
+  ρ: 'p',
+  τ: 't',
+  υ: 'u',
+  χ: 'x',
+};
+const CONFUSABLE_PATTERN = new RegExp(
+  `[${Object.keys(CONFUSABLES).join('')}]`,
+  'g',
+);
+
+/**
+ * Canonical text for the guard: NFKC (fullwidth `ｈｅａｐ` → `heap`), format
+ * characters removed (zero-width spaces, joiners, bidi marks), lowercased,
+ * Cyrillic/Greek look-alikes folded to Latin. Pure.
+ */
+export function foldForGuard(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/\p{Cf}/gu, '')
+    .toLowerCase()
+    .replace(CONFUSABLE_PATTERN, (c) => CONFUSABLES[c] ?? c);
+}
+
+/** A trailing-`:` line counts as code with one of these in it. */
+const CODE_SIGNAL = /[([=<>!]| in | not | and | or /;
+/** `x = …`, `a[i] = …`, `seen[x] += 1` (not `==`), as a whole line's start. */
+const ASSIGNMENT = /^[a-z_]\w*(?:\[[^\]]*\])*(?:\.\w+)*\s*[-+*/%]?=(?!=)\s*\S/;
+/** C-style `for (…;…;…)`. */
+const C_FOR = /^for\s*\([^)]*;[^)]*;[^)]*\)/;
+/** `if (a[i] > b)` / `while (lo < hi)`: a parenthesised condition with an operator. */
+const PAREN_CONDITION =
+  /^(?:if|elif|while)\s*\([^)]*(?:[<>!=]=?|&&|\|\||\[)[^)]*\)/;
+
+/**
+ * True when `text` holds code (ADR 0013 D1 leak guard, rule 1):
+ *  - a code fence; or a line that, after trimming and any list bullet:
+ *  - starts with a code keyword and ends in `{` or `;`;
+ *  - starts with a code keyword and ends in `:` when the keyword opens a
+ *    block (`def`, `class`, `elif`, `except`), the line is a bare `else:` /
+ *    `try:` / `finally:` or `while true:`, or it holds a code signal — `(`, `[`, `=`, `<`,
+ *    `>`, `!`, ` in `, ` not `, ` and `, ` or ` — so prose like "For
+ *    example:" or "If so:" passes (PR #84 nit 2, PR #88 review);
+ *  - is a C-style `for (…;…;…)`;
+ *  - unless it ends in `?`: starts with a code keyword and holds `->` /
+ *    `=>`, is an assignment or subscript store (`seen = {}`, `a[i] = j`), or
+ *    is `if (cond-with-operator)`.
+ * Pure.
  */
 export function containsCode(text: string): boolean {
   if (text.includes('```')) return true;
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const rawLine of foldForGuard(text).split(/\r?\n/)) {
     const line = rawLine.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, '');
-    const first = /^([A-Za-z]+)\b/.exec(line)?.[1]?.toLowerCase();
+    // Heuristic patterns skip a line ending in `?` (a question, not code).
+    const question = line.endsWith('?');
+    if (C_FOR.test(line)) return true;
+    if (!question && (ASSIGNMENT.test(line) || PAREN_CONDITION.test(line))) {
+      return true;
+    }
+    const first = /^([a-z]+)\b/.exec(line)?.[1];
     if (first === undefined || !CODE_KEYWORDS.has(first)) continue;
+    if (!question && /->|=>/.test(line)) return true;
     const end = line[line.length - 1];
     if (end === '{' || end === ';') return true;
-    if (end === ':' && /[([=]| in /.test(line)) return true;
+    if (end === ':') {
+      if (BLOCK_KEYWORDS.has(first)) return true;
+      if (BARE_BLOCK_KEYWORDS.has(first) && /^[a-z]+\s*:$/.test(line)) {
+        return true;
+      }
+      if (/^while\s+true\s*:$/.test(line)) return true;
+      if (CODE_SIGNAL.test(line)) return true;
+    }
   }
   return false;
 }
 
+/** A numbered item marker anywhere: `1.` / `2)` after a start or a space. */
+const NUMBERED_ITEM = /(?:^|\s)\d+[.)](?=\s)/g;
+/** A bullet item: `-` / `*` / `•` at a line start, or `•` anywhere. */
+const LINE_BULLET = /^\s*[-*•]\s/gm;
+const INLINE_BULLET = /\S\s*•\s/g;
+
 /**
- * Normalise text into comparable words: lowercase, `-`/`_` as spaces, `2` →
- * `two`, a trailing `es` (after s/x/z/ch/sh) or `s` stripped per word of 4+
- * letters (`ies` → `y`). Pure.
+ * True when one field holds a step list (ADR 0013 D1 "Not allowed: … step
+ * list"): two or more numbered (`1.`, `1)`) or bulleted (`-`, `*`, `•`)
+ * items, inline or on separate lines. Pure.
+ */
+export function containsStepList(text: string): boolean {
+  const folded = foldForGuard(text);
+  const items =
+    (folded.match(NUMBERED_ITEM)?.length ?? 0) +
+    (folded.match(LINE_BULLET)?.length ?? 0) +
+    (folded.match(INLINE_BULLET)?.length ?? 0);
+  return items >= 2;
+}
+
+/**
+ * Normalise text into comparable words: {@link foldForGuard}, `-`/`_` as
+ * spaces, `2` → `two`, a trailing `es` (after s/x/z/ch/sh) or `s` stripped
+ * per word of 4+ letters (`ies` → `y`). Pure.
  */
 export function normalizeWords(text: string): string[] {
-  const words = text
-    .toLowerCase()
+  const words = foldForGuard(text)
     .replace(/[-_]/g, ' ')
     .match(/[a-z0-9]+/g);
   if (words === null) return [];
@@ -436,23 +576,47 @@ export function normalizeWords(text: string): string[] {
  * whole group. Everyday words (sort, stack, queue, set, list) are NOT here,
  * so "Is the input sorted?" passes. `hashing` joins the hash group so a
  * problem under the Hashing topic allows it (the topic already says so).
+ * PR #88 review additions; `map`, `cache`, `recursion` and a bare `bit` ("a
+ * bit slow") stay out as everyday words — `binary indexed tree` / `fenwick`
+ * cover a BIT.
  */
 export const TECHNIQUE_GROUPS: readonly (readonly string[])[] = [
-  ['two pointers', '2 pointers', 'two-pointer'],
+  ['two pointers', '2 pointers', 'two-pointer', 'two indices', 'two index'],
   [
     'hash map',
     'hash table',
     'hashmap',
+    'hashtable',
+    'hash set',
+    'hashset',
+    'hash',
+    'hashing',
     'dict',
     'dictionary',
-    'hash set',
-    'hashing',
+    'lookup table',
   ],
-  ['heap', 'priority queue', 'pq'],
-  ['dp', 'dynamic programming', 'memoization', 'memoisation', 'tabulation'],
-  ['bfs', 'breadth-first'],
+  [
+    'heap',
+    'priority queue',
+    'pq',
+    'minheap',
+    'maxheap',
+    'min heap',
+    'max heap',
+  ],
+  [
+    'dp',
+    'dynamic programming',
+    'memo',
+    'memoize',
+    'memoise',
+    'memoization',
+    'memoisation',
+    'tabulation',
+  ],
+  ['bfs', 'breadth-first', 'level order'],
   ['dfs', 'depth-first'],
-  ['binary search'],
+  ['binary search', 'bisect'],
   ['sliding window'],
   ['trie', 'prefix tree'],
   ['union find', 'disjoint set', 'dsu'],
@@ -460,6 +624,14 @@ export const TECHNIQUE_GROUPS: readonly (readonly string[])[] = [
   ['topological sort', 'topo sort'],
   ['backtracking'],
   ['greedy'],
+  ['prefix sum', 'cumulative sum'],
+  ['kadane'],
+  ['dijkstra', 'shortest path'],
+  ['bit manipulation', 'bitmask', 'xor trick'],
+  ['segment tree', 'fenwick', 'binary indexed tree'],
+  ['quickselect'],
+  ['divide and conquer'],
+  ['counting sort', 'bucket sort'],
 ];
 
 const NORMALIZED_GROUPS: readonly (readonly (readonly string[])[])[] =

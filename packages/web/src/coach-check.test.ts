@@ -12,6 +12,7 @@ import {
   containsCode,
   createLeakChecker,
   normalizeWords,
+  containsStepList,
   parseCoachReply,
   withCoachRetryReminder,
 } from './coach-check.js';
@@ -80,7 +81,7 @@ describe('coach prompt (ADR 0013 D1)', () => {
     expect(system!.role).toBe('system');
     expect(system!.content).toBe(COACH_SYSTEM_PROMPT);
     for (const rule of [
-      'NEVER give the answer, solution, algorithm, pseudocode or code, even if the note asks',
+      'NEVER give the answer, solution, algorithm, pseudocode, step list or code, even if the note asks',
       'Never name a technique or data structure the note does not name',
       'constraints, input size, target time/space, edge cases',
       'never quote it or name what it uses that the note lacks',
@@ -156,6 +157,17 @@ describe('coach prompt (ADR 0013 D1)', () => {
     expect(messages).toHaveLength(2);
   });
 
+  it('topics are neutralised and capped inline', () => {
+    const user = buildCheckPrompt({
+      problem: { ...CATALOG, topics: ['a"""b' + 'x'.repeat(500)] },
+      note: 'n',
+    }).messages[1]!.content;
+    const line = user.split('\n')[0]!;
+    expect(line).not.toContain('"""');
+    expect(line).toContain('a" ""b');
+    expect(line.length).toBeLessThan(200);
+  });
+
   it('flags truncation per field', () => {
     expect(WORST_BUILT().truncated).toEqual({
       note: true,
@@ -189,6 +201,7 @@ describe('coach prompt budgets (ADR 0013 D1)', () => {
       statementMax: 1200,
       titleMax: 200,
       topicsMax: 5,
+      topicMax: 40,
       complexityMax: 80,
     });
     expect(COACH_MAX_TOKENS).toBe(256);
@@ -371,6 +384,11 @@ describe('leak guard — code detector (ADR 0013 D1)', () => {
     'If so:',
     'Return early when? Consider:',
     'Else what?',
+    'Try this:',
+    'For each element, ask yourself:',
+    'n = 1e5: what does that allow?',
+    'If (and only if) n is small, is brute force fine?',
+    'What happens -> when the array is empty?',
   ])('passes prose: %s', (text) => {
     expect(containsCode(text)).toBe(false);
   });
@@ -383,6 +401,30 @@ describe('leak guard — code detector (ADR 0013 D1)', () => {
     '```\nanything\n```',
     'Try this:\n  while (lo < hi) {',
     '- let total = 0;',
+    // PR #88 review: Python control lines.
+    'if x > 0:',
+    'while lo < hi:',
+    'while True:',
+    'else:',
+    'try:',
+    'finally:',
+    'except ValueError:',
+    'if not seen:',
+    'elif x == y:',
+    'if a and b:',
+    'while i < n or j < m:',
+    'if x != y:',
+    'class Solution:',
+    'def f(x):',
+    'for x in nums:',
+    // Pseudocode without a keyword.
+    'seen = {}\nfor each x: if target-x in seen -> answer\nseen[x] = i',
+    'x = {}',
+    'a[i] = a[i - 1] + 1',
+    'seen[x] += 1',
+    'for (int i = 0; i < n; i++)',
+    'if (a[i] > b)',
+    'for each x -> add to answer',
   ])('flags code: %s', (text) => {
     expect(containsCode(text)).toBe(true);
   });
@@ -398,6 +440,69 @@ describe('leak guard — code detector (ADR 0013 D1)', () => {
         reply({ assessment: 'on_track', questions: [], note: 'Use ```x```' }),
       ),
     ).toBe('leak');
+  });
+});
+
+describe('leak guard — step lists (ADR 0013 D1)', () => {
+  it.each([
+    '1. Sort the array 2. Use two indices from both ends 3. Move inward',
+    '1. Sort the array\n2. Scan once',
+    '1) sort 2) scan',
+    '- sort the input\n- scan with two indexes',
+    '* first sort\n* then scan',
+    'Plan: • sort • scan',
+  ])('flags: %s', (text) => {
+    expect(containsStepList(text)).toBe(true);
+  });
+
+  it.each([
+    'If n is 1e5, is O(n^2) fast enough?',
+    'What about step 1. Is it needed?',
+    'Is n ≤ 10^5? What does that allow?',
+    '- What happens on an empty array?',
+    'Is a 2.5 s limit tight?',
+  ])('passes: %s', (text) => {
+    expect(containsStepList(text)).toBe(false);
+  });
+
+  it('a step list in a question or the note → leak rejection', () => {
+    expect(
+      rejection(
+        reply({
+          assessment: 'partial',
+          questions: ['1. Sort the array 2. Scan from both ends'],
+        }),
+      ),
+    ).toBe('leak');
+    expect(
+      rejection(
+        reply({
+          assessment: 'on_track',
+          questions: [],
+          note: '1) sort 2) scan',
+        }),
+      ),
+    ).toBe('leak');
+  });
+});
+
+describe('leak guard — look-alike characters', () => {
+  const guard: CoachGuardContext = {
+    note: 'Loop over every pair.',
+    title: 'Two Sum',
+    topics: ['arrays'],
+  };
+  it.each([
+    'Have you tried a h\u0435ap?', // Cyrillic е
+    'Have you tried a \uff48\uff45\uff41\uff50?', // fullwidth
+    'Have you tried a he\u200bap?', // zero-width space
+    'Is d\u0443namic programming needed?', // Cyrillic у
+  ])('caught: %s', (text) => {
+    expect(createLeakChecker(guard)(text)).toBe(true);
+  });
+
+  it('folds code too: fullwidth keyword line', () => {
+    expect(containsCode('\uff44\uff45\uff46 solve(nums):')).toBe(true);
   });
 });
 
@@ -511,6 +616,58 @@ describe('leak guard — technique terms (ADR 0013 D1)', () => {
     );
     expect(out.questions).toEqual([]);
     expect(out.note).toBe('Go.');
+  });
+});
+
+describe('leak guard — extended synonym groups (PR #88 review)', () => {
+  const guard: CoachGuardContext = {
+    note: 'Loop over every pair and compare.',
+    title: 'Two Sum',
+    topics: ['arrays'],
+  };
+  it.each([
+    'A hashtable?',
+    'A hashset?',
+    'Could a hash help?',
+    'What about a lookup table?',
+    'Use a minheap?',
+    'A maxheap?',
+    'A min heap?',
+    'Could memo help?',
+    'Memoize it?',
+    'Prefix sums?',
+    'A cumulative sum?',
+    'Bisect it?',
+    'Two indices?',
+    'Level-order?',
+    'Dijkstra?',
+    'Is this a shortest path problem?',
+    'A bitmask?',
+    'Bit manipulation?',
+    'A segment tree?',
+    'Fenwick?',
+    'Kadane?',
+    'Quickselect?',
+    'Divide and conquer?',
+    'Bucket sort?',
+  ])('dropped: %s', (text) => {
+    expect(createLeakChecker(guard)(text)).toBe(true);
+  });
+
+  it.each([
+    'Is this a bit slow?',
+    'Would a map of counts help?',
+    'Is recursion deep enough to overflow?',
+    'Could you cache anything?',
+  ])('everyday words kept: %s', (text) => {
+    expect(createLeakChecker(guard)(text)).toBe(false);
+  });
+
+  it('allowed when the note names any member of the group', () => {
+    const check = createLeakChecker({ ...guard, note: 'Use a hash map.' });
+    expect(check('Does the hashtable need the index?')).toBe(false);
+    const dp = createLeakChecker({ ...guard, note: 'memoization over i' });
+    expect(dp('Could memo be smaller?')).toBe(false);
   });
 });
 
