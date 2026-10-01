@@ -453,6 +453,20 @@ describe('IntuitionCheck', () => {
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
   });
 
+  it('treats a missing content prop as empty (partial note payload)', async () => {
+    render(
+      <IntuitionCheck
+        problemId="a"
+        content={undefined as unknown as string}
+        timeComplexity=""
+        spaceComplexity=""
+        status="none"
+      />,
+    );
+    await settle();
+    expect(checkButton()).toBeDisabled();
+  });
+
   it('clears the panel when the problem changes', async () => {
     const user = userEvent.setup();
     const props = {
