@@ -23,6 +23,7 @@ import type {
 import { handleApiRoute, DMR_UNAVAILABLE_HINT } from './api.js';
 import type { ApiDeps } from './api.js';
 import { createCoachHandler } from './handler.js';
+import { createBackup } from './import/backup.js';
 import {
   COACH_LEAK_REMINDER,
   COACH_MALFORMED_REMINDER,
@@ -726,7 +727,8 @@ describe('POST /api/practice/reset (ADR 0013 D3)', () => {
     const failing: StorageAdapter = Object.assign(
       new LocalFileStorageAdapter(tmpDir),
       {
-        resetPracticeSignals: async () => {
+        resetPracticeSignals: async (beforeDelete?: () => Promise<void>) => {
+          await beforeDelete?.();
           throw new Error('EACCES');
         },
       },
@@ -740,6 +742,60 @@ describe('POST /api/practice/reset (ADR 0013 D3)', () => {
       code: 'reset_failed',
       backup: '/b/2',
     });
+  });
+
+  it('the backup runs inside the practice queue: a concurrent append is in the backup or after the reset', async () => {
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const at = NOW.toISOString() as IsoTimestamp;
+    const ev = (problemId: string) => ({
+      problemId,
+      topics: [],
+      assessment: 'partial' as const,
+      readyToCode: false,
+      status: 'none' as const,
+      first: false,
+      at,
+    });
+    await adapter.appendPracticeEvent(ev('before'));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let backupStarted!: () => void;
+    const started = new Promise<void>((r) => (backupStarted = r));
+    const resetting = reset(
+      deps({
+        backup: async (dir, now) => {
+          backupStarted();
+          await gate;
+          return createBackup(dir, now);
+        },
+      }),
+    );
+    await started;
+    // Issued WHILE the backup is running: it must wait for the reset.
+    const appended = adapter.appendPracticeEvent(ev('during'));
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    const res = await resetting;
+    await appended;
+    expect(res.status).toBe(200);
+    const { backup } = JSON.parse(res.body) as { backup: string };
+    const inBackup = JSON.parse(
+      fs.readFileSync(path.join(backup, PRACTICE_SIGNALS_FILE), 'utf8'),
+    ) as { events: { problemId: string }[] };
+    expect(inBackup.events.map((e) => e.problemId)).toEqual(['before']);
+    const after = await adapter.readPracticeSignals();
+    expect(after!.events.map((e) => e.problemId)).toEqual(['during']);
+    expect(after!.events[0]!.first).toBe(true);
+  });
+
+  it('an adapter that ignores beforeDelete is not reported as backed up', async () => {
+    const legacy: StorageAdapter = Object.assign(
+      new LocalFileStorageAdapter(tmpDir),
+      { resetPracticeSignals: async () => {} },
+    );
+    const res = await reset(deps({ createStorage: () => legacy }));
+    expect(res.status).toBe(500);
+    expect(JSON.parse(res.body).code).toBe('reset_failed');
   });
 
   it('400 bad confirm / no db; 409 read-only; 405 other methods', async () => {

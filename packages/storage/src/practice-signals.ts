@@ -295,8 +295,13 @@ export function appendPracticeEventFile(
 }
 
 /** Queued delete of the practice log only. Missing ⇒ no-op. */
-export function resetPracticeSignalsFile(filePath: string): Promise<void> {
+export function resetPracticeSignalsFile(
+  filePath: string,
+  beforeDelete?: () => Promise<void>,
+): Promise<void> {
   return enqueue(filePath, async () => {
+    // Inside the queue: no append can land between the backup and the delete.
+    if (beforeDelete !== undefined) await beforeDelete();
     try {
       await unlink(filePath);
     } catch (err) {
