@@ -28,9 +28,19 @@ export const REFERENCE_MARKER = '<!-- ibai:reference-approach -->';
 /** The heading written under the marker (readable in any Markdown viewer). */
 export const REFERENCE_HEADING = '## Reference approach';
 
-/** Strip a trailing `\r` and trailing spaces/tabs (CRLF-tolerant compare). */
+/**
+ * Strip a trailing `\r` and trailing spaces/tabs (CRLF-tolerant compare).
+ * A linear index scan — NOT `/[ \t\r]+$/`, which backtracks quadratically on
+ * long inner whitespace runs (note text and CSV cells are untrusted).
+ */
 function rtrimLine(line: string): string {
-  return line.replace(/[ \t\r]+$/, '');
+  let end = line.length;
+  while (end > 0) {
+    const c = line.charCodeAt(end - 1);
+    if (c !== 0x20 && c !== 0x09 && c !== 0x0d) break;
+    end--;
+  }
+  return end === line.length ? line : line.slice(0, end);
 }
 
 /** True when `line` is the marker, ignoring trailing `\r`/spaces/tabs. */
@@ -44,7 +54,7 @@ export function containsReferenceMarker(text: string): boolean {
 }
 
 function isBlank(line: string): boolean {
-  return /^[ \t\r]*$/.test(line);
+  return rtrimLine(line) === '';
 }
 
 /** Result of {@link splitReferenceSection}. */

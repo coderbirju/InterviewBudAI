@@ -16,6 +16,17 @@ import {
   stripReferenceMarkers,
 } from './index.js';
 
+describe('reference section scan is linear-time on untrusted text', () => {
+  it('1 MiB of inner spaces/tabs/CRs < 200 ms', () => {
+    const text = `a${' \t\r'.repeat(350_000)}b\n${REFERENCE_MARKER}`;
+    const start = performance.now();
+    containsReferenceMarker(text);
+    splitReferenceSection(text);
+    stripReferenceMarkers(text);
+    expect(performance.now() - start).toBeLessThan(200);
+  });
+});
+
 describe('splitReferenceSection / joinReferenceSection', () => {
   it('no marker → body unchanged, no reference', () => {
     expect(splitReferenceSection('a\n\n## Reference approach\nkept')).toEqual({
