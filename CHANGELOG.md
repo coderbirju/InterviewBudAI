@@ -46,6 +46,15 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Notes: "Check my intuition"** (ADR 0013 D5, PR 3). A button next to Save
+  sends the current editor text (unsaved edits included) to
+  `POST /api/notes/:id/check` and shows the coach's verdict (On track / Partly
+  there / Off track), up to 3 questions, a "Ready to code" badge and a one-line
+  note. It never shows the answer. Editing marks the result stale and offers
+  **Re-check**. The feedback is not saved anywhere, not even in the browser.
+  The button is disabled until a provider is set up and the note has text.
+  Needs the coach server route (ADR 0013 PR 2).
+
 - **Quiz slips + insights API** (ADR 0012, PR 1). The grader may tag each miss
   with one generic code (`edge`, `complexity`, `brute`, `technique`, `vague`,
   `boundary`, `misread` — how you slipped, never the answer); one code per
