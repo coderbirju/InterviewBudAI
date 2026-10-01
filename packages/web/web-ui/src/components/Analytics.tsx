@@ -6,108 +6,75 @@ import {
   Database,
   Loader2,
 } from 'lucide-react';
-import {
-  fetchCatalog,
-  fetchCompetency,
-  fetchConfig,
-  fetchProgress,
-} from '../lib/api';
+import { fetchInsights } from '../lib/api';
 import type {
-  CatalogResponse,
-  CompetencyResponse,
-  ConfigResponse,
-  ProgressResponse,
+  InsightsFocus,
+  InsightsResponse,
+  InsightsSlip,
+  InsightsStatus,
+  InsightsStrength,
+  InsightsTopic,
+  TopicStrength,
 } from '../lib/api';
 import {
-  completionPercent,
-  hasTrackedData,
-  statusSlices,
+  arcDash,
+  donutSegments,
+  donutSummary,
+  donutTotal,
+  missLabel,
+  ringFraction,
 } from '../lib/analytics';
-import { hasCompetencyData } from '../lib/competency';
-import { homeHref, interviewHref } from '../lib/router';
-import { StatusBreakdownChart } from './StatusBreakdownChart';
-import { TopicCompletionChart } from './TopicCompletionChart';
-import { CompetencyChart } from './CompetencyChart';
+import { STRENGTH_COLORS, STRENGTH_LABELS } from '../lib/competency';
+import { dataHref, interviewHref } from '../lib/router';
 
 /**
- * The M4 Analytics view (ADR 0006). A React SPA page at `/app/analytics` that
- * fetches `GET /api/config` + `GET /api/progress` + `GET /api/catalog` and
- * renders real, hand-built inline-SVG visualizations of the user's progress:
+ * Analytics v2 (ADR 0012 D3) at `/analytics`, fed by one `GET /api/insights`.
  *
- *  1. A status-breakdown bar chart (counts by done / to_revisit /
- *     did_not_understand / none) using the design-system status colors.
- *  2. A per-topic completion chart (horizontal emerald bars, done/total).
- *  3. A concise summary (overall completed/total + a per-status count table).
- *  4. A COMPETENCY section (ADR 0007 Q4) fed by `GET /api/competency`:
- *     per-topic strength bars (weak=red / improving=amber / strong=emerald)
- *     with correct/incorrect tallies + a recurring miss-patterns list, with its
- *     own safe empty state ("Take a quiz session to build your competency map").
+ *  - `no_db` → the create/choose-data CTA.
+ *  - `locked` (< 2 counted quiz sessions) → status donut, a "take a quiz" CTA
+ *    with `counted / required`, compact topic tiles. Nothing else.
+ *  - `unlocked` → donut, Focus next (≤ 3), Where you keep slipping (≤ 3),
+ *    Strengths (≤ 5, never a Focus topic), compact topic tiles. `state` comes
+ *    from the session count alone, so each section has its own empty line.
+ *  - Labels fall back to the topic id.
  *
- * States mirror Home/Notes: friendly loading + API-error; and a safe empty
- * state (no DB configured, or zero tracked problems) that points back to Home
- * instead of crashing. All values render via JSX (auto-escaped); no external
- * chart lib/CDN — everything is Vite-bundled and local-first.
+ * Kept short and calm on purpose (founder: "keep it simple"). Hand-built SVG,
+ * no chart library. Every string renders via JSX (auto-escaped); color is
+ * never the only signal (labels/counts sit beside every swatch).
  */
 
 type LoadState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'error' }
-  | {
-      readonly kind: 'ready';
-      readonly config: ConfigResponse;
-      readonly progress: ProgressResponse;
-      readonly catalog: CatalogResponse | null;
-      readonly competency: CompetencyResponse;
-    };
+  | { readonly kind: 'ready'; readonly data: InsightsResponse };
 
-/** Zero progress used for the no-DB state (server returns all-none there too). */
-const EMPTY_PROGRESS: ProgressResponse = {
-  completed: 0,
-  total: 0,
-  byStatus: { none: 0, done: 0, to_revisit: 0, did_not_understand: 0 },
-};
+const MAX_FOCUS = 3;
+const MAX_SLIPS = 3;
+const MAX_SLIP_TOPICS = 3;
+const MAX_STRENGTHS = 5;
 
-/** Empty competency signals used for the no-DB state. */
-const EMPTY_COMPETENCY: CompetencyResponse = { topics: [], patterns: [] };
+const CARD = 'rounded-xl border border-slate-800 bg-slate-800/40 p-5';
+const HEADING = 'text-sm font-semibold uppercase tracking-wide text-slate-400';
+const CTA =
+  'inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400';
 
 export function Analytics(): JSX.Element {
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
 
   useEffect(() => {
     let cancelled = false;
-    (async (): Promise<void> => {
-      setLoad({ kind: 'loading' });
-      try {
-        const config = await fetchConfig();
-        if (cancelled) {
-          return;
+    fetchInsights().then(
+      (data) => {
+        if (!cancelled) {
+          setLoad({ kind: 'ready', data });
         }
-        if (!config.dbConfigured) {
-          // No DB — nothing to visualize; skip catalog/progress fetches.
-          setLoad({
-            kind: 'ready',
-            config,
-            progress: EMPTY_PROGRESS,
-            catalog: null,
-            competency: EMPTY_COMPETENCY,
-          });
-          return;
-        }
-        const [progress, catalog, competency] = await Promise.all([
-          fetchProgress(),
-          fetchCatalog(),
-          fetchCompetency(),
-        ]);
-        if (cancelled) {
-          return;
-        }
-        setLoad({ kind: 'ready', config, progress, catalog, competency });
-      } catch {
+      },
+      () => {
         if (!cancelled) {
           setLoad({ kind: 'error' });
         }
-      }
-    })();
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -147,10 +114,9 @@ export function Analytics(): JSX.Element {
     );
   }
 
-  const { config, progress, catalog, competency } = load;
+  const { data } = load;
 
-  // Safe empty state: no DB configured, or a DB with nothing tracked yet.
-  if (!hasTrackedData(config.dbConfigured, progress.byStatus)) {
+  if (data.state === 'no_db') {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-800/40 p-8 text-center">
         <BarChart3 className="mx-auto h-10 w-10 text-emerald-500" aria-hidden />
@@ -158,161 +124,346 @@ export function Analytics(): JSX.Element {
           No data yet
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
-          {config.dbConfigured
-            ? 'Set a status on some problems and your progress charts will show up here. Start practicing from the catalog.'
-            : 'InterviewBudAI stores your progress in a local folder you own. Create one, then start tracking problems to see your analytics.'}
+          InterviewBudAI stores your progress in a local folder you own. Create
+          one, then start tracking problems to see your analytics.
         </p>
-        {config.dbConfigured ? (
-          <a
-            href={homeHref()}
-            className="mt-5 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
-          >
-            <Database className="h-4 w-4" aria-hidden />
-            Go to the catalog
-          </a>
-        ) : (
-          <a
-            href="/data"
-            className="mt-5 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
-          >
-            <Database className="h-4 w-4" aria-hidden />
-            Create your database
-          </a>
-        )}
+        <a href={dataHref()} className={`mt-5 ${CTA}`}>
+          <Database className="h-4 w-4" aria-hidden />
+          Create your database
+        </a>
       </div>
     );
   }
 
-  const pct = completionPercent(progress.completed, progress.total);
-  const slices = statusSlices(progress.byStatus);
+  const unlocked = data.state === 'unlocked';
 
   return (
-    <div className="space-y-8">
-      {/* Summary header. */}
-      <section
-        aria-label="Overall summary"
-        className="rounded-xl border border-slate-800 bg-slate-800/40 p-6"
-      >
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Overall Progress
-          </h2>
-          <span className="text-lg font-semibold text-slate-100">
-            {progress.completed} / {progress.total}
-            <span className="ml-2 text-sm font-normal text-slate-400">
-              ({pct}% done)
-            </span>
-          </span>
-        </div>
-
-        {/* Per-status summary table. */}
-        <table className="mt-4 w-full text-sm">
-          <caption className="sr-only">Problem counts by status</caption>
-          <thead>
-            <tr className="text-left text-slate-400">
-              <th scope="col" className="pb-2 font-medium">
-                Status
-              </th>
-              <th scope="col" className="pb-2 text-right font-medium">
-                Count
-              </th>
-              <th scope="col" className="pb-2 text-right font-medium">
-                Share
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {slices.map((slice) => (
-              <tr key={slice.status} className="border-t border-slate-800">
-                <td className="py-1.5">
-                  <span className="inline-flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: slice.color }}
-                      aria-hidden
-                    />
-                    <span className="text-slate-200">{slice.label}</span>
-                  </span>
-                </td>
-                <td className="py-1.5 text-right tabular-nums text-slate-200">
-                  {slice.count}
-                </td>
-                <td className="py-1.5 text-right tabular-nums text-slate-400">
-                  {Math.round(slice.fraction * 100)}%
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {/* Status breakdown chart. */}
-      <section
-        aria-label="Problems by status"
-        className="rounded-xl border border-slate-800 bg-slate-800/40 p-6"
-      >
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          By Status
+    <div className="space-y-6">
+      <section aria-labelledby="an-status" className={CARD}>
+        <h2 id="an-status" className={HEADING}>
+          Your problems
         </h2>
         <div className="mt-4">
-          <StatusBreakdownChart byStatus={progress.byStatus} />
+          <StatusDonut status={data.status} />
         </div>
+        {!unlocked && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+            <p className="text-sm text-slate-300">
+              Take a quiz to see your gaps and patterns —{' '}
+              <span className="font-semibold text-slate-100">
+                {data.sessions.counted} of {data.sessions.required}
+              </span>{' '}
+              sessions done
+            </p>
+            <a href={interviewHref()} className={CTA}>
+              <Brain className="h-4 w-4" aria-hidden />
+              Take a quiz
+            </a>
+          </div>
+        )}
       </section>
 
-      {/* Per-topic completion chart. */}
-      {catalog && catalog.topics.length > 0 && (
-        <section
-          aria-label="Completion by topic"
-          className="rounded-xl border border-slate-800 bg-slate-800/40 p-6"
-        >
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            By Topic
-          </h2>
-          <div className="mt-4">
-            <TopicCompletionChart catalog={catalog} />
-          </div>
-        </section>
+      {unlocked && (
+        <>
+          <FocusNext items={data.focus.slice(0, MAX_FOCUS)} />
+          <Slips items={data.slips.slice(0, MAX_SLIPS)} />
+          <Strengths
+            items={data.strengths
+              .filter((s) => !data.focus.some((f) => f.topicId === s.topicId))
+              .slice(0, MAX_STRENGTHS)}
+          />
+        </>
       )}
 
-      {/* Competency intelligence (ADR 0007 Q4): weak/strong topics + patterns. */}
-      <section
-        aria-label="Competency intelligence"
-        className="rounded-xl border border-slate-800 bg-slate-800/40 p-6"
-      >
-        <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-emerald-400" aria-hidden />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Competency
-          </h2>
-        </div>
-        <p className="mt-1 text-xs text-slate-500">
-          Quiz-derived signals: the topics you&apos;re strong on, the ones to
-          focus next, and the mistakes that keep recurring.
-        </p>
-        <div className="mt-4">
-          {hasCompetencyData(competency) ? (
-            <CompetencyChart data={competency} />
-          ) : (
-            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-6 text-center">
-              <Brain className="mx-auto h-8 w-8 text-emerald-500" aria-hidden />
-              <p className="mt-3 text-sm text-slate-300">
-                Take a quiz session to build your competency map.
-              </p>
-              <p className="mx-auto mt-1 max-w-sm text-xs text-slate-500">
-                As the Quiz Master evaluates your answers, we track which topics
-                you&apos;re strong on and where you recurringly go wrong.
-              </p>
-              <a
-                href={interviewHref()}
-                className="mt-4 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400"
-              >
-                <Brain className="h-4 w-4" aria-hidden />
-                Start a quiz
-              </a>
-            </div>
-          )}
-        </div>
+      <section aria-labelledby="an-topics" className={CARD}>
+        <h2 id="an-topics" className={HEADING}>
+          By topic
+        </h2>
+        <TopicTiles topics={data.topics} />
       </section>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Donut
+// ---------------------------------------------------------------------------
+
+const DONUT_R = 42;
+const DONUT_C = 2 * Math.PI * DONUT_R;
+
+function StatusDonut({ status }: { status: InsightsStatus }): JSX.Element {
+  const segments = donutSegments(status);
+  const summary = donutSummary(status);
+  return (
+    <div className="flex flex-wrap items-center gap-6">
+      <svg
+        viewBox="0 0 100 100"
+        className="h-32 w-32 shrink-0"
+        role="img"
+        aria-label={`Problems by status. ${summary}`}
+      >
+        <title>{`Problems by status. ${summary}`}</title>
+        <circle
+          cx={50}
+          cy={50}
+          r={DONUT_R}
+          fill="none"
+          stroke="#1e293b" /* slate-800 track */
+          strokeWidth={12}
+        />
+        <g transform="rotate(-90 50 50)">
+          {segments
+            .filter((s) => s.length > 0)
+            .map((s) => {
+              const dash = arcDash(s.start, s.length, DONUT_C);
+              return (
+                <circle
+                  key={s.key}
+                  data-testid={`donut-${s.key}`}
+                  cx={50}
+                  cy={50}
+                  r={DONUT_R}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={12}
+                  strokeDasharray={dash.dasharray}
+                  strokeDashoffset={dash.dashoffset}
+                />
+              );
+            })}
+        </g>
+        <text
+          x={50}
+          y={50}
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-slate-100 text-[18px] font-semibold"
+        >
+          {donutTotal(status)}
+        </text>
+      </svg>
+      <ul
+        className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm"
+        aria-label="Status counts"
+      >
+        {segments.map((s) => (
+          <li key={s.key} className="flex items-center gap-2">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: s.color }}
+              aria-hidden
+            />
+            <span className="text-slate-300">{s.label}</span>
+            <span className="tabular-nums font-semibold text-slate-100">
+              {s.count}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Unlocked sections
+// ---------------------------------------------------------------------------
+
+/** Display label: the API's label, else the raw topic id. */
+function labelOf(x: {
+  readonly label?: string;
+  readonly topicId: string;
+}): string {
+  return typeof x.label === 'string' && x.label.trim() !== ''
+    ? x.label
+    : x.topicId;
+}
+
+const EMPTY_SECTION = 'Not enough quiz data yet in this section.';
+
+function bandOf(band: string): TopicStrength {
+  return Object.prototype.hasOwnProperty.call(STRENGTH_LABELS, band)
+    ? (band as TopicStrength)
+    : 'unknown';
+}
+
+function FocusNext({
+  items,
+}: {
+  items: readonly InsightsFocus[];
+}): JSX.Element {
+  return (
+    <section aria-labelledby="an-focus" className={CARD}>
+      <h2 id="an-focus" className={HEADING}>
+        Focus next
+      </h2>
+      {items.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-400">{EMPTY_SECTION}</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-slate-800">
+          {items.map((f) => {
+            const band = bandOf(f.band);
+            return (
+              <li
+                key={f.topicId}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
+              >
+                <span className="font-medium text-slate-100">{labelOf(f)}</span>
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300"
+                  data-testid="band-chip"
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: STRENGTH_COLORS[band] }}
+                    aria-hidden
+                  />
+                  {STRENGTH_LABELS[band]}
+                </span>
+                <span className="text-sm text-slate-400">{f.reason}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Slips({ items }: { items: readonly InsightsSlip[] }): JSX.Element {
+  return (
+    <section aria-labelledby="an-slips" className={CARD}>
+      <h2 id="an-slips" className={HEADING}>
+        Where you keep slipping
+      </h2>
+      {items.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-400">
+          {EMPTY_SECTION} Slips are tagged from your next quiz.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-slate-800">
+          {items.map((s, i) => (
+            <li
+              key={`${s.code}-${i}`}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
+            >
+              <span className="font-medium text-slate-100">
+                {missLabel(s.code, s.label)}
+              </span>
+              <span
+                className="tabular-nums text-sm text-slate-400"
+                data-testid="slip-count"
+              >
+                <span aria-hidden>×{s.count}</span>
+                <span className="sr-only">{`${s.count} times`}</span>
+              </span>
+              <span className="flex flex-wrap gap-1.5">
+                {(s.topics ?? []).slice(0, MAX_SLIP_TOPICS).map((t) => (
+                  <span
+                    key={t.topicId}
+                    className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300"
+                  >
+                    {labelOf(t)} <span className="tabular-nums">{t.count}</span>
+                  </span>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Strengths({
+  items,
+}: {
+  items: readonly InsightsStrength[];
+}): JSX.Element {
+  return (
+    <section aria-labelledby="an-strengths" className={CARD}>
+      <h2 id="an-strengths" className={HEADING}>
+        Strengths
+      </h2>
+      {items.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-400">{EMPTY_SECTION}</p>
+      ) : (
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {items.map((s) => (
+            <li
+              key={s.topicId}
+              className="rounded-full border border-status-done/40 bg-status-done/10 px-3 py-1 text-sm text-slate-200"
+            >
+              {labelOf(s)}{' '}
+              <span className="tabular-nums text-xs text-slate-400">
+                {s.correct} correct · {s.incorrect} incorrect
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compact topic tiles
+// ---------------------------------------------------------------------------
+
+const RING_R = 14;
+const RING_C = 2 * Math.PI * RING_R;
+
+function TopicTiles({
+  topics,
+}: {
+  topics: readonly InsightsTopic[];
+}): JSX.Element {
+  return (
+    <ul
+      className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+      aria-label="Completion by topic"
+    >
+      {topics.map((t) => {
+        const dash = arcDash(0, ringFraction(t.done, t.total), RING_C);
+        return (
+          <li
+            key={t.topicId}
+            data-testid="topic-tile"
+            aria-label={`${labelOf(t)}: ${t.done} of ${t.total} done`}
+            className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-2.5 py-2"
+          >
+            <svg viewBox="0 0 36 36" className="h-8 w-8 shrink-0" aria-hidden>
+              <circle
+                cx={18}
+                cy={18}
+                r={RING_R}
+                fill="none"
+                stroke="#334155" /* slate-700 */
+                strokeWidth={4}
+              />
+              <circle
+                cx={18}
+                cy={18}
+                r={RING_R}
+                fill="none"
+                stroke="#22c55e" /* emerald — done */
+                strokeWidth={4}
+                strokeDasharray={dash.dasharray}
+                strokeDashoffset={dash.dashoffset}
+                transform="rotate(-90 18 18)"
+              />
+            </svg>
+            <span className="min-w-0">
+              <span className="block truncate text-xs font-medium text-slate-200">
+                {labelOf(t)}
+              </span>
+              <span className="block tabular-nums text-xs text-slate-400">
+                {t.done}/{t.total}
+              </span>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

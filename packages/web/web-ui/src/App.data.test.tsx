@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import * as api from './lib/api';
+import { INSIGHTS_LOCKED } from './lib/insights.fixture';
 import type { CatalogResponse, DataDirStatus } from './lib/api';
 
 /**
@@ -18,6 +19,7 @@ vi.mock('./lib/api', async () => {
     fetchProgress: vi.fn(),
     fetchCatalog: vi.fn(),
     fetchCompetency: vi.fn(),
+    fetchInsights: vi.fn(),
     fetchDataDir: vi.fn(),
   };
 });
@@ -70,6 +72,7 @@ beforeEach(() => {
   });
   mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
   mockedApi.fetchCompetency.mockResolvedValue({ topics: [], patterns: [] });
+  mockedApi.fetchInsights.mockResolvedValue(INSIGHTS_LOCKED);
   mockedApi.fetchDataDir.mockResolvedValue(STATUS);
   window.history.pushState({}, '', '/');
 });

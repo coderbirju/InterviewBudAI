@@ -174,8 +174,8 @@ export default function App(): JSX.Element {
             <DataFolderBanner />
             <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Your progress at a glance — status breakdown and per-topic
-              completion, drawn from your tracked problems.
+              What to focus on next — your progress, where quizzes show you
+              slip, and your strengths.
             </p>
             <div className="mt-8">
               <Analytics />
