@@ -47,8 +47,8 @@ class FakeQuizProvider implements LlmProvider {
     if (this.opts.rejectWith) {
       throw this.opts.rejectWith;
     }
-    const last = request.messages[request.messages.length - 1]?.content ?? '';
-    if (!last.includes('"verdict"')) {
+    const all = request.messages.map((m) => m.content).join('\n');
+    if (!all.includes('"verdict"')) {
       throw new Error('unexpected non-evaluation model call');
     }
     this.evalCalls += 1;
@@ -72,8 +72,8 @@ class SequencedQuizProvider implements LlmProvider {
     this.queue = [...evaluateVerdicts];
   }
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    const last = request.messages[request.messages.length - 1]?.content ?? '';
-    if (!last.includes('"verdict"')) {
+    const all = request.messages.map((m) => m.content).join('\n');
+    if (!all.includes('"verdict"')) {
       throw new Error('unexpected non-evaluation model call');
     }
     const next = this.queue.shift();
