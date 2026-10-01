@@ -152,6 +152,7 @@ describe('Notes editor', () => {
         status: 'to_revisit',
         timeComplexity: 'O(n log n)',
         spaceComplexity: 'O(n)',
+        referenceApproach: '',
       }),
     );
 
@@ -234,5 +235,67 @@ describe('Notes editor', () => {
     await waitFor(() =>
       expect(screen.getByText(/could not save your note/i)).toBeInTheDocument(),
     );
+  });
+
+  describe('Reference approach (ADR 0013 D4)', () => {
+    const REF = '<img src=x onerror=alert(1)> one pass';
+
+    it('is collapsed by default; expanding shows the saved text (escaped) and the helper copy', async () => {
+      const user = userEvent.setup();
+      mockedApi.fetchNote.mockResolvedValue({
+        ...SAVED_NOTE,
+        referenceApproach: REF,
+      });
+      mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+      const { container } = render(<Notes problemId="two-sum" />);
+      const toggle = await screen.findByRole('button', {
+        name: /Your reference approach \(optional, private\)/i,
+      });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByLabelText(/Your reference approach$/i)).toBeNull();
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const field = screen.getByLabelText(/Your reference approach$/i);
+      expect(field).toHaveValue(REF);
+      expect(
+        screen.getByText(
+          /Used only to ground the quiz and the intuition check; never shown in either\./,
+        ),
+      ).toBeInTheDocument();
+      // Rendered as text, never markup.
+      expect(container.querySelector('img')).toBeNull();
+    });
+
+    it('is saved with the note', async () => {
+      const user = userEvent.setup();
+      mockedApi.fetchNote.mockResolvedValue(SAVED_NOTE);
+      mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+      mockedApi.saveNote.mockResolvedValue({
+        ...SAVED_NOTE,
+        referenceApproach: 'My write-up',
+      });
+      render(<Notes problemId="two-sum" />);
+      await user.click(
+        await screen.findByRole('button', { name: /Your reference approach/i }),
+      );
+      await user.type(
+        screen.getByLabelText(/Your reference approach$/i),
+        'My write-up',
+      );
+      await user.click(screen.getByRole('button', { name: /^Save$/ }));
+      await waitFor(() =>
+        expect(mockedApi.saveNote).toHaveBeenCalledWith(
+          'two-sum',
+          expect.objectContaining({
+            content: SAVED_NOTE.content,
+            referenceApproach: 'My write-up',
+          }),
+        ),
+      );
+      expect(screen.getByLabelText(/Your reference approach$/i)).toHaveValue(
+        'My write-up',
+      );
+    });
   });
 });
