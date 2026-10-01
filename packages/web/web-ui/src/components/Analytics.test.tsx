@@ -46,7 +46,7 @@ describe('Analytics v2', () => {
     expect(fetchFn.mock.calls[0]?.[0]).toBe('/api/insights');
   });
 
-  it('locked: only the donut, counts, quiz CTA and tiles', async () => {
+  it('locked: donut has a text summary and center total', async () => {
     await renderReady(INSIGHTS_LOCKED);
 
     const donut = screen.getByRole('img', { name: /problems by status/i });
@@ -54,6 +54,20 @@ describe('Analytics v2', () => {
       /156 problems: 12 done, 3 to revisit, 1 didn't understand, 140 not started/,
     );
     expect(within(donut).getByText('156')).toBeInTheDocument();
+  });
+
+  it('donut center shows the sum of the four buckets, not status.total', async () => {
+    await renderReady({
+      ...INSIGHTS_LOCKED,
+      status: { ...INSIGHTS_LOCKED.status, total: 999 },
+    });
+    const donut = screen.getByRole('img', { name: /problems by status/i });
+    expect(within(donut).getByText('156')).toBeInTheDocument();
+    expect(within(donut).queryByText('999')).not.toBeInTheDocument();
+  });
+
+  it('locked: only the legend counts, quiz CTA and tiles', async () => {
+    await renderReady(INSIGHTS_LOCKED);
 
     const legend = screen.getByRole('list', { name: 'Status counts' });
     expect(legend).toHaveTextContent('Done12');
@@ -107,7 +121,9 @@ describe('Analytics v2', () => {
       .getByRole('heading', { name: 'Where you keep slipping' })
       .closest('section') as HTMLElement;
     expect(within(slips).getByText('Missed edge cases')).toBeInTheDocument();
-    expect(within(slips).getByLabelText('5 times')).toHaveTextContent('×5');
+    const count = within(slips).getByTestId('slip-count');
+    expect(count).toHaveTextContent('×5');
+    expect(within(count).getByText('5 times')).toHaveClass('sr-only');
     expect(within(slips).getByText('Trees')).toHaveTextContent('Trees 3');
     expect(within(slips).getByText('Graphs')).toHaveTextContent('Graphs 2');
 
@@ -212,9 +228,22 @@ describe('Analytics v2', () => {
         { ...base, code: 'zzz-new', label: '' },
       ],
     });
-    expect(screen.getByText('Stopped at brute force')).toBeInTheDocument();
+    expect(screen.getByText('Settled for brute force')).toBeInTheDocument();
     expect(screen.getByText('Other slip')).toBeInTheDocument();
     expect(screen.queryByText('zzz-new')).not.toBeInTheDocument();
+  });
+
+  it('renders duplicate slip codes without key collisions', async () => {
+    const errors = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const base = INSIGHTS_UNLOCKED.slips[0]!;
+    await renderReady({ ...INSIGHTS_UNLOCKED, slips: [base, base] });
+    expect(screen.getAllByText('Missed edge cases')).toHaveLength(2);
+    expect(
+      errors.mock.calls.some((c) => String(c[0]).includes('same key')),
+    ).toBe(false);
+    errors.mockRestore();
   });
 
   it('renders the 13 tiles in API order with labelled done/total', async () => {

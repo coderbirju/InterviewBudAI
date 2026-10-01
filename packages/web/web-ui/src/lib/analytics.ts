@@ -111,19 +111,24 @@ export function ringFraction(done: number, total: number): number {
   return Math.max(0, Math.min(1, safeCount(done) / t));
 }
 
+/** Donut center total: the sum of the four buckets (the same base as the arcs). */
+export function donutTotal(status: InsightsStatus): number {
+  return donutSegments(status).reduce((a, s) => a + s.count, 0);
+}
+
 /** Screen-reader summary of the donut, e.g. "156 problems: 12 done, …". */
 export function donutSummary(status: InsightsStatus): string {
   const parts = donutSegments(status).map(
     (s) => `${s.count} ${s.label.toLowerCase()}`,
   );
-  return `${safeCount(status.total)} problems: ${parts.join(', ')}`;
+  return `${donutTotal(status)} problems: ${parts.join(', ')}`;
 }
 
 /** Client fallback for miss-code labels (mirrors ADR 0012 D1 `MISS_LABELS`). */
 export const MISS_LABELS: Record<MissCode, string> = {
   edge: 'Missed edge cases',
   complexity: 'Complexity analysis off',
-  brute: 'Stopped at brute force',
+  brute: 'Settled for brute force',
   technique: 'Wrong technique',
   vague: 'Incomplete or vague',
   boundary: 'Off-by-one / boundaries',
