@@ -389,6 +389,9 @@ describe('leak guard — code detector (ADR 0013 D1)', () => {
     'n = 1e5: what does that allow?',
     'If (and only if) n is small, is brute force fine?',
     'What happens -> when the array is empty?',
+    'If n = 1e5, is O(n^2) fast enough?',
+    'n = 1e5 means O(n log n) fits.',
+    'Total = left + right is the idea.',
   ])('passes prose: %s', (text) => {
     expect(containsCode(text)).toBe(false);
   });
@@ -425,6 +428,12 @@ describe('leak guard — code detector (ADR 0013 D1)', () => {
     'for (int i = 0; i < n; i++)',
     'if (a[i] > b)',
     'for each x -> add to answer',
+    // The `?` exemption is for one-line fields only (PR #88 re-review).
+    'seen = {}?\nfor x in nums?\nseen[x] = i?',
+    'Like this?\nseen[x] = i?',
+    // An assignment that is not a sentence is still code.
+    'seen[x] = i',
+    'total = left + right.',
   ])('flags code: %s', (text) => {
     expect(containsCode(text)).toBe(true);
   });
@@ -447,7 +456,9 @@ describe('leak guard — step lists (ADR 0013 D1)', () => {
   it.each([
     '1. Sort the array 2. Use two indices from both ends 3. Move inward',
     '1. Sort the array\n2. Scan once',
-    '1) sort 2) scan',
+    '1) Sort 2) Scan',
+    'Steps: 1. sort it. 2. scan it.',
+    'Plan:\n1. sort\n2. scan\n3. return',
     '- sort the input\n- scan with two indexes',
     '* first sort\n* then scan',
     'Plan: • sort • scan',
@@ -461,6 +472,10 @@ describe('leak guard — step lists (ADR 0013 D1)', () => {
     'Is n ≤ 10^5? What does that allow?',
     '- What happens on an empty array?',
     'Is a 2.5 s limit tight?',
+    'Edge: n = 0. Also n = 1. What then?',
+    'Is it 1. sorted or 2. unsorted?',
+    'Between 1. and 2. which?',
+    '1. Sort first? Then 3. Scan?',
   ])('passes: %s', (text) => {
     expect(containsStepList(text)).toBe(false);
   });
@@ -479,7 +494,7 @@ describe('leak guard — step lists (ADR 0013 D1)', () => {
         reply({
           assessment: 'on_track',
           questions: [],
-          note: '1) sort 2) scan',
+          note: '1) Sort 2) Scan',
         }),
       ),
     ).toBe('leak');
