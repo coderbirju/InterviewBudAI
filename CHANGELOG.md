@@ -46,6 +46,19 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Analytics Practice section** (ADR 0013 D5, PR 4). Below the quiz
+  sections, a compact "Practice (intuition checks)" section, fed by
+  `GET /api/practice`, shows first-check outcomes (On track / Partly there /
+  Off track donut), up to 3 practice slips with topics, "Fixed after
+  re-check" and "Ready to code on first check" (`X of Y`) and "Since <date>".
+  It shares no numbers with quiz analytics and is shown only when practice
+  data is ready (hidden with no data folder, no checks, or a server without
+  the route). **Reset practice history** is a two-step confirm that calls
+  `POST /api/practice/reset`; a backup is made first, only practice history is
+  deleted, and the backup path is shown. Read-only folder (`409`) and backup
+  or reset failures (`500`) show the server's message. UI only; no new
+  dependencies.
+
 - **Quiz slips + insights API** (ADR 0012, PR 1). The grader may tag each miss
   with one generic code (`edge`, `complexity`, `brute`, `technique`, `vague`,
   `boundary`, `misread` — how you slipped, never the answer); one code per
