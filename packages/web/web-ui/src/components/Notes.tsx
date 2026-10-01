@@ -28,6 +28,7 @@ import type {
 import { setFlash } from '../lib/flash';
 import { lastHomeHref, navigate } from '../lib/router';
 import { CustomBadge } from './CustomBadge';
+import { IntuitionCheck } from './IntuitionCheck';
 import { Modal } from './Modal';
 import { ProblemForm } from './ProblemForm';
 import type { TopicOption } from './ProblemForm';
@@ -598,6 +599,15 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
             )}
             {save.kind === 'saving' ? 'Saving…' : 'Save'}
           </button>
+
+          {/* ADR 0013 D5: the coach — current editor text, never persisted. */}
+          <IntuitionCheck
+            problemId={problemId}
+            content={content}
+            timeComplexity={timeComplexity}
+            spaceComplexity={spaceComplexity}
+            status={status}
+          />
 
           {save.kind === 'saved' && (
             <span
