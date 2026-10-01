@@ -61,10 +61,7 @@ type FetchFn = ReturnType<
  * /api/practice takes the next reply from `practice` (the last one repeats);
  * POST /api/practice/reset answers `reset` (or rejects when it's an Error).
  */
-function mockApi(
-  practice: readonly Reply[],
-  reset?: Reply | Error,
-): FetchFn {
+function mockApi(practice: readonly Reply[], reset?: Reply | Error): FetchFn {
   let i = 0;
   const fn = vi.fn<[string, RequestInit?], Promise<unknown>>(
     async (url: string) => {
@@ -139,17 +136,20 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
     ['404 (older server)', { status: 404, body: { error: 'not found' } }],
     ['500', { status: 500, body: { error: 'boom' } }],
     ['unknown state', ok({ state: 'locked' })],
-  ])('is hidden when the API gives %s, and the page still renders', async (_n, reply) => {
-    const fn = mockApi([reply]);
-    await renderPage();
-    await waitFor(() => expect(practiceCalls(fn)).toBe(1));
-    await settle();
-    expect(
-      screen.queryByRole('heading', { name: 'Practice (intuition checks)' }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Focus next' })).toBeVisible();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
+  ])(
+    'is hidden when the API gives %s, and the page still renders',
+    async (_n, reply) => {
+      const fn = mockApi([reply]);
+      await renderPage();
+      await waitFor(() => expect(practiceCalls(fn)).toBe(1));
+      await settle();
+      expect(
+        screen.queryByRole('heading', { name: 'Practice (intuition checks)' }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Focus next' })).toBeVisible();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    },
+  );
 
   it('is hidden on a network failure', async () => {
     const fn = vi.fn(async (url: string) => {
@@ -252,9 +252,9 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
     expect(
       within(section).getByRole('button', { name: 'Reset practice history' }),
     ).toHaveFocus();
-    expect(
-      fn.mock.calls.some((c) => c[0] === '/api/practice/reset'),
-    ).toBe(false);
+    expect(fn.mock.calls.some((c) => c[0] === '/api/practice/reset')).toBe(
+      false,
+    );
   });
 
   it('reset: confirm POSTs the token, shows the backup path, refetches and hides', async () => {
@@ -286,8 +286,9 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
 
     await waitFor(() => expect(practiceCalls(fn)).toBe(2));
     await waitFor(() =>
-      expect(screen.queryByRole('img', { name: /first-check outcomes/i })).not
-        .toBeInTheDocument(),
+      expect(
+        screen.queryByRole('img', { name: /first-check outcomes/i }),
+      ).not.toBeInTheDocument(),
     );
     // The backup notice stays after the section's data hides.
     expect(screen.getByText(/Backup saved to/)).toBeVisible();
@@ -300,7 +301,10 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
       '409 read_only',
       {
         status: 409,
-        body: { error: 'This folder is read-only (format v2).', code: 'read_only' },
+        body: {
+          error: 'This folder is read-only (format v2).',
+          code: 'read_only',
+        },
       },
       'This folder is read-only (format v2).',
       false,
@@ -330,28 +334,31 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
       'Could not reset practice history. Backup saved to /data/.backups/b1',
       true,
     ],
-  ])('reset error %s: shows the server message, keeps the section', async (_n, reply, text, hasBackup) => {
-    const user = userEvent.setup();
-    const fn = mockApi([ok(PRACTICE_READY)], reply);
-    await renderPage();
-    const section = await findPractice();
-    await user.click(
-      within(section).getByRole('button', { name: 'Reset practice history' }),
-    );
-    await user.click(
-      within(section).getByRole('button', { name: 'Confirm reset' }),
-    );
-    const alert = await within(section).findByRole('alert');
-    expect(alert).toHaveTextContent(text);
-    expect(alert.textContent?.includes('Backup saved to')).toBe(hasBackup);
-    await waitFor(() => expect(practiceCalls(fn)).toBe(2));
-    expect(
-      within(section).getByRole('img', { name: /first-check outcomes/i }),
-    ).toBeInTheDocument();
-    expect(
-      within(section).getByRole('button', { name: 'Reset practice history' }),
-    ).toBeEnabled();
-  });
+  ])(
+    'reset error %s: shows the server message, keeps the section',
+    async (_n, reply, text, hasBackup) => {
+      const user = userEvent.setup();
+      const fn = mockApi([ok(PRACTICE_READY)], reply);
+      await renderPage();
+      const section = await findPractice();
+      await user.click(
+        within(section).getByRole('button', { name: 'Reset practice history' }),
+      );
+      await user.click(
+        within(section).getByRole('button', { name: 'Confirm reset' }),
+      );
+      const alert = await within(section).findByRole('alert');
+      expect(alert).toHaveTextContent(text);
+      expect(alert.textContent?.includes('Backup saved to')).toBe(hasBackup);
+      await waitFor(() => expect(practiceCalls(fn)).toBe(2));
+      expect(
+        within(section).getByRole('img', { name: /first-check outcomes/i }),
+      ).toBeInTheDocument();
+      expect(
+        within(section).getByRole('button', { name: 'Reset practice history' }),
+      ).toBeEnabled();
+    },
+  );
 
   it('reset network failure: a friendly alert, nothing reset', async () => {
     const user = userEvent.setup();
@@ -381,7 +388,9 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
               code: 'edge',
               label: evil,
               count: 2,
-              topics: [{ topicId: 'arrays', label: `<b>${evil}</b>`, count: 1 }],
+              topics: [
+                { topicId: 'arrays', label: `<b>${evil}</b>`, count: 1 },
+              ],
             },
           ],
         }),
@@ -415,7 +424,11 @@ describe('normalizePractice', () => {
     const n = normalizePractice({
       state: 'ready',
       firstCheck: { on_track: -3, partial: 'x' },
-      slips: [null, { code: '' }, { code: 'edge', count: Infinity, topics: [1] }],
+      slips: [
+        null,
+        { code: '' },
+        { code: 'edge', count: Infinity, topics: [1] },
+      ],
       fixedAfterRecheck: null,
       since: 42,
     });
@@ -426,7 +439,8 @@ describe('normalizePractice', () => {
     expect(n.fixedAfterRecheck).toEqual({ count: 0, of: 0 });
     expect(n.since).toBeNull();
     expect(normalizePractice(null).state).toBe('empty');
-    expect(normalizePractice({ state: 'empty', slips: [{ code: 'x' }] }).slips)
-      .toEqual([]);
+    expect(
+      normalizePractice({ state: 'empty', slips: [{ code: 'x' }] }).slips,
+    ).toEqual([]);
   });
 });

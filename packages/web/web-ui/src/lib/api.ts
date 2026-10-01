@@ -575,12 +575,14 @@ export function normalizePractice(raw: unknown): PracticeResponse {
   const state: PracticeState =
     o.state === 'ready' || o.state === 'no_db' ? o.state : 'empty';
   const ready = state === 'ready';
-  const t = (typeof o.totals === 'object' && o.totals !== null
-    ? o.totals
-    : {}) as Record<string, unknown>;
-  const fc = (typeof o.firstCheck === 'object' && o.firstCheck !== null
-    ? o.firstCheck
-    : {}) as Record<string, unknown>;
+  const t = (
+    typeof o.totals === 'object' && o.totals !== null ? o.totals : {}
+  ) as Record<string, unknown>;
+  const fc = (
+    typeof o.firstCheck === 'object' && o.firstCheck !== null
+      ? o.firstCheck
+      : {}
+  ) as Record<string, unknown>;
   const slips =
     ready && Array.isArray(o.slips)
       ? o.slips.filter(isPracticeSlip).map((s) => ({
