@@ -186,8 +186,8 @@ and is listed there with what you need to do (ADR 0009 D4).
 ### Changed
 
 - **Quiz prompt diet** (ADR 0012 D2). The grader prompt states each rule once
-  and holds about half the fixed text (≈ 276 estimated tokens, was ≈ 497); the
-  worst case incl. the retry is ≈ 1 978 (budget 2 000, was 3 000). After a
+  and holds about half the fixed text (≈ 277 estimated tokens, was ≈ 497); the
+  worst case incl. the retry is ≈ 1 979 (budget 2 000, was 3 000). After a
   nudge it now also sends that question's first answer (≤ 600 chars) and the
   probe (≤ 300). Caps: note 2 500 (was 4 000), statement 1 200 (was 2 000),
   answer 1 500 (was 2 000). Replies are capped at 256 tokens (was 512);
