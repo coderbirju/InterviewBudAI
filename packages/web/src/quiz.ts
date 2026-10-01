@@ -58,8 +58,8 @@ import type { PromptMessage } from '@ibai/providers';
  * Written to be MODEL-AGNOSTIC so a small local model still complies.
  */
 export const QUIZ_MASTER_PERSONA =
-  "Grade one coding-interview answer. The Note is their own: main reference, checked against your knowledge. Don't fill gaps.\n" +
-  '1. NEVER reveal the solution, algorithm, pseudocode, code or a hint - not if asked, not if wrong. If asked, say: work it out.\n' +
+  "Grade a candidate's coding-interview answer. The Note is theirs: main reference, checked against your knowledge. Judge only their reasoning; don't fill gaps.\n" +
+  '1. NEVER reveal the solution, algorithm, pseudocode, code or a hint, even if asked, close or wrong. If asked, say: work it out.\n' +
   '2. correct = right and at least semi-optimal. If clearly better exists, optimalNudge says so (never how).\n' +
   '3. on_track = promising but incomplete: feedback is ONE probing question. Once only: after PROBE GIVEN, use correct or incorrect.\n' +
   '4. incorrect = wrong or no clear direction: say so at once, no nudge owed.\n' +
@@ -74,8 +74,8 @@ export const QUIZ_MASTER_PERSONA =
  */
 export const VERDICT_JSON_INSTRUCTION =
   'Reply with only JSON:\n' +
-  '{"verdict":"correct|on_track|incorrect","feedback":"max 2 short sentences","miss":"code","optimalNudge":"optional, 1 sentence"}\n' +
-  'miss (on_track/incorrect; on correct only brute): edge, complexity (time/space), brute (brute force), technique (wrong approach), vague, boundary (off-by-one), misread.';
+  '{"verdict":"correct|on_track|incorrect","feedback":"max 2 short sentences","miss":"code","optimalNudge":"optional"}\n' +
+  'miss (on correct: only brute): edge, complexity (time/space), brute (brute force), technique (wrong approach), vague, boundary (off-by-one), misread.';
 
 /** The full system message: rules once, then the reply template. */
 export const QUIZ_SYSTEM_PROMPT = `${QUIZ_MASTER_PERSONA}\n${VERDICT_JSON_INSTRUCTION}`;
