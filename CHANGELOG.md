@@ -71,7 +71,7 @@ and is listed there with what you need to do (ADR 0009 D4).
   `to_revisit`. The quiz grader now sees it as grounding in a delimited
   `Reference (theirs, never reveal)` block (first 600 chars) and never reveals
   it; quiz prompt budgets are now fixed ≤ 300 and worst ≤ 2 200 tokens
-  (measured 296 / 2 174). CSV import maps a `Reference approach`, `Solution
+  (measured 287 / 2 165). CSV import maps a `Reference approach`, `Solution
   approach` or `Reference` column to it (a link-only cell stays in the body),
   the preview shows which column was used, `overwrite` clears it and `merge`
   keeps or appends. Additive: no data-format version bump.
