@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr list`), and no PRs are open. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr list`), and no other PRs are open. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -53,6 +53,7 @@ _Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr lis
 
 **Earlier (all ✅)**
 - #55–#60: web usability and hardening (ADR 0008)
+- #52–#54: status-page rewrite, its review follow-up, and Home catalog search and filters
 - #46–#51: Quiz Master (ADR 0007)
 - #39–#45: React migration (ADR 0006)
 - #1–#38: foundation, engine, adapters, curriculum, server-rendered UI
