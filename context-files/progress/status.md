@@ -60,10 +60,10 @@ _Last updated: 2026-09-30. PRs #1–#79 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🔨 Housekeeping: this status rewrite and the ADR 0004 deletion (`architect/housekeeping-2026-09-30`).
+- 🟡 ADR 0012: Analytics v2, quiz miss codes, prompt diet (`architect/adr-0012-analytics-v2`).
 
 ## Next up
-1. **Analytics improvements.** Waiting on a vision interview with the founder.
+1. **Analytics v2 (ADR 0012).** PR 1: quiz miss codes + prompt diet + storage aggregation + `GET /api/insights`. PR 2: Analytics UI (donut, locked/unlocked, topic tiles). They can run in parallel against the ADR's API shape.
 2. **"Reference approach" note field vs shipping solutions.** Waiting on a founder decision (§6.2).
 3. **Docs pass.** On hold until the founder says go.
 4. **Small follow-ups:**
