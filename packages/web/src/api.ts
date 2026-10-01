@@ -71,6 +71,8 @@ import {
   MISS_CODES,
   sanitizeMisses,
   sanitizeTopicMisses,
+  containsReferenceMarker,
+  splitReferenceSection,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import { createLocalStorage, loadProblemSource } from './problems.js';
@@ -251,8 +253,13 @@ export interface ApiNoteResponse {
   readonly completed: boolean;
   readonly timeComplexity: string | null;
   readonly spaceComplexity: string | null;
+  /** The user's own Reference approach (ADR 0013 D4); `''` when none. */
+  readonly referenceApproach: string;
   readonly lastUpdated: string | null;
 }
+
+/** Max chars accepted for a note's `referenceApproach` (ADR 0013 D4). */
+export const REFERENCE_APPROACH_MAX = 50_000;
 
 /**
  * GET /api/data-dir (and every successful switching/dismissing POST) response
@@ -1086,6 +1093,57 @@ export async function handleApiRoute(
       if (input.status !== undefined && !isNoteStatus(input.status)) {
         return json(400, { error: 'invalid status' });
       }
+      // ADR 0013 D4: referenceApproach — absent keeps the saved value, a
+      // string replaces it ('' clears).
+      if (
+        input.referenceApproach !== undefined &&
+        typeof input.referenceApproach !== 'string'
+      ) {
+        return json(400, {
+          error: 'referenceApproach must be a string',
+          code: 'invalid_body',
+        });
+      }
+      if (
+        typeof input.referenceApproach === 'string' &&
+        input.referenceApproach.length > REFERENCE_APPROACH_MAX
+      ) {
+        return json(400, {
+          error: `referenceApproach must be at most ${REFERENCE_APPROACH_MAX} characters`,
+          code: 'invalid_body',
+        });
+      }
+      if (
+        typeof input.referenceApproach === 'string' &&
+        containsReferenceMarker(input.referenceApproach)
+      ) {
+        return json(400, {
+          error: 'referenceApproach must not contain the reference marker line',
+          code: 'marker_in_text',
+        });
+      }
+      // Content holding a marker section (e.g. pasted from a note file) is
+      // split with the ONE shared split, so the reference is never stored
+      // twice. Ambiguous input — a marker section AND a referenceApproach, or
+      // more than one marker — is a 400.
+      let inputContent =
+        typeof input.content === 'string' ? input.content : undefined;
+      let contentReference: string | undefined;
+      if (inputContent !== undefined && containsReferenceMarker(inputContent)) {
+        const split = splitReferenceSection(inputContent);
+        if (
+          input.referenceApproach !== undefined ||
+          containsReferenceMarker(split.content)
+        ) {
+          return json(400, {
+            error:
+              'content must not contain the reference marker line; send referenceApproach instead',
+            code: 'marker_in_text',
+          });
+        }
+        inputContent = split.content;
+        contentReference = split.referenceApproach ?? '';
+      }
 
       // Read existing note to preserve unspecified fields (attempts, content).
       const existing = storage.readIntuitionNote
@@ -1098,10 +1156,15 @@ export async function handleApiRoute(
           : existing?.status ?? 'none';
       // Keep completed consistent with status 'done' (storage layer rule).
       const completed = status === 'done';
-      const content =
-        input.content !== undefined
-          ? (input.content as string)
-          : existing?.content ?? '';
+      const content = inputContent ?? existing?.content ?? '';
+      const referenceApproach =
+        typeof input.referenceApproach === 'string'
+          ? input.referenceApproach.trim().length > 0
+            ? input.referenceApproach
+            : undefined
+          : contentReference !== undefined
+            ? contentReference || undefined
+            : existing?.referenceApproach;
       const timeComplexity =
         input.timeComplexity !== undefined
           ? (input.timeComplexity as string) || undefined
@@ -1120,6 +1183,7 @@ export async function handleApiRoute(
         completed,
         timeComplexity,
         spaceComplexity,
+        referenceApproach,
       };
 
       await storage.writeIntuitionNote(note);
@@ -1408,10 +1472,15 @@ export async function handleApiRoute(
 
       // Read the user's OWN intuition note for personalization (never a
       // shipped answer). Missing note is fine.
+      // ADR 0013 D4: plus the user's OWN Reference approach, as grounding
+      // only (the adapter already splits it out of `content`, so it is sent
+      // once). Never shown back.
       let intuition: string | null = null;
+      let referenceApproach: string | null = null;
       try {
         const note = await storage.readIntuitionNote(problemId);
         intuition = note?.content ?? null;
+        referenceApproach = note?.referenceApproach ?? null;
       } catch {
         intuition = null;
       }
@@ -1429,6 +1498,7 @@ export async function handleApiRoute(
           buildQuizPrompt({
             problem,
             intuition,
+            referenceApproach,
             answer,
             probe: currentProbe(session),
             firstAnswer: currentFirstAnswer(session),
@@ -1504,6 +1574,9 @@ export async function handleApiRoute(
           completed: false,
           timeComplexity: existing?.timeComplexity,
           spaceComplexity: existing?.spaceComplexity,
+          // ADR 0013 D4: a wrong answer must never cost the user their
+          // Reference approach.
+          referenceApproach: existing?.referenceApproach,
         };
         await storage.writeIntuitionNote(revisit);
       }
@@ -1897,6 +1970,7 @@ function toNoteResponse(
       completed: false,
       timeComplexity: null,
       spaceComplexity: null,
+      referenceApproach: '',
       lastUpdated: null,
     };
   }
@@ -1908,6 +1982,7 @@ function toNoteResponse(
     completed: status === 'done',
     timeComplexity: note.timeComplexity ?? null,
     spaceComplexity: note.spaceComplexity ?? null,
+    referenceApproach: note.referenceApproach ?? '',
     lastUpdated: note.lastUpdated ?? null,
   };
 }
