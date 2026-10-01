@@ -421,8 +421,25 @@ export interface InsightsResponse {
   readonly strengths: readonly InsightsStrength[];
 }
 
+/** A well-formed topic tile entry: non-empty string id, finite numeric counts. */
+function isInsightsTopic(t: unknown): t is InsightsTopic {
+  if (typeof t !== 'object' || t === null) {
+    return false;
+  }
+  const o = t as Record<string, unknown>;
+  return (
+    typeof o.topicId === 'string' &&
+    o.topicId !== '' &&
+    typeof o.done === 'number' &&
+    Number.isFinite(o.done) &&
+    typeof o.total === 'number' &&
+    Number.isFinite(o.total)
+  );
+}
+
 /**
- * Normalize a raw /api/insights payload at the client boundary: an unknown
+ * Normalize a raw /api/insights payload at the client boundary: malformed
+ * `topics[]` entries are dropped (order kept); an unknown
  * `state` reads as `locked`, missing lists read as `[]`, and missing
  * sessions/status read as zeros, so a partial payload renders the calm locked
  * view instead of crashing. Lists stay empty unless `state` is `unlocked`.
@@ -447,7 +464,7 @@ export function normalizeInsights(raw: InsightsResponse): InsightsResponse {
       notStarted: s.notStarted ?? 0,
       total: s.total ?? 0,
     },
-    topics: Array.isArray(raw.topics) ? raw.topics : [],
+    topics: Array.isArray(raw.topics) ? raw.topics.filter(isInsightsTopic) : [],
     focus: list(raw.focus),
     slips: list(raw.slips),
     strengths: list(raw.strengths),

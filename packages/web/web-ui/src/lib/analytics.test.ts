@@ -6,6 +6,7 @@ import {
   arcDash,
   donutSegments,
   donutSummary,
+  donutTotal,
   missLabel,
   ringFraction,
 } from './analytics';
@@ -91,6 +92,13 @@ describe('arcDash / ringFraction', () => {
   });
 });
 
+describe('donutTotal', () => {
+  it('is the sum of the four buckets, not status.total', () => {
+    expect(donutTotal({ ...STATUS, total: 999 })).toBe(156);
+    expect(donutTotal(ZERO)).toBe(0);
+  });
+});
+
 describe('donutSummary', () => {
   it('reads every bucket with its count', () => {
     expect(donutSummary(STATUS)).toBe(
@@ -114,18 +122,16 @@ describe('missLabel', () => {
     expect(missLabel('toString', '')).toBe(UNKNOWN_MISS_LABEL);
   });
 
-  it('covers all seven ADR 0012 codes', () => {
-    expect(Object.keys(MISS_LABELS).sort()).toEqual(
-      [
-        'boundary',
-        'brute',
-        'complexity',
-        'edge',
-        'misread',
-        'technique',
-        'vague',
-      ].sort(),
-    );
+  it('matches the ADR 0012 D1 code → label table exactly', () => {
+    expect(MISS_LABELS).toEqual({
+      edge: 'Missed edge cases',
+      complexity: 'Complexity analysis off',
+      brute: 'Settled for brute force',
+      technique: 'Wrong technique',
+      vague: 'Incomplete or vague',
+      boundary: 'Off-by-one / boundaries',
+      misread: 'Misread the problem',
+    });
   });
 });
 
@@ -153,8 +159,25 @@ describe('normalizeInsights', () => {
   });
 
   it('keeps topics in API order', () => {
-    expect(normalizeInsights(INSIGHTS_LOCKED).topics).toBe(
+    expect(normalizeInsights(INSIGHTS_LOCKED).topics).toEqual(
       INSIGHTS_LOCKED.topics,
     );
+  });
+
+  it('drops malformed topic entries and keeps the rest in order', () => {
+    const good = INSIGHTS_LOCKED.topics[0]!;
+    const out = normalizeInsights({
+      ...INSIGHTS_LOCKED,
+      topics: [
+        null,
+        { label: 'No id', done: 1, total: 2 },
+        { topicId: '', label: 'Empty id', done: 1, total: 2 },
+        { topicId: 'a', label: 'A', done: '1', total: 2 },
+        { topicId: 'b', label: 'B', done: 1, total: Number.NaN },
+        { topicId: 'c', label: 'C', done: 1 },
+        good,
+      ],
+    } as unknown as InsightsResponse);
+    expect(out.topics).toEqual([good]);
   });
 });

@@ -20,6 +20,7 @@ import {
   arcDash,
   donutSegments,
   donutSummary,
+  donutTotal,
   missLabel,
   ringFraction,
 } from '../lib/analytics';
@@ -239,7 +240,7 @@ function StatusDonut({ status }: { status: InsightsStatus }): JSX.Element {
           dominantBaseline="central"
           className="fill-slate-100 text-[18px] font-semibold"
         >
-          {status.total}
+          {donutTotal(status)}
         </text>
       </svg>
       <ul
@@ -341,9 +342,9 @@ function Slips({ items }: { items: readonly InsightsSlip[] }): JSX.Element {
         </p>
       ) : (
         <ul className="mt-3 divide-y divide-slate-800">
-          {items.map((s) => (
+          {items.map((s, i) => (
             <li
-              key={s.code}
+              key={`${s.code}-${i}`}
               className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
             >
               <span className="font-medium text-slate-100">
@@ -351,9 +352,10 @@ function Slips({ items }: { items: readonly InsightsSlip[] }): JSX.Element {
               </span>
               <span
                 className="tabular-nums text-sm text-slate-400"
-                aria-label={`${s.count} times`}
+                data-testid="slip-count"
               >
-                ×{s.count}
+                <span aria-hidden>×{s.count}</span>
+                <span className="sr-only">{`${s.count} times`}</span>
               </span>
               <span className="flex flex-wrap gap-1.5">
                 {(s.topics ?? []).slice(0, MAX_SLIP_TOPICS).map((t) => (
