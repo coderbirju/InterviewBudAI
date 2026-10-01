@@ -77,18 +77,25 @@ type CheckState =
     }
   | { readonly kind: 'error'; readonly message: string };
 
+function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function snapshotOf(props: IntuitionCheckProps): string {
   return JSON.stringify([
-    props.content,
-    props.timeComplexity,
-    props.spaceComplexity,
-    props.referenceApproach ?? '',
+    textOf(props.content),
+    textOf(props.timeComplexity),
+    textOf(props.spaceComplexity),
+    textOf(props.referenceApproach),
   ]);
 }
 
 export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
-  const { problemId, content, timeComplexity, spaceComplexity } = props;
-  const { referenceApproach, status } = props;
+  const { problemId, referenceApproach, status } = props;
+  // Defensive: a partial note payload must not crash the editor.
+  const content = textOf(props.content);
+  const timeComplexity = textOf(props.timeComplexity);
+  const spaceComplexity = textOf(props.spaceComplexity);
 
   // null = unknown (settings not loaded / failed): the server decides.
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
