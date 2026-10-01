@@ -592,34 +592,51 @@ describe('api notes POST', () => {
       expect(disk?.referenceApproach).toBeUndefined();
     });
 
-    it('content holding a marker section is split, never stored twice', async () => {
+    it('a marker line in content is stored verbatim; the saved reference is kept', async () => {
       const handler = makeHandler(makeDeps());
-      const res = await post(handler, {
-        content: `my note\n\n${MARKER}\n## Reference approach\n\npasted ref`,
-      });
-      expect(res.status).toBe(200);
-      const got = await get(handler);
-      expect(got.content).toBe('my note');
-      expect(got.referenceApproach).toBe('pasted ref');
-      const raw = fs.readFileSync(
-        path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
-        'utf-8',
-      );
-      expect(raw.split(MARKER)).toHaveLength(2);
-      expect(raw.split('pasted ref')).toHaveLength(2);
+      await post(handler, { content: 'n', referenceApproach: 'saved ref' });
+      for (const content of [
+        `my note\n\n${MARKER}\n## Reference approach\n\npasted`,
+        `x\n${MARKER}`,
+      ]) {
+        const res = await post(handler, { content });
+        expect(res.status).toBe(200);
+        const got = await get(handler);
+        expect(got.content).toBe(content);
+        expect(got.referenceApproach).toBe('saved ref');
+      }
     });
 
-    it('bad type / over cap / marker in the reference / ambiguous marker → 400, nothing written', async () => {
+    it('a hand-edited two-marker note can still be saved from the editor (no 400 loop) and round-trips', async () => {
+      fs.mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
+        `---\nid: ${SECOND_ID}\nlastUpdated: 2026-01-01T00:00:00.000Z\n---\na\n${MARKER}\nb\n\n${MARKER}\nref\n`,
+      );
+      const handler = makeHandler(makeDeps());
+      const loaded = await get(handler);
+      expect(loaded.content).toBe(`a\n${MARKER}\nb`);
+      expect(loaded.referenceApproach).toBe('ref');
+      // The editor re-sends every field it loaded.
+      for (let i = 0; i < 2; i++) {
+        const res = await post(handler, {
+          content: loaded.content,
+          referenceApproach: loaded.referenceApproach,
+          status: loaded.status,
+        });
+        expect(res.status).toBe(200);
+        const again = await get(handler);
+        expect(again.content).toBe(loaded.content);
+        expect(again.referenceApproach).toBe('ref');
+      }
+    });
+
+    it('bad type / over cap / marker in the reference → 400, nothing written', async () => {
       const handler = makeHandler(makeDeps());
       const cases: [unknown, string][] = [
         [{ referenceApproach: 5 }, 'invalid_body'],
         [{ referenceApproach: 'x'.repeat(50_001) }, 'invalid_body'],
         [{ referenceApproach: `a\n${MARKER}\nb` }, 'marker_in_text'],
-        [
-          { content: `a\n${MARKER}\nb`, referenceApproach: 'c' },
-          'marker_in_text',
-        ],
-        [{ content: `a\n${MARKER}\nb\n${MARKER}\nc` }, 'marker_in_text'],
       ];
       for (const [body, code] of cases) {
         const res = await post(handler, body);

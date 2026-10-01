@@ -72,7 +72,6 @@ import {
   sanitizeMisses,
   sanitizeTopicMisses,
   containsReferenceMarker,
-  splitReferenceSection,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import { createLocalStorage, loadProblemSource } from './problems.js';
@@ -1122,28 +1121,11 @@ export async function handleApiRoute(
           code: 'marker_in_text',
         });
       }
-      // Content holding a marker section (e.g. pasted from a note file) is
-      // split with the ONE shared split, so the reference is never stored
-      // twice. Ambiguous input — a marker section AND a referenceApproach, or
-      // more than one marker — is a 400.
-      let inputContent =
+      // A marker line in `content` is stored VERBATIM (ADR 0013 D4
+      // amendment): the adapter appends an empty section after it, so the
+      // note reads back unchanged and nothing moves into the hidden field.
+      const inputContent =
         typeof input.content === 'string' ? input.content : undefined;
-      let contentReference: string | undefined;
-      if (inputContent !== undefined && containsReferenceMarker(inputContent)) {
-        const split = splitReferenceSection(inputContent);
-        if (
-          input.referenceApproach !== undefined ||
-          containsReferenceMarker(split.content)
-        ) {
-          return json(400, {
-            error:
-              'content must not contain the reference marker line; send referenceApproach instead',
-            code: 'marker_in_text',
-          });
-        }
-        inputContent = split.content;
-        contentReference = split.referenceApproach ?? '';
-      }
 
       // Read existing note to preserve unspecified fields (attempts, content).
       const existing = storage.readIntuitionNote
@@ -1162,9 +1144,7 @@ export async function handleApiRoute(
           ? input.referenceApproach.trim().length > 0
             ? input.referenceApproach
             : undefined
-          : contentReference !== undefined
-            ? contentReference || undefined
-            : existing?.referenceApproach;
+          : existing?.referenceApproach;
       const timeComplexity =
         input.timeComplexity !== undefined
           ? (input.timeComplexity as string) || undefined
