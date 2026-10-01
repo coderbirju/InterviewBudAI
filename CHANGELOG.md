@@ -46,6 +46,19 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Quiz slips + insights API** (ADR 0012, PR 1). The grader may tag each miss
+  with one generic code (`edge`, `complexity`, `brute`, `technique`, `vague`,
+  `boundary`, `misread` — how you slipped, never the answer); one code per
+  question is tallied in `competency-signals.json` (new optional `misses`,
+  global and per topic) and on the probe's transcript entry. **Additive
+  format change** (ADR 0009 D4): no migration, older data reads as "no
+  slips". Running an **older build** after this one keeps working, but its
+  next quiz answer rewrites the signals file without `misses`, so the slip
+  tallies are lost (quiz correct/incorrect tallies are kept). New read-only
+  `GET /api/insights` (status, 13 topic tiles, focus next, slips, strengths;
+  unlocks after 2 quiz sessions with at least one answer each). `MISS_LABELS`
+  is exported from `@ibai/web`.
+
 - **Quiz: "The model isn't ready yet" state** (ADR 0011 PR C). When the
   model is starting, loading or unreachable (connection refused, unknown
   host, timeout, HTTP 503, or a "loading" error), the Interview page shows a
@@ -172,6 +185,14 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Quiz prompt diet** (ADR 0012 D2). The grader prompt states each rule once
+  and holds about half the fixed text (≈ 277 estimated tokens, was ≈ 497); the
+  worst case incl. the retry is ≈ 1 979 (budget 2 000, was 3 000). After a
+  nudge it now also sends that question's first answer (≤ 600 chars) and the
+  probe (≤ 300). Caps: note 2 500 (was 4 000), statement 1 200 (was 2 000),
+  answer 1 500 (was 2 000). Replies are capped at 256 tokens (was 512);
+  feedback is at most 2 short sentences. Very long notes/answers are cut
+  sooner (with a visible marker).
 - **Analytics is simpler and tells you what to focus on** (ADR 0012 D3). The
   status bar chart is now a donut with counts, and per-topic completion is a
   grid of 13 small tiles with progress rings. After 2 quiz sessions the page

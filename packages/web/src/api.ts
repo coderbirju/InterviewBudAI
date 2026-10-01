@@ -18,6 +18,9 @@
  *                           + recurring miss patterns); safe empty when no DB
  *   GET  /api/guidance    — where you stand per topic + next-up problems + quiz
  *                           nudge (derived at read time by core deriveGuidance)
+ *   GET  /api/insights    — Analytics v2: status, topic tiles, focus next,
+ *                           slips, strengths; unlocks after 2 counted quiz
+ *                           sessions (ADR 0012 D3)
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
  *   GET  /api/data-dir    — active folder, source, pinned, exists, noteCount,
  *                           formatVersion, legacyCandidates (ADR 0009 D1)
@@ -59,11 +62,15 @@ import type {
   CompetencySignals,
   TopicId,
   TopicStrength,
+  MissCode,
 } from '@ibai/storage';
 import {
   isNoteStatus,
   resolveNoteStatus,
   deriveTopicStrength,
+  MISS_CODES,
+  sanitizeMisses,
+  sanitizeTopicMisses,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import { createLocalStorage, loadProblemSource } from './problems.js';
@@ -85,6 +92,9 @@ import {
   nudgeAlreadyUsed,
   ensureCurrentQuestionPresented,
   currentProbe,
+  currentProbeMiss,
+  currentFirstAnswer,
+  questionMiss,
   presentProblem,
   currentProblemId,
   skipToResolvable,
@@ -94,6 +104,8 @@ import {
   emptyCompetencySignals,
 } from './quiz.js';
 import type { ParsedVerdict, RandomSource } from './quiz.js';
+import { buildInsights } from './insights.js';
+import type { ApiInsightsResponse } from './insights.js';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists } from './config.js';
@@ -898,6 +910,14 @@ export async function handleApiRoute(
       return json(200, await buildGuidanceResponse(deps));
     }
 
+    // ----- /api/insights (GET, ADR 0012 D3) -----
+    if (pathname === '/api/insights') {
+      if (method !== 'GET') {
+        return json(405, { error: 'method not allowed' });
+      }
+      return json(200, await buildInsightsResponse(deps));
+    }
+
     // ----- /api/config (GET) -----
     if (pathname === '/api/config') {
       if (method !== 'GET') {
@@ -1404,7 +1424,15 @@ export async function handleApiRoute(
       try {
         verdict = await evaluateVerdict(
           deps.provider,
-          buildQuizPrompt({ problem, intuition, answer }),
+          // ADR 0012 D2: only this question's turns — after a nudge, its
+          // first answer + the probe; never session history.
+          buildQuizPrompt({
+            problem,
+            intuition,
+            answer,
+            probe: currentProbe(session),
+            firstAnswer: currentFirstAnswer(session),
+          }),
         );
       } catch (error) {
         // Malformed model output (twice) → fail closed: NO writes.
@@ -1429,7 +1457,13 @@ export async function handleApiRoute(
       // the same question, record the answer + probe in the transcript (so the
       // nudge is counted and survives resume), do NOT advance or write outcomes.
       if (verdict.verdict === 'on_track' && !coerceToIncorrect) {
-        const updated = appendNudgeTurn(session, answer, verdict.feedback, at);
+        const updated = appendNudgeTurn(
+          session,
+          answer,
+          verdict.feedback,
+          at,
+          verdict.miss,
+        );
         await storage.writeQuizSession(updated);
         return json(200, {
           verdict: 'on_track',
@@ -1484,6 +1518,8 @@ export async function handleApiRoute(
         problemTitle: problem.title,
         intuition,
         at,
+        // ADR 0012 D1: one miss per question (terminal ?? probe ?? none).
+        miss: questionMiss(verdict.miss, currentProbeMiss(session)),
       });
       await storage.writeCompetencySignals(updatedSignals);
 
@@ -1623,6 +1659,62 @@ async function buildGuidanceResponse(
 }
 
 /**
+ * Build GET /api/insights (ADR 0012 D3). Strictly read-only: note statuses
+ * (one pass), competency signals and the session list, then the pure
+ * {@link buildInsights}. `state` depends only on the counted sessions (an
+ * adapter without `listQuizSessions`, or a failing list, counts 0). Missing,
+ * unreadable or malformed signals empty the insight lists, never the state.
+ */
+async function buildInsightsResponse(
+  deps: ApiDeps,
+): Promise<ApiInsightsResponse> {
+  const now = nowDate(deps).toISOString() as IsoTimestamp;
+  const { storage } = resolveActiveStorage(deps);
+  if (!storage) {
+    return buildInsights({
+      problems: null,
+      notes: [],
+      signals: null,
+      countedSessions: 0,
+      now,
+    });
+  }
+  const problems = (await loadProblemSource(deps.catalog, storage)).list();
+  const notesById = await resolveStatuses(problems, storage);
+  let signals: CompetencySignals | null = null;
+  if (storage.readCompetencySignals) {
+    try {
+      const read: unknown = await storage.readCompetencySignals();
+      if (typeof read === 'object' && read !== null && !Array.isArray(read)) {
+        signals = canonicalizeSignals(read as CompetencySignals);
+      }
+    } catch {
+      signals = null;
+    }
+  }
+  let countedSessions = 0;
+  if (storage.listQuizSessions) {
+    try {
+      const sessions = await storage.listQuizSessions();
+      countedSessions = sessions.filter((s) => s.answeredCount >= 1).length;
+    } catch {
+      countedSessions = 0;
+    }
+  }
+  return buildInsights({
+    problems,
+    notes: Array.from(notesById, ([problemId, note]) => ({
+      problemId,
+      status: note.status,
+      lastUpdated: note.lastUpdated,
+    })),
+    signals,
+    countedSessions,
+    now,
+  });
+}
+
+/**
  * Apply the curriculum's `TOPIC_ALIASES` to stored competency signals at READ
  * time (ADR 0003 amendment 2026-09-26): retired topic ids fold into their
  * successor (correct/incorrect summed, latest `lastSeen` kept, strength
@@ -1636,7 +1728,12 @@ export function canonicalizeSignals(
   const rawTopics: unknown = signals?.topics;
   const merged = new Map<
     TopicId,
-    { correct: number; incorrect: number; lastSeen: string | undefined }
+    {
+      correct: number;
+      incorrect: number;
+      lastSeen: string | undefined;
+      misses: Partial<Record<MissCode, number>>;
+    }
   >();
   if (typeof rawTopics === 'object' && rawTopics !== null) {
     for (const [key, value] of Object.entries(rawTopics)) {
@@ -1653,9 +1750,16 @@ export function canonicalizeSignals(
         correct: 0,
         incorrect: 0,
         lastSeen: undefined,
+        misses: {},
       };
       acc.correct += num(t['correct']);
       acc.incorrect += num(t['incorrect']);
+      // ADR 0012 D1: per-topic miss counts fold through aliases too (summed).
+      const misses = sanitizeTopicMisses(t['misses']) ?? {};
+      for (const code of MISS_CODES) {
+        const n = misses[code];
+        if (n !== undefined) acc.misses[code] = (acc.misses[code] ?? 0) + n;
+      }
       if (
         seen !== undefined &&
         (acc.lastSeen === undefined || laterIso(seen, acc.lastSeen))
@@ -1678,6 +1782,7 @@ export function canonicalizeSignals(
       incorrect: acc.incorrect,
       lastSeen: acc.lastSeen as IsoTimestamp,
       strength: deriveTopicStrength(acc.correct, acc.incorrect),
+      ...(Object.keys(acc.misses).length > 0 && { misses: acc.misses }),
     };
   }
   // Pattern topics are mapped the same way. A pattern that listed topics but
@@ -1702,7 +1807,9 @@ export function canonicalizeSignals(
         return [{ ...p, topics: mapped }];
       })
     : [];
-  return { ...signals, topics, patterns };
+  const { misses: rawMisses, ...rest } = signals ?? {};
+  const misses = sanitizeMisses(rawMisses);
+  return { ...rest, topics, patterns, ...(misses && { misses }) };
 }
 
 /** `a` is strictly later than `b` (parsed dates; unparseable never wins). */
