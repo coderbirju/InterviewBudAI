@@ -235,6 +235,8 @@ and is listed there with what you need to do (ADR 0009 D4).
 ### Removed
 
 - The unused `POST /api/chat` endpoint and its client helpers (#59, #60).
+- Docs: ADR 0004 (built-in demo provider, superseded by ADR 0005 D6) deleted
+  with founder approval; ADR numbers are not reused (see git history).
 
 ### Security
 
