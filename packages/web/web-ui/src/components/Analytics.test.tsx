@@ -1,293 +1,304 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { Analytics } from './Analytics';
-import * as api from '../lib/api';
-import type {
-  CatalogResponse,
-  CompetencyResponse,
-  ConfigResponse,
-  ProgressResponse,
-} from '../lib/api';
+import type { InsightsResponse } from '../lib/api';
+import {
+  INSIGHTS_LOCKED,
+  INSIGHTS_NO_DB,
+  INSIGHTS_UNLOCKED,
+  TOPIC_FIXTURE,
+} from '../lib/insights.fixture';
 
-vi.mock('../lib/api', async () => {
-  const actual =
-    await vi.importActual<typeof import('../lib/api')>('../lib/api');
-  return {
-    ...actual,
-    fetchConfig: vi.fn(),
-    fetchProgress: vi.fn(),
-    fetchCatalog: vi.fn(),
-    fetchCompetency: vi.fn(),
-  };
-});
+/** Mock `fetch` so `/api/insights` answers `body` (or fails with `status`). */
+function mockInsights(
+  body: unknown,
+  status = 200,
+): ReturnType<typeof vi.fn<[string], Promise<unknown>>> {
+  const fn = vi.fn<[string], Promise<unknown>>(async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  }));
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
 
-const mockedApi = vi.mocked(api);
-
-const CONFIG_DB: ConfigResponse = {
-  dbConfigured: true,
-  dataDir: '/home/me/.ibai',
-  provider: 'ollama',
-};
-
-const CONFIG_NO_DB: ConfigResponse = {
-  dbConfigured: false,
-  provider: 'ollama',
-};
-
-const PROGRESS: ProgressResponse = {
-  completed: 3,
-  total: 6,
-  byStatus: { none: 1, done: 3, to_revisit: 1, did_not_understand: 1 },
-};
-
-const PROGRESS_EMPTY: ProgressResponse = {
-  completed: 0,
-  total: 0,
-  byStatus: { none: 0, done: 0, to_revisit: 0, did_not_understand: 0 },
-};
-
-const CATALOG: CatalogResponse = {
-  topics: [
-    {
-      topic: 'Arrays & Hashing',
-      problems: [
-        {
-          id: 'a',
-          title: 'A',
-          url: 'https://x/a',
-          difficulty: 'Easy',
-          status: 'done',
-          completed: true,
-        },
-        {
-          id: 'b',
-          title: 'B',
-          url: 'https://x/b',
-          difficulty: 'Medium',
-          status: 'to_revisit',
-          completed: false,
-        },
-      ],
-    },
-    {
-      topic: 'Two Pointers',
-      problems: [
-        {
-          id: 'c',
-          title: 'C',
-          url: 'https://x/c',
-          difficulty: 'Hard',
-          status: 'none',
-          completed: false,
-        },
-      ],
-    },
-  ],
-  totals: {
-    total: 3,
-    byStatus: { none: 1, done: 1, to_revisit: 1, did_not_understand: 0 },
-  },
-};
-
-const COMPETENCY: CompetencyResponse = {
-  topics: [
-    {
-      topicId: 'Dynamic Programming',
-      correct: 1,
-      incorrect: 4,
-      strength: 'weak',
-      lastSeen: '2026-09-24T12:00:00.000Z',
-    },
-    {
-      topicId: 'Arrays & Hashing',
-      correct: 5,
-      incorrect: 1,
-      strength: 'strong',
-      lastSeen: '2026-09-24T12:00:00.000Z',
-    },
-  ],
-  patterns: [
-    {
-      id: 'miss:lc-322',
-      description: 'Missed "Coin Change"; you reached for greedy first.',
-      topics: ['dynamic-programming', 'stack'],
-      topicLabels: ['Dynamic Programming', 'Stack & Queue'],
-      occurrences: 3,
-      lastObserved: '2026-09-24T12:00:00.000Z',
-    },
-  ],
-};
-
-const COMPETENCY_EMPTY: CompetencyResponse = { topics: [], patterns: [] };
+async function renderReady(body: InsightsResponse): Promise<void> {
+  mockInsights(body);
+  render(<Analytics />);
+  await screen.findByRole('heading', { name: 'Your problems' });
+}
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  // Default: no competency signals unless a test overrides it.
-  mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY_EMPTY);
+  vi.unstubAllGlobals();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
-describe('Analytics page', () => {
-  it('renders the status breakdown + per-topic bars from mocked APIs', async () => {
-    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
-    mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
-    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
-
+describe('Analytics v2', () => {
+  it('shows a loading state, then fetches GET /api/insights once', async () => {
+    const fetchFn = mockInsights(INSIGHTS_LOCKED);
     render(<Analytics />);
-
-    // Status breakdown chart is present (accessible SVG image).
-    const statusChart = await screen.findByRole('img', {
-      name: /problems by status/i,
-    });
-    expect(statusChart).toBeInTheDocument();
-
-    // Per-topic bars: one accessible SVG per topic, showing done/total + %.
-    expect(
-      screen.getByRole('img', {
-        name: /Arrays & Hashing: 1 of 2 done \(50%\)/i,
-      }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('img', {
-        name: /Two Pointers: 0 of 1 done \(0%\)/i,
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/loading/i);
+    await screen.findByRole('heading', { name: 'Your problems' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0]?.[0]).toBe('/api/insights');
   });
 
-  it('shows the overall summary with completed/total and per-status counts', async () => {
-    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
-    mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
-    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+  it('locked: donut has a text summary and center total', async () => {
+    await renderReady(INSIGHTS_LOCKED);
 
-    render(<Analytics />);
-
-    const summary = await screen.findByRole('region', {
-      name: /overall summary/i,
-    });
-    // Overall fraction + percent.
-    expect(within(summary).getByText('3 / 6')).toBeInTheDocument();
-    expect(within(summary).getByText(/50% done/i)).toBeInTheDocument();
-
-    // Per-status table rows carry the right labels + counts.
-    const table = within(summary).getByRole('table');
-    const doneRow = within(table).getByRole('row', { name: /Done/i });
-    // Done count is 3 (from byStatus.done).
-    expect(within(doneRow).getByText('3')).toBeInTheDocument();
+    const donut = screen.getByRole('img', { name: /problems by status/i });
+    expect(donut).toHaveAccessibleName(
+      /156 problems: 12 done, 3 to revisit, 1 didn't understand, 140 not started/,
+    );
+    expect(within(donut).getByText('156')).toBeInTheDocument();
   });
 
-  it('shows a friendly empty state (not a crash) when a DB is configured but nothing is tracked', async () => {
-    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
-    mockedApi.fetchProgress.mockResolvedValue(PROGRESS_EMPTY);
-    mockedApi.fetchCatalog.mockResolvedValue({
-      topics: [],
-      totals: { total: 0, byStatus: PROGRESS_EMPTY.byStatus },
+  it('donut center shows the sum of the four buckets, not status.total', async () => {
+    await renderReady({
+      ...INSIGHTS_LOCKED,
+      status: { ...INSIGHTS_LOCKED.status, total: 999 },
     });
+    const donut = screen.getByRole('img', { name: /problems by status/i });
+    expect(within(donut).getByText('156')).toBeInTheDocument();
+    expect(within(donut).queryByText('999')).not.toBeInTheDocument();
+  });
 
-    render(<Analytics />);
+  it('locked: only the legend counts, quiz CTA and tiles', async () => {
+    await renderReady(INSIGHTS_LOCKED);
 
-    expect(await screen.findByText(/no data yet/i)).toBeInTheDocument();
-    // Links back to the catalog (Home), not a crash.
-    const link = screen.getByRole('link', { name: /go to the catalog/i });
-    expect(link).toHaveAttribute('href', '/');
-    // No chart rendered in the empty state.
+    const legend = screen.getByRole('list', { name: 'Status counts' });
+    expect(legend).toHaveTextContent('Done12');
+    expect(legend).toHaveTextContent('To revisit3');
+    expect(legend).toHaveTextContent("Didn't understand1");
+    expect(legend).toHaveTextContent('Not started140');
+
     expect(
-      screen.queryByRole('img', { name: /problems by status/i }),
+      screen.getByText(/Take a quiz to see your gaps and patterns/),
+    ).toHaveTextContent('1 of 2 sessions done');
+    expect(screen.getByRole('link', { name: /take a quiz/i })).toHaveAttribute(
+      'href',
+      '/interview',
+    );
+    expect(screen.getAllByTestId('topic-tile')).toHaveLength(13);
+
+    for (const name of ['Focus next', 'Where you keep slipping', 'Strengths']) {
+      expect(screen.queryByRole('heading', { name })).not.toBeInTheDocument();
+    }
+  });
+
+  it('locked: ignores focus/slips/strengths even if the payload carries them', async () => {
+    await renderReady({ ...INSIGHTS_UNLOCKED, state: 'locked' });
+    expect(
+      screen.queryByRole('heading', { name: 'Focus next' }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText('Missed edge cases')).not.toBeInTheDocument();
   });
 
-  it('shows the create-database empty state when no DB is configured', async () => {
-    mockedApi.fetchConfig.mockResolvedValue(CONFIG_NO_DB);
+  it('unlocked: donut, focus, slips, strengths and tiles with their content', async () => {
+    await renderReady(INSIGHTS_UNLOCKED);
 
+    expect(
+      screen.getByRole('img', { name: /problems by status/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/sessions done/)).not.toBeInTheDocument();
+
+    const focus = screen
+      .getByRole('heading', { name: 'Focus next' })
+      .closest('section') as HTMLElement;
+    const rows = within(focus).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Graphs');
+    expect(rows[0]).toHaveTextContent('Weak');
+    expect(rows[0]).toHaveTextContent(
+      '4 of 6 quiz answers missed · 2 to revisit',
+    );
+    expect(rows[1]).toHaveTextContent('Improving');
+
+    const slips = screen
+      .getByRole('heading', { name: 'Where you keep slipping' })
+      .closest('section') as HTMLElement;
+    expect(within(slips).getByText('Missed edge cases')).toBeInTheDocument();
+    const count = within(slips).getByTestId('slip-count');
+    expect(count).toHaveTextContent('×5');
+    expect(within(count).getByText('5 times')).toHaveClass('sr-only');
+    expect(within(slips).getByText('Trees')).toHaveTextContent('Trees 3');
+    expect(within(slips).getByText('Graphs')).toHaveTextContent('Graphs 2');
+
+    const strengths = screen
+      .getByRole('heading', { name: 'Strengths' })
+      .closest('section') as HTMLElement;
+    expect(within(strengths).getByRole('listitem')).toHaveTextContent(
+      'Arrays 7 correct · 1 incorrect',
+    );
+
+    expect(screen.getAllByTestId('topic-tile')).toHaveLength(13);
+  });
+
+  it('unlocked: caps focus and slips at 3 rows and slip topics at 3', async () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      topicId: `t${i}`,
+      label: `T${i}`,
+      band: 'weak' as const,
+      reason: `${i} to revisit`,
+    }));
+    const slip = (
+      code: string,
+      n: number,
+    ): InsightsResponse['slips'][number] => ({
+      code,
+      label: `Slip ${code}`,
+      count: n,
+      lastSeen: '2026-09-29T18:00:00.000Z',
+      topics: many.map((t) => ({
+        topicId: t.topicId,
+        label: t.label,
+        count: 1,
+      })),
+    });
+    await renderReady({
+      ...INSIGHTS_UNLOCKED,
+      focus: many,
+      slips: [
+        slip('edge', 4),
+        slip('brute', 3),
+        slip('vague', 2),
+        slip('misread', 1),
+      ],
+    });
+    const focus = screen
+      .getByRole('heading', { name: 'Focus next' })
+      .closest('section') as HTMLElement;
+    expect(within(focus).getAllByRole('listitem')).toHaveLength(3);
+    const slips = screen
+      .getByRole('heading', { name: 'Where you keep slipping' })
+      .closest('section') as HTMLElement;
+    const items = within(slips).getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(within(items[0] as HTMLElement).getAllByText(/^T\d/)).toHaveLength(
+      3,
+    );
+  });
+
+  it('unlocked with empty sections shows a friendly line in each', async () => {
+    await renderReady({
+      ...INSIGHTS_UNLOCKED,
+      focus: [],
+      slips: [],
+      strengths: [],
+    });
+    for (const name of ['Focus next', 'Where you keep slipping', 'Strengths']) {
+      const section = screen
+        .getByRole('heading', { name })
+        .closest('section') as HTMLElement;
+      expect(section).toHaveTextContent(
+        'Not enough quiz data yet in this section.',
+      );
+    }
+    expect(
+      screen.getByText(/Slips are tagged from your next quiz/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId('topic-tile')).toHaveLength(13);
+  });
+
+  it('never lists a Focus topic under Strengths, and falls back to the topic id', async () => {
+    await renderReady({
+      ...INSIGHTS_UNLOCKED,
+      strengths: [
+        { topicId: 'graphs', label: 'Graphs', correct: 9, incorrect: 0 },
+        { topicId: 'heap', label: '', correct: 4, incorrect: 0 },
+      ],
+    });
+    const strengths = screen
+      .getByRole('heading', { name: 'Strengths' })
+      .closest('section') as HTMLElement;
+    const chips = within(strengths).getAllByRole('listitem');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent('heap 4 correct · 0 incorrect');
+  });
+
+  it('falls back to a client label for a slip without one, and a generic label for unknown codes', async () => {
+    const base = INSIGHTS_UNLOCKED.slips[0]!;
+    await renderReady({
+      ...INSIGHTS_UNLOCKED,
+      slips: [
+        { ...base, code: 'brute', label: '' },
+        { ...base, code: 'zzz-new', label: '' },
+      ],
+    });
+    expect(screen.getByText('Settled for brute force')).toBeInTheDocument();
+    expect(screen.getByText('Other slip')).toBeInTheDocument();
+    expect(screen.queryByText('zzz-new')).not.toBeInTheDocument();
+  });
+
+  it('renders duplicate slip codes without key collisions', async () => {
+    const errors = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const base = INSIGHTS_UNLOCKED.slips[0]!;
+    await renderReady({ ...INSIGHTS_UNLOCKED, slips: [base, base] });
+    expect(screen.getAllByText('Missed edge cases')).toHaveLength(2);
+    expect(
+      errors.mock.calls.some((c) => String(c[0]).includes('same key')),
+    ).toBe(false);
+    errors.mockRestore();
+  });
+
+  it('renders the 13 tiles in API order with labelled done/total', async () => {
+    await renderReady(INSIGHTS_LOCKED);
+    const tiles = screen.getAllByTestId('topic-tile');
+    expect(tiles.map((t) => t.getAttribute('aria-label'))).toEqual(
+      INSIGHTS_LOCKED.topics.map(
+        (t) => `${t.label}: ${t.done} of ${t.total} done`,
+      ),
+    );
+    expect(tiles.map((t) => t.textContent)).toEqual(
+      TOPIC_FIXTURE.map(([, label], i) => `${label}${i % 4}/${10 + i}`),
+    );
+  });
+
+  it('no_db: the create-your-database CTA, no donut', async () => {
+    mockInsights(INSIGHTS_NO_DB);
     render(<Analytics />);
-
-    expect(await screen.findByText(/no data yet/i)).toBeInTheDocument();
-    const cta = screen.getByRole('link', { name: /create your database/i });
-    expect(cta).toHaveAttribute('href', '/data');
-    // Progress/catalog are not even fetched when there is no DB.
-    expect(mockedApi.fetchProgress).not.toHaveBeenCalled();
-    expect(mockedApi.fetchCatalog).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole('heading', { name: 'No data yet' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /create your database/i }),
+    ).toHaveAttribute('href', '/data');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
-  it('shows an inline error (no crash) on a network/API failure', async () => {
-    mockedApi.fetchConfig.mockRejectedValue(new Error('network down'));
-
+  it('shows an error alert when the API fails', async () => {
+    mockInsights({}, 500);
     render(<Analytics />);
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /couldn't load your analytics/i,
     );
   });
 
-  it('shows a loading state before data resolves', () => {
-    // Never-resolving config keeps the page in the loading state.
-    mockedApi.fetchConfig.mockReturnValue(new Promise(() => {}));
-
-    render(<Analytics />);
-    expect(screen.getByRole('status')).toHaveTextContent(
-      /loading your analytics/i,
+  it('renders labels and reasons as text (XSS-safe)', async () => {
+    const evil = '<img src=x onerror="window.__pwned=1">';
+    await renderReady({
+      ...INSIGHTS_UNLOCKED,
+      topics: INSIGHTS_UNLOCKED.topics.map((t, i) =>
+        i === 0 ? { ...t, label: evil } : t,
+      ),
+      focus: [{ topicId: 'x', label: evil, band: 'weak', reason: evil }],
+      slips: [
+        {
+          ...INSIGHTS_UNLOCKED.slips[0]!,
+          label: evil,
+          topics: [{ topicId: 'x', label: evil, count: 1 }],
+        },
+      ],
+      strengths: [{ topicId: 'x', label: evil, correct: 1, incorrect: 0 }],
+    });
+    expect(document.querySelector('img[src="x"]')).toBeNull();
+    expect(screen.getAllByText(evil, { exact: false }).length).toBeGreaterThan(
+      3,
     );
-  });
-
-  it('renders the competency section: weak topic (red), strong topic (emerald), and a pattern', async () => {
-    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
-    mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
-    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
-    mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY);
-
-    render(<Analytics />);
-
-    const section = await screen.findByRole('region', {
-      name: /competency intelligence/i,
-    });
-
-    // Weak topic bar present + colored red (#ef4444).
-    const weak = within(section).getByRole('img', {
-      name: /Dynamic Programming: Weak, 1 correct, 4 incorrect/i,
-    });
-    expect(weak).toBeInTheDocument();
-    const weakFill = weak.querySelector('rect[fill="#ef4444"]');
-    expect(weakFill).not.toBeNull();
-
-    // Strong topic bar present + colored emerald (#22c55e).
-    const strong = within(section).getByRole('img', {
-      name: /Arrays & Hashing: Strong, 5 correct, 1 incorrect/i,
-    });
-    expect(strong).toBeInTheDocument();
-    const strongFill = strong.querySelector('rect[fill="#22c55e"]');
-    expect(strongFill).not.toBeNull();
-
-    // The recurring miss pattern appears (escaped text, verbatim).
-    expect(
-      within(section).getByText(
-        /Missed "Coin Change"; you reached for greedy/i,
-      ),
-    ).toBeInTheDocument();
-    // Occurrence count badge.
-    expect(within(section).getByText('×3')).toBeInTheDocument();
-    // Pattern topics show curriculum labels, not raw ids.
-    expect(
-      within(section).getByText('Dynamic Programming · Stack & Queue'),
-    ).toBeInTheDocument();
-    expect(within(section).queryByText(/dynamic-programming/)).toBeNull();
-  });
-
-  it('shows the competency empty state (with a quiz link) when there are no signals', async () => {
-    mockedApi.fetchConfig.mockResolvedValue(CONFIG_DB);
-    mockedApi.fetchProgress.mockResolvedValue(PROGRESS);
-    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
-    mockedApi.fetchCompetency.mockResolvedValue(COMPETENCY_EMPTY);
-
-    render(<Analytics />);
-
-    const section = await screen.findByRole('region', {
-      name: /competency intelligence/i,
-    });
-    expect(
-      within(section).getByText(
-        /take a quiz session to build your competency map/i,
-      ),
-    ).toBeInTheDocument();
-    const quizLink = within(section).getByRole('link', {
-      name: /start a quiz/i,
-    });
-    expect(quizLink).toHaveAttribute('href', '/interview');
   });
 });
