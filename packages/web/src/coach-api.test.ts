@@ -788,14 +788,42 @@ describe('POST /api/practice/reset (ADR 0013 D3)', () => {
     expect(after!.events[0]!.first).toBe(true);
   });
 
-  it('an adapter that ignores beforeDelete is not reported as backed up', async () => {
+  it('an adapter without the backup hook: 501 reset_unsupported, nothing backed up or deleted', async () => {
+    await check({ content: 'a' });
+    let called = false;
+    let backedUp = false;
     const legacy: StorageAdapter = Object.assign(
       new LocalFileStorageAdapter(tmpDir),
-      { resetPracticeSignals: async () => {} },
+      {
+        resetPracticeSignals: async () => {
+          called = true;
+        },
+      },
     );
-    const res = await reset(deps({ createStorage: () => legacy }));
-    expect(res.status).toBe(500);
-    expect(JSON.parse(res.body).code).toBe('reset_failed');
+    const res = await reset(
+      deps({
+        createStorage: () => legacy,
+        backup: async () => {
+          backedUp = true;
+          return '/b';
+        },
+      }),
+    );
+    expect(res.status).toBe(501);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'this storage cannot reset practice history safely',
+      code: 'reset_unsupported',
+    });
+    expect(called).toBe(false);
+    expect(backedUp).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, PRACTICE_SIGNALS_FILE))).toBe(true);
+    const none: StorageAdapter = Object.assign(
+      new LocalFileStorageAdapter(tmpDir),
+      { resetPracticeSignals: undefined },
+    );
+    const missing = await reset(deps({ createStorage: () => none }));
+    expect(missing.status).toBe(501);
+    expect(JSON.parse(missing.body).code).toBe('reset_unsupported');
   });
 
   it('400 bad confirm / no db; 409 read-only; 405 other methods', async () => {
