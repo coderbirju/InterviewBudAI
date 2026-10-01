@@ -172,6 +172,14 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Analytics is simpler and tells you what to focus on** (ADR 0012 D3). The
+  status bar chart is now a donut with counts, and per-topic completion is a
+  grid of 13 small tiles with progress rings. After 2 quiz sessions the page
+  adds **Focus next** (up to 3 topics and why), **Where you keep slipping**
+  (your most common kinds of quiz slip and the topics they show up in) and
+  **Strengths**. Before that it shows only your counts, the tiles and a link to
+  take a quiz. The old bar charts and competency bars are gone.
+
 - **Quiz prompts fit small local models** (ADR 0011 PR C). The Quiz Master
   instructions are shorter (same rules: never reveal the answer, at most one
   nudge, strict verdict JSON), the verdict is requested in JSON mode with at
