@@ -453,3 +453,9 @@ command was run and no model was pulled. **Unverified** items are marked.
   `user`; `healthcheck`)
 - [R12] https://docs.docker.com/reference/compose-file/interpolation/
   (nested `${A:-${B}}`; no `~` expansion documented)
+
+## Amendment pointer (2026-09-30) — ADR 0012
+
+ADR 0012 D2 tightens D4's prompt compaction: note cap 2 500 chars, statement
+1 200, answer 1 500, verdict `maxTokens` 256, prompt budget 1 800 tokens
+(worst case), and the current question's probe is now sent after a nudge.

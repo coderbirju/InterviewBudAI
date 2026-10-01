@@ -508,3 +508,10 @@ the web): guidance is deterministic and uses no model.
 
 **Storage impact:** none. No `StorageAdapter` change, no on-disk change
 (ADR 0009 D4: CHANGELOG `### Added` only).
+
+## Amendment pointer (2026-09-30) — ADR 0012
+
+ADR 0012 amends D4/D6 (optional miss tallies on `CompetencySignals` and
+`TopicCompetency`), D5 (optional `QuizTranscriptEntry.miss`), A2 (optional
+`miss` code in the verdict JSON; fail-closed on core fields only) and D9 Q4
+(Analytics v2). The A2/A3 verdict and one-nudge policy is unchanged.
