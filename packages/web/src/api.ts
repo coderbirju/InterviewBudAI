@@ -18,6 +18,9 @@
  *                           + recurring miss patterns); safe empty when no DB
  *   GET  /api/guidance    — where you stand per topic + next-up problems + quiz
  *                           nudge (derived at read time by core deriveGuidance)
+ *   GET  /api/insights    — Analytics v2: status, topic tiles, focus next,
+ *                           slips, strengths; unlocks after 2 counted quiz
+ *                           sessions (ADR 0012 D3)
  *   GET  /api/config      — { dbConfigured, dataDir?, provider }
  *   GET  /api/data-dir    — active folder, source, pinned, exists, noteCount,
  *                           formatVersion, legacyCandidates (ADR 0009 D1)
@@ -101,6 +104,8 @@ import {
   emptyCompetencySignals,
 } from './quiz.js';
 import type { ParsedVerdict, RandomSource } from './quiz.js';
+import { buildInsights } from './insights.js';
+import type { ApiInsightsResponse } from './insights.js';
 import { computeStatusCounts } from './render.js';
 import type { StatusCounts } from './render.js';
 import { directoryExists } from './config.js';
@@ -905,6 +910,14 @@ export async function handleApiRoute(
       return json(200, await buildGuidanceResponse(deps));
     }
 
+    // ----- /api/insights (GET, ADR 0012 D3) -----
+    if (pathname === '/api/insights') {
+      if (method !== 'GET') {
+        return json(405, { error: 'method not allowed' });
+      }
+      return json(200, await buildInsightsResponse(deps));
+    }
+
     // ----- /api/config (GET) -----
     if (pathname === '/api/config') {
       if (method !== 'GET') {
@@ -1643,6 +1656,62 @@ async function buildGuidanceResponse(
     })),
     quiz: guidance.quiz,
   };
+}
+
+/**
+ * Build GET /api/insights (ADR 0012 D3). Strictly read-only: note statuses
+ * (one pass), competency signals and the session list, then the pure
+ * {@link buildInsights}. `state` depends only on the counted sessions (an
+ * adapter without `listQuizSessions`, or a failing list, counts 0). Missing,
+ * unreadable or malformed signals empty the insight lists, never the state.
+ */
+async function buildInsightsResponse(
+  deps: ApiDeps,
+): Promise<ApiInsightsResponse> {
+  const now = nowDate(deps).toISOString() as IsoTimestamp;
+  const { storage } = resolveActiveStorage(deps);
+  if (!storage) {
+    return buildInsights({
+      problems: null,
+      notes: [],
+      signals: null,
+      countedSessions: 0,
+      now,
+    });
+  }
+  const problems = (await loadProblemSource(deps.catalog, storage)).list();
+  const notesById = await resolveStatuses(problems, storage);
+  let signals: CompetencySignals | null = null;
+  if (storage.readCompetencySignals) {
+    try {
+      const read: unknown = await storage.readCompetencySignals();
+      if (typeof read === 'object' && read !== null && !Array.isArray(read)) {
+        signals = canonicalizeSignals(read as CompetencySignals);
+      }
+    } catch {
+      signals = null;
+    }
+  }
+  let countedSessions = 0;
+  if (storage.listQuizSessions) {
+    try {
+      const sessions = await storage.listQuizSessions();
+      countedSessions = sessions.filter((s) => s.answeredCount >= 1).length;
+    } catch {
+      countedSessions = 0;
+    }
+  }
+  return buildInsights({
+    problems,
+    notes: Array.from(notesById, ([problemId, note]) => ({
+      problemId,
+      status: note.status,
+      lastUpdated: note.lastUpdated,
+    })),
+    signals,
+    countedSessions,
+    now,
+  });
 }
 
 /**
