@@ -472,26 +472,35 @@ async function resetPractice(
   if (!storage.resetPracticeSignals) {
     return json(501, { error: 'this storage cannot reset practice history' });
   }
-  // ADR 0009 D3: snapshot FIRST; a failed backup deletes nothing.
-  let backup: string;
+  // ADR 0009 D3: snapshot FIRST, inside the practice write queue (so a
+  // concurrent append is either in the backup or after the reset); a failed
+  // backup deletes nothing.
+  let backup: string | undefined;
   try {
-    backup = await (deps.backup ?? createBackup)(
-      deps.dataDir,
-      (deps.now ?? (() => new Date()))(),
-    );
-  } catch {
-    return json(500, {
-      error: 'Could not save a backup; practice history was not reset.',
-      code: 'backup_failed',
+    await storage.resetPracticeSignals(async () => {
+      backup = await (deps.backup ?? createBackup)(
+        deps.dataDir,
+        (deps.now ?? (() => new Date()))(),
+      );
     });
-  }
-  try {
-    await storage.resetPracticeSignals();
   } catch {
+    if (backup === undefined) {
+      return json(500, {
+        error: 'Could not save a backup; practice history was not reset.',
+        code: 'backup_failed',
+      });
+    }
     return json(500, {
       error: 'Could not reset practice history.',
       code: 'reset_failed',
       backup,
+    });
+  }
+  if (backup === undefined) {
+    // An adapter that ignored `beforeDelete` must not pass as backed up.
+    return json(500, {
+      error: 'Could not reset practice history.',
+      code: 'reset_failed',
     });
   }
   return json(200, { reset: true, backup });

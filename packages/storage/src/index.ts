@@ -776,8 +776,13 @@ export interface StorageAdapter {
    * Delete the practice log (events AND `seen`). Missing ⇒ no-op. Shares the
    * append's write queue, so a reset and an append never interleave. Touches
    * only `practice-signals.json` (never the `.corrupt-*` files).
+   *
+   * `beforeDelete` (the caller's ADR 0009 D3 backup) MUST run first, INSIDE
+   * the same queue: an append is then either in the backup or lands after
+   * the reset, never lost in between. If it throws, nothing is deleted and
+   * its error propagates.
    */
-  resetPracticeSignals?(): Promise<void>;
+  resetPracticeSignals?(beforeDelete?: () => Promise<void>): Promise<void>;
 }
 
 export * from './custom-problems.js';

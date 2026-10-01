@@ -851,8 +851,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
   }
 
   /** Queued delete of `practice-signals.json` only. */
-  async resetPracticeSignals(): Promise<void> {
-    return resetPracticeSignalsFile(this.practicePath());
+  async resetPracticeSignals(
+    beforeDelete?: () => Promise<void>,
+  ): Promise<void> {
+    return resetPracticeSignalsFile(this.practicePath(), beforeDelete);
   }
 
   // -------------------------------------------------------------------------
