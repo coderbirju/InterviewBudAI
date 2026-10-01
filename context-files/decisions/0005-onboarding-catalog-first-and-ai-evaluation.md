@@ -3,7 +3,7 @@
 - **Status:** Accepted — D6's generic interview UI superseded by ADR 0007 (D8)
 - **Date:** 2026-09-13
 - **Deciders:** Founder, Architect
-- **Supersedes:** ADR 0004 (partially — removes the zero-config demo-provider fallback path; see D6)
+- **Supersedes:** the former ADR 0004 (demo provider, removed 2026-09-30; see git history) (partially — removes the zero-config demo-provider fallback path; see D6)
 
 ## Context
 
@@ -161,8 +161,8 @@ The interview is a real LLM conversation through the UI: the model asks, the
 user answers, the model responds/evaluates/probes and drives the session.
 
 **REMOVE** (in a follow-up PR) the self-assessment (user marks pass/fail) model
-AND the zero-config `EchoDemoProvider` fallback path — this **SUPERSEDES ADR
-0004's demo-provider decision**.
+AND the zero-config `EchoDemoProvider` fallback path — this **SUPERSEDES the former ADR
+0004's demo-provider decision** (ADR 0004 removed 2026-09-30; see git history).
 
 A provider is now REQUIRED; with no provider configured the app INSTRUCTS the
 user to configure one (no fake/demo fallback).
@@ -222,7 +222,7 @@ Each is a small PR the Architect will follow.
   extensibility via HTTP core.
 
 - **Tradeoff:** A provider is now REQUIRED (no zero-config demo) — accepted
-  deliberately; supersedes ADR 0004.
+  deliberately; supersedes the former ADR 0004 (removed 2026-09-30).
 
 - **Addition:** Additive `StorageAdapter` methods + `IntuitionNote` type
   (optional now, required after impl PR).
