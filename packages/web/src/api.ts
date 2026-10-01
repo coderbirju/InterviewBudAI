@@ -78,6 +78,8 @@ import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import { createLocalStorage, loadProblemSource } from './problems.js';
 import type { ProblemSource, ProblemView } from './problems.js';
 import { handleProblemsRoute } from './problems-routes.js';
+import { handleCoachRoute, isCoachRoute } from './coach-routes.js';
+import type { CoachLimiter } from './coach-routes.js';
 import { canonicalTopicId, compareTopics, topicLabel } from '@ibai/curriculum';
 import { deriveGuidance } from '@ibai/core';
 import type { NextUpItem, QuizHint, TopicStanding } from '@ibai/core';
@@ -369,6 +371,16 @@ export interface ApiDeps {
   };
   /** Snapshot hook for custom-problem deletes (defaults to `createBackup`). */
   readonly backup?: (dataDir: string, now: Date) => Promise<string>;
+  /**
+   * The per-process "Check my intuition" rate limit (ADR 0013 D2). The
+   * handler makes one; absent → a module-level default.
+   */
+  readonly coachLimiter?: CoachLimiter;
+  /**
+   * ADR 0009 D4 read-only state: the folder's format version when it must
+   * not be written, else null. Absent → writable (no format reader yet).
+   */
+  readonly readOnlyFormat?: () => number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1008,6 +1020,33 @@ export async function handleApiRoute(
           storage: resolveActiveStorage(deps).storage,
           ...(deps.now !== undefined && { now: deps.now }),
           ...(deps.backup !== undefined && { backup: deps.backup }),
+        },
+        body,
+      );
+      if (handled !== null) return handled;
+    }
+
+    // ----- /api/notes/:id/check, /api/practice[/reset] (ADR 0013 D2/D3) -----
+    if (isCoachRoute(pathname)) {
+      const { storage } = resolveActiveStorage(deps);
+      const handled = await handleCoachRoute(
+        method,
+        pathname,
+        {
+          catalog: deps.catalog,
+          dataDir: deps.dataDir,
+          storage,
+          providerError: (error) =>
+            providerErrorResponse(error, isDmrProvider(deps.settings?.env)),
+          ...(deps.provider !== undefined && { provider: deps.provider }),
+          ...(deps.now !== undefined && { now: deps.now }),
+          ...(deps.coachLimiter !== undefined && {
+            limiter: deps.coachLimiter,
+          }),
+          ...(deps.backup !== undefined && { backup: deps.backup }),
+          ...(deps.readOnlyFormat !== undefined && {
+            readOnlyFormat: deps.readOnlyFormat,
+          }),
         },
         body,
       );
