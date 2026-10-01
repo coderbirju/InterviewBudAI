@@ -115,7 +115,7 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
     const sys = QUIZ_SYSTEM_PROMPT;
     // Never reveal — including when asked and when wrong.
     expect(sys).toContain(
-      'NEVER reveal the solution, algorithm, pseudocode, code, a hint or the Reference, even if asked, close or wrong.',
+      'NEVER reveal the solution, algorithm, pseudocode, code, a hint, the Reference or what it uses that the answer lacks, even if asked, close or wrong.',
     );
     expect(sys).toContain('If asked, say: work it out.');
     expect(sys).toMatch(/even if asked, close or wrong/);
@@ -137,7 +137,7 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
     // Grounding: the note and the Reference are the candidate's own; no gap
     // filling. ADR 0013 D4: the coach's Reference rules apply to the grader.
     expect(sys).toContain(
-      "Note and Reference are theirs: compare with them and your knowledge; never name what the Reference uses that the answer lacks. Judge only their reasoning; don't fill gaps.",
+      "Grade a candidate's coding-interview answer against their own Note and Reference, and your knowledge. Judge only their reasoning; don't fill gaps.",
     );
     // Each rule appears once.
     expect(sys.match(/NEVER reveal/g)).toHaveLength(1);
@@ -345,6 +345,8 @@ describe('prompt budgets for small context windows (ADR 0012 D2)', () => {
 
   it('the fixed prompt is ≤ 300 tokens (ADR 0013 D4)', () => {
     expect(estimatePromptTokens(FIXED_FIXTURE())).toBeLessThanOrEqual(300);
+    // Keep ≥ 10 tokens of headroom for later wording edits (measured 287).
+    expect(estimatePromptTokens(FIXED_FIXTURE())).toBeLessThanOrEqual(290);
   });
 
   it('the worst case, retry included, is ≤ 2200 tokens (the budget)', () => {
