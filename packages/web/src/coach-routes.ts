@@ -469,8 +469,17 @@ async function resetPractice(
       code: 'read_only',
     });
   }
-  if (!storage.resetPracticeSignals) {
-    return json(501, { error: 'this storage cannot reset practice history' });
+  // The backup hook is REQUIRED on this path: an adapter whose reset takes
+  // no `beforeDelete` could delete before (or without) the backup, so it is
+  // refused before anything is touched (PR #88 re-review).
+  if (
+    !storage.resetPracticeSignals ||
+    storage.resetPracticeSignals.length < 1
+  ) {
+    return json(501, {
+      error: 'this storage cannot reset practice history safely',
+      code: 'reset_unsupported',
+    });
   }
   // ADR 0009 D3: snapshot FIRST, inside the practice write queue (so a
   // concurrent append is either in the backup or after the reset); a failed
