@@ -59,11 +59,15 @@ import type {
   CompetencySignals,
   TopicId,
   TopicStrength,
+  MissCode,
 } from '@ibai/storage';
 import {
   isNoteStatus,
   resolveNoteStatus,
   deriveTopicStrength,
+  MISS_CODES,
+  sanitizeMisses,
+  sanitizeTopicMisses,
 } from '@ibai/storage';
 import type { CurriculumSource, Problem } from '@ibai/curriculum';
 import { createLocalStorage, loadProblemSource } from './problems.js';
@@ -1655,7 +1659,12 @@ export function canonicalizeSignals(
   const rawTopics: unknown = signals?.topics;
   const merged = new Map<
     TopicId,
-    { correct: number; incorrect: number; lastSeen: string | undefined }
+    {
+      correct: number;
+      incorrect: number;
+      lastSeen: string | undefined;
+      misses: Partial<Record<MissCode, number>>;
+    }
   >();
   if (typeof rawTopics === 'object' && rawTopics !== null) {
     for (const [key, value] of Object.entries(rawTopics)) {
@@ -1672,9 +1681,16 @@ export function canonicalizeSignals(
         correct: 0,
         incorrect: 0,
         lastSeen: undefined,
+        misses: {},
       };
       acc.correct += num(t['correct']);
       acc.incorrect += num(t['incorrect']);
+      // ADR 0012 D1: per-topic miss counts fold through aliases too (summed).
+      const misses = sanitizeTopicMisses(t['misses']) ?? {};
+      for (const code of MISS_CODES) {
+        const n = misses[code];
+        if (n !== undefined) acc.misses[code] = (acc.misses[code] ?? 0) + n;
+      }
       if (
         seen !== undefined &&
         (acc.lastSeen === undefined || laterIso(seen, acc.lastSeen))
@@ -1697,6 +1713,7 @@ export function canonicalizeSignals(
       incorrect: acc.incorrect,
       lastSeen: acc.lastSeen as IsoTimestamp,
       strength: deriveTopicStrength(acc.correct, acc.incorrect),
+      ...(Object.keys(acc.misses).length > 0 && { misses: acc.misses }),
     };
   }
   // Pattern topics are mapped the same way. A pattern that listed topics but
@@ -1721,7 +1738,9 @@ export function canonicalizeSignals(
         return [{ ...p, topics: mapped }];
       })
     : [];
-  return { ...signals, topics, patterns };
+  const { misses: rawMisses, ...rest } = signals ?? {};
+  const misses = sanitizeMisses(rawMisses);
+  return { ...rest, topics, patterns, ...(misses && { misses }) };
 }
 
 /** `a` is strictly later than `b` (parsed dates; unparseable never wins). */

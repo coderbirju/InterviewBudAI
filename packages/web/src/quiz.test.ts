@@ -95,7 +95,10 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
   it('sends two messages: the system prompt, then one data-only user message', () => {
     const messages = buildQuizPrompt({ problem: PROBLEM, answer: 'x' });
     expect(messages).toHaveLength(2);
-    expect(messages[0]).toEqual({ role: 'system', content: QUIZ_SYSTEM_PROMPT });
+    expect(messages[0]).toEqual({
+      role: 'system',
+      content: QUIZ_SYSTEM_PROMPT,
+    });
     expect(QUIZ_SYSTEM_PROMPT).toBe(
       `${QUIZ_MASTER_PERSONA}\n${VERDICT_JSON_INSTRUCTION}`,
     );
@@ -172,7 +175,7 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
     const withStatement = buildQuizPrompt({ problem: custom, answer: 'x' })[1]!
       .content;
     expect(withStatement).toContain(
-      "Custom problem (the candidate's own; judge by its statement, else the title): Book problem (easy; arrays, hashmap)\nStatement:\n\"\"\"\nFind the pair.\n\"\"\"\n",
+      'Custom problem (the candidate\'s own; judge by its statement, else the title): Book problem (easy; arrays, hashmap)\nStatement:\n"""\nFind the pair.\n"""\n',
     );
     const noStatement = buildQuizPrompt({
       problem: { ...custom, statement: undefined } as unknown as Problem,
@@ -192,7 +195,7 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
       probe: 'What about duplicates?',
     })[1]!.content;
     expect(user).toContain(
-      'Answer:\n"""\nsecond try\n"""\nFIRST ANSWER:\n"""\nfirst try\n"""\nPROBE GIVEN:\n"""\nWhat about duplicates?\n"""',
+      'Note: none\nFIRST ANSWER:\n"""\nfirst try\n"""\nPROBE GIVEN:\n"""\nWhat about duplicates?\n"""\nAnswer:\n"""\nsecond try\n"""',
     );
     const L = QUIZ_PROMPT_LIMITS;
     const long = buildQuizPrompt({
@@ -201,10 +204,15 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
       firstAnswer: `F${'f'.repeat(5000)}END`,
       probe: `P${'p'.repeat(5000)}`,
     })[1]!.content;
-    expect(long).toMatch(/\[… probe truncated: \d+ more characters not shown\]/);
+    expect(long).toMatch(
+      /\[… probe truncated: \d+ more characters not shown\]/,
+    );
     expect(long).toContain('"""\nF');
     expect(long).toContain('END\n"""');
-    const probeBlock = long.slice(long.indexOf('PROBE GIVEN:'));
+    const probeBlock = long.slice(
+      long.indexOf('PROBE GIVEN:'),
+      long.indexOf('Answer:'),
+    );
     expect(probeBlock).toContain(`P${'p'.repeat(L.probeMax - 1)}\n[…`);
     // A first answer without a probe is never sent.
     const noProbe = buildQuizPrompt({
@@ -218,16 +226,24 @@ describe('buildQuizPrompt (ADR 0012 D2)', () => {
 
 describe('prompt budgets for small context windows (ADR 0012 D2)', () => {
   const L = QUIZ_PROMPT_LIMITS;
-  /** Fixed: catalog problem, 40-char title, no note, 1-char answer, no probe. */
+  /**
+   * Fixed: catalog problem, 40-char title, one topic, no note, 1-char answer,
+   * no probe, no retry.
+   */
   const FIXED_FIXTURE = (): PromptMessage[] =>
     buildQuizPrompt({
-      problem: { ...PROBLEM, title: 'T'.repeat(40) },
+      problem: {
+        ...PROBLEM,
+        title: 'T'.repeat(40),
+        difficulty: 'medium',
+        topics: ['dynamic-programming'],
+      },
       answer: 'x',
     });
   /**
-   * Worst: custom problem with every cap hit (title, 5 of 7 topics, statement,
-   * note, answer, first answer, probe — all with markers and `"""` noise),
-   * plus the retry reminder.
+   * Worst: custom problem with every cap hit (title, 5 of 7 topics — the
+   * five LONGEST real ids — statement, note, answer, first answer, probe, all
+   * with markers and `"""` noise), plus the retry reminder.
    */
   const worstProblem = {
     id: 'u-worst',
@@ -236,9 +252,9 @@ describe('prompt budgets for small context windows (ADR 0012 D2)', () => {
     topics: [
       'dynamic-programming',
       'binary-search',
-      'linked-list',
-      'graphs',
       'backtracking',
+      'linked-list',
+      'recursion',
       'x',
       'y',
     ],
@@ -294,27 +310,44 @@ describe('prompt budgets for small context windows (ADR 0012 D2)', () => {
     ).toBeLessThanOrEqual(4096);
   });
 
+  it('sanity: worst case + the 256-token reply < 3840 even at a pessimistic chars/3', () => {
+    const pessimistic = withVerdictRetryReminder(WORST_FIXTURE()).reduce(
+      (sum, m) => sum + Math.ceil(m.content.length / 3) + 4,
+      0,
+    );
+    expect(pessimistic + QUIZ_VERDICT_MAX_TOKENS).toBeLessThan(3840);
+  });
+
+  it('truncation markers stay ≤ 60 characters', () => {
+    const user = WORST_FIXTURE()[1]!.content;
+    const markers = user.match(/\[…[^\]]*\]/g) ?? [];
+    expect(markers.length).toBeGreaterThanOrEqual(6);
+    for (const m of markers) expect(m.length).toBeLessThanOrEqual(60);
+  });
+
   it('caps every block with clear markers and keeps delimiting', () => {
     const user = WORST_FIXTURE()[1]!.content;
     expect(user).toMatch(/\[… note truncated: \d+ more characters not shown\]/);
     expect(user).toMatch(
       /\[… statement truncated: \d+ more characters not shown\]/,
     );
-    expect(user).toMatch(/\[… probe truncated: \d+ more characters not shown\]/);
+    expect(user).toMatch(
+      /\[… probe truncated: \d+ more characters not shown\]/,
+    );
     // The title stays on the single problem line (ADR 0010).
     expect(user).toMatch(
       /: T{200} \[… title truncated: 300 more characters not shown\] \(medium; /,
     );
     expect(user).toMatch(/\[… \d+ characters of the answer not shown …\]/);
-    // The answer keeps its conclusion.
-    expect(user).toContain('THE-END\n"""');
+    // The answer keeps its conclusion and comes last.
+    expect(user.endsWith('THE-END\n"""')).toBe(true);
     // `"""` inside candidate text is neutralised; only our 10 delimiters
     // (statement, note, answer, first answer, probe) remain, each on its own line.
     expect(user.match(/"""/g)).toHaveLength(10);
     expect(user).not.toMatch(/[^\n]"""|"""[^\n]/);
     // At most 5 topics.
     expect(user).toContain(
-      '(medium; dynamic-programming, binary-search, linked-list, graphs, backtracking)\n',
+      '(medium; dynamic-programming, binary-search, backtracking, linked-list, recursion)\n',
     );
   });
 
@@ -743,7 +776,13 @@ describe('miss codes (ADR 0012 D1)', () => {
     const presented = appendAssistantTurn(makeSession(), 'Two Sum (easy)', AT);
     expect(currentProbeMiss(presented)).toBeUndefined();
     expect(currentFirstAnswer(presented)).toBeNull();
-    const nudged = appendNudgeTurn(presented, 'first', 'Why?', AT_LATER, 'edge');
+    const nudged = appendNudgeTurn(
+      presented,
+      'first',
+      'Why?',
+      AT_LATER,
+      'edge',
+    );
     expect(nudged.transcript[2]).toEqual({
       role: 'assistant',
       content: 'Why?',

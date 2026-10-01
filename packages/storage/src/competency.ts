@@ -63,11 +63,7 @@ export function isMissCode(value: unknown): value is MissCode {
 }
 
 function isCount(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isInteger(value) &&
-    value > 0
-  );
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 /**

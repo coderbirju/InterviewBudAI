@@ -75,7 +75,7 @@ export const QUIZ_MASTER_PERSONA =
 export const VERDICT_JSON_INSTRUCTION =
   'Reply with only JSON:\n' +
   '{"verdict":"correct|on_track|incorrect","feedback":"max 2 short sentences","miss":"code","optimalNudge":"optional, 1 sentence"}\n' +
-  'miss (on_track/incorrect; on correct only brute): edge (edge cases), complexity (time/space), brute (brute force), technique (wrong approach), vague, boundary (off-by-one), misread.';
+  'miss (on_track/incorrect; on correct only brute): edge, complexity (time/space), brute (brute force), technique (wrong approach), vague, boundary (off-by-one), misread.';
 
 /** The full system message: rules once, then the reply template. */
 export const QUIZ_SYSTEM_PROMPT = `${QUIZ_MASTER_PERSONA}\n${VERDICT_JSON_INSTRUCTION}`;
@@ -303,8 +303,8 @@ export function buildQuizPrompt(ctx: QuizPromptContext): PromptMessage[] {
     'note',
   );
   user += note.length > 0 ? `Note:\n${block(note)}\n` : 'Note: none\n';
-  const answer = capHeadTail(neutralizeDelimiters(ctx.answer.trim()), L.answerMax);
-  user += `Answer:\n${block(answer)}`;
+  // After a nudge: this question's first answer and the probe, then the
+  // answer being graded (ADR 0012 D2).
   const probe = capHead(
     neutralizeDelimiters((ctx.probe ?? '').trim()),
     L.probeMax,
@@ -316,10 +316,15 @@ export function buildQuizPrompt(ctx: QuizPromptContext): PromptMessage[] {
       L.firstAnswerMax,
     );
     if (first.length > 0) {
-      user += `\nFIRST ANSWER:\n${block(first)}`;
+      user += `FIRST ANSWER:\n${block(first)}\n`;
     }
-    user += `\nPROBE GIVEN:\n${block(probe)}`;
+    user += `PROBE GIVEN:\n${block(probe)}\n`;
   }
+  const answer = capHeadTail(
+    neutralizeDelimiters(ctx.answer.trim()),
+    L.answerMax,
+  );
+  user += `Answer:\n${block(answer)}`;
   return [
     { role: 'system', content: QUIZ_SYSTEM_PROMPT },
     { role: 'user', content: user },
