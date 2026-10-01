@@ -77,33 +77,40 @@ type CheckState =
     }
   | { readonly kind: 'error'; readonly message: string };
 
-function textOf(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
 function snapshotOf(props: IntuitionCheckProps): string {
   return JSON.stringify([
-    textOf(props.content),
-    textOf(props.timeComplexity),
-    textOf(props.spaceComplexity),
-    textOf(props.referenceApproach),
+    props.content,
+    props.timeComplexity,
+    props.spaceComplexity,
+    props.referenceApproach ?? '',
   ]);
 }
 
 export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
-  const { problemId, referenceApproach, status } = props;
-  // Defensive: a partial note payload must not crash the editor.
-  const content = textOf(props.content);
-  const timeComplexity = textOf(props.timeComplexity);
-  const spaceComplexity = textOf(props.spaceComplexity);
+  const {
+    problemId,
+    content,
+    timeComplexity,
+    spaceComplexity,
+    referenceApproach,
+    status,
+  } = props;
 
   // null = unknown (settings not loaded / failed): the server decides.
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
   const [state, setState] = useState<CheckState>({ kind: 'idle' });
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  // Bumped per request and on problem change so late replies are dropped.
+  // Bumped per request, on problem change and on unmount so late replies are
+  // dropped (never setState after unmount or for a different problem).
   const requestId = useRef(0);
+  // Explicit in-flight guard (on top of `disabled`): one request at a time,
+  // even if onCheck fires twice before React re-renders.
+  const inFlight = useRef(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const hintRef = useRef<HTMLSpanElement>(null);
+  // Set when a no_provider reply disabled the button the user was on.
+  const focusHintPending = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,8 +129,14 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
   // Leaving the problem clears the panel (nothing is kept anywhere).
   useEffect(() => {
     requestId.current += 1;
+    inFlight.current = false;
     setState({ kind: 'idle' });
     setCooldownUntil(0);
+    return () => {
+      // Problem change or unmount: any reply still in flight is now stale.
+      requestId.current += 1;
+      inFlight.current = false;
+    };
   }, [problemId]);
 
   // Tick once a second while a rate-limit cooldown is running.
@@ -152,11 +165,22 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
         : null;
   const disabled = disabledHint !== null || loading || coolingDown;
 
+  // The button can't keep focus once disabled: hand it to the hint so the
+  // keyboard user lands on the explanation (also announced via the live region).
+  useEffect(() => {
+    if (focusHintPending.current && disabledHint !== null) {
+      focusHintPending.current = false;
+      hintRef.current?.focus();
+    }
+  }, [disabledHint]);
+
   const onCheck = useCallback(async (): Promise<void> => {
+    if (inFlight.current) return;
     if (content.trim() === '') {
       setState({ kind: 'error', message: EMPTY_NOTE_HINT });
       return;
     }
+    inFlight.current = true;
     const id = ++requestId.current;
     const snapshot = currentSnapshot;
     setState({ kind: 'loading' });
@@ -180,6 +204,11 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
         return;
       }
       if (err.code === 'no_provider') {
+        const active = document.activeElement;
+        focusHintPending.current =
+          active === null ||
+          active === document.body ||
+          active === buttonRef.current;
         setProviderReady(false);
         setState({ kind: 'idle' });
       } else if (err.code === 'model_unavailable' || err.status === 503) {
@@ -200,6 +229,8 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
       } else {
         setState({ kind: 'error', message: err.message });
       }
+    } finally {
+      if (id === requestId.current) inFlight.current = false;
     }
   }, [
     problemId,
@@ -221,6 +252,7 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
     <>
       <span className="inline-flex flex-wrap items-center gap-2">
         <button
+          ref={buttonRef}
           type="button"
           onClick={() => void onCheck()}
           disabled={disabled}
@@ -240,9 +272,23 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
           )}
           {label}
         </button>
-        {(disabledHint !== null || coolingDown) && (
+        {/* Always mounted so a hint that appears later (e.g. no_provider) is
+            announced politely. The ticking countdown stays outside it. */}
+        <span aria-live="polite" data-testid="intuition-check-hint-live">
+          {disabledHint !== null && (
+            <span
+              id="intuition-check-hint"
+              ref={hintRef}
+              tabIndex={-1}
+              className="text-xs text-slate-400 outline-none"
+            >
+              {disabledHint}
+            </span>
+          )}
+        </span>
+        {disabledHint === null && coolingDown && (
           <span id="intuition-check-hint" className="text-xs text-slate-400">
-            {disabledHint ?? `Try again in ${Math.ceil(cooldownMs / 1000)}s.`}
+            {`Try again in ${Math.ceil(cooldownMs / 1000)}s.`}
           </span>
         )}
       </span>

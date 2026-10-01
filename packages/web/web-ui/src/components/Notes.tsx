@@ -141,7 +141,8 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
         const note = result as FullNote;
         // Pre-fill the form from the saved note.
         setStatus(note.status);
-        setContent(note.content);
+        // Defensive at the boundary: a partial payload must not crash the editor.
+        setContent(note.content ?? '');
         setTimeComplexity(note.timeComplexity ?? '');
         setSpaceComplexity(note.spaceComplexity ?? '');
         setLoad({ kind: 'ready', note });
@@ -185,7 +186,7 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
       });
       // Reconcile local state with what the server persisted.
       setStatus(persisted.status);
-      setContent(persisted.content);
+      setContent(persisted.content ?? '');
       setTimeComplexity(persisted.timeComplexity ?? '');
       setSpaceComplexity(persisted.spaceComplexity ?? '');
       setLoad({ kind: 'ready', note: persisted });
