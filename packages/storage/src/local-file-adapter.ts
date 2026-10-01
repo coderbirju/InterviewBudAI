@@ -56,6 +56,11 @@ import type {
   CustomProblem,
 } from './index.js';
 import { resolveNoteStatus, isNoteStatus } from './index.js';
+import {
+  isMissCode,
+  sanitizeMisses,
+  sanitizeTopicMisses,
+} from './competency.js';
 import { isCustomProblemId, parseCustomProblem } from './custom-problems.js';
 import type { CustomTopicMapper } from './custom-problems.js';
 
@@ -224,6 +229,44 @@ function isCompetencySignals(value: unknown): value is CompetencySignals {
     return false;
   }
   return typeof lastUpdated === 'string';
+}
+
+/**
+ * Drop an unknown/malformed optional `miss` from transcript entries (ADR 0012
+ * D1: unknown codes read from disk are ignored). Same object when clean.
+ */
+function normalizeQuizSession(session: QuizSession): QuizSession {
+  const dirty = session.transcript.some(
+    (e) => 'miss' in e && !isMissCode(e.miss),
+  );
+  if (!dirty) return session;
+  return {
+    ...session,
+    transcript: session.transcript.map((e) => {
+      if (!('miss' in e) || isMissCode(e.miss)) return e;
+      const { miss: _drop, ...rest } = e;
+      void _drop;
+      return rest;
+    }),
+  };
+}
+
+/**
+ * Keep only valid optional miss tallies (global + per topic, ADR 0012 D1);
+ * malformed or unknown entries are dropped, never fail the whole dataset.
+ */
+function normalizeCompetencySignals(
+  signals: CompetencySignals,
+): CompetencySignals {
+  const topics: Record<string, TopicCompetency> = {};
+  for (const [key, topic] of Object.entries(signals.topics)) {
+    const { misses: rawTopicMisses, ...rest } = topic;
+    const misses = sanitizeTopicMisses(rawTopicMisses);
+    topics[key] = misses ? { ...rest, misses } : rest;
+  }
+  const { misses: rawMisses, ...rest } = signals;
+  const misses = sanitizeMisses(rawMisses);
+  return { ...rest, topics, ...(misses && { misses }) };
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +610,7 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       const content = await readFile(filePath, 'utf-8');
       const parsed: unknown = JSON.parse(content);
       if (isQuizSession(parsed)) {
-        return parsed;
+        return normalizeQuizSession(parsed);
       }
       // Malformed data -> null (never throw).
       return null;
@@ -751,7 +794,7 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       const content = await readFile(filePath, 'utf-8');
       const parsed: unknown = JSON.parse(content);
       if (isCompetencySignals(parsed)) {
-        return parsed;
+        return normalizeCompetencySignals(parsed);
       }
       // Malformed data -> empty.
       return emptySignals;

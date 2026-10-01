@@ -85,6 +85,9 @@ import {
   nudgeAlreadyUsed,
   ensureCurrentQuestionPresented,
   currentProbe,
+  currentProbeMiss,
+  currentFirstAnswer,
+  questionMiss,
   presentProblem,
   currentProblemId,
   skipToResolvable,
@@ -1404,7 +1407,15 @@ export async function handleApiRoute(
       try {
         verdict = await evaluateVerdict(
           deps.provider,
-          buildQuizPrompt({ problem, intuition, answer }),
+          // ADR 0012 D2: only this question's turns — after a nudge, its
+          // first answer + the probe; never session history.
+          buildQuizPrompt({
+            problem,
+            intuition,
+            answer,
+            probe: currentProbe(session),
+            firstAnswer: currentFirstAnswer(session),
+          }),
         );
       } catch (error) {
         // Malformed model output (twice) → fail closed: NO writes.
@@ -1429,7 +1440,13 @@ export async function handleApiRoute(
       // the same question, record the answer + probe in the transcript (so the
       // nudge is counted and survives resume), do NOT advance or write outcomes.
       if (verdict.verdict === 'on_track' && !coerceToIncorrect) {
-        const updated = appendNudgeTurn(session, answer, verdict.feedback, at);
+        const updated = appendNudgeTurn(
+          session,
+          answer,
+          verdict.feedback,
+          at,
+          verdict.miss,
+        );
         await storage.writeQuizSession(updated);
         return json(200, {
           verdict: 'on_track',
@@ -1484,6 +1501,8 @@ export async function handleApiRoute(
         problemTitle: problem.title,
         intuition,
         at,
+        // ADR 0012 D1: one miss per question (terminal ?? probe ?? none).
+        miss: questionMiss(verdict.miss, currentProbeMiss(session)),
       });
       await storage.writeCompetencySignals(updatedSignals);
 

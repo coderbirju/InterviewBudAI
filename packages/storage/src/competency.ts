@@ -8,7 +8,12 @@
  * working.
  */
 
-import type { TopicStrength } from './index.js';
+import type {
+  IsoTimestamp,
+  MissCode,
+  MissTally,
+  TopicStrength,
+} from './index.js';
 
 /**
  * Derive a {@link TopicStrength} band from correct/incorrect tallies.
@@ -37,4 +42,75 @@ export function deriveTopicStrength(
     return 'weak';
   }
   return 'improving';
+}
+
+/** Every {@link MissCode}, in display order (ADR 0012 D1). */
+export const MISS_CODES: readonly MissCode[] = [
+  'edge',
+  'complexity',
+  'brute',
+  'technique',
+  'vague',
+  'boundary',
+  'misread',
+];
+
+const MISS_CODE_SET: ReadonlySet<string> = new Set(MISS_CODES);
+
+/** True when `value` is exactly one of {@link MISS_CODES}. */
+export function isMissCode(value: unknown): value is MissCode {
+  return typeof value === 'string' && MISS_CODE_SET.has(value);
+}
+
+function isCount(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0
+  );
+}
+
+/**
+ * Keep only valid global miss tallies (known code, positive integer `count`,
+ * string `lastSeen`); `undefined` when none survive. Data on disk is
+ * untrusted: unknown codes and malformed entries are ignored (ADR 0012 D1).
+ */
+export function sanitizeMisses(
+  value: unknown,
+): Partial<Record<MissCode, MissTally>> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const out: Partial<Record<MissCode, MissTally>> = {};
+  let any = false;
+  for (const code of MISS_CODES) {
+    const t: unknown = (value as Record<string, unknown>)[code];
+    if (typeof t !== 'object' || t === null) continue;
+    const { count, lastSeen } = t as Record<string, unknown>;
+    if (!isCount(count) || typeof lastSeen !== 'string') continue;
+    out[code] = { count, lastSeen: lastSeen as IsoTimestamp };
+    any = true;
+  }
+  return any ? out : undefined;
+}
+
+/**
+ * Keep only valid per-topic miss counts (known code, positive integer);
+ * `undefined` when none survive.
+ */
+export function sanitizeTopicMisses(
+  value: unknown,
+): Partial<Record<MissCode, number>> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const out: Partial<Record<MissCode, number>> = {};
+  let any = false;
+  for (const code of MISS_CODES) {
+    const n: unknown = (value as Record<string, unknown>)[code];
+    if (!isCount(n)) continue;
+    out[code] = n;
+    any = true;
+  }
+  return any ? out : undefined;
 }
