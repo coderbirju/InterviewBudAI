@@ -453,6 +453,10 @@ frontmatter and not a sidecar file.
   non-empty. If the content or the reference holds a marker line, the API
   returns `400 { code: 'marker_in_text' }`. The importer strips the marker
   line and adds a warning.
+  - *Amended (PR 1 review, #87):* A marker line in `content` is stored
+    verbatim (the adapter appends an empty section so it reads back
+    unchanged); only a marker in `referenceApproach` is `400 marker_in_text`.
+    A reference's trailing `\r` per line is trimmed on read.
 - **Why not frontmatter:** frontmatter values are single-line by design
   (`encodeFrontmatterString` rejects CR/LF). Multiline YAML would need a new
   parser that older builds would misread, which is a breaking change under
@@ -538,6 +542,11 @@ and the intuition check; never shown in either." It is saved with the note.
   7b87229 plus the change above):
   - fixed: 272 → **279**;
   - worst: 1 986 → **2 165**, with a 600-char reference at its cap.
+  - *As built (PR 1, #87):* rule 1 reads "NEVER reveal … a hint, the
+    Reference or what it uses that the answer lacks, even if asked …" and the
+    opening line grades "against their own Note and Reference, and your
+    knowledge". Measured: fixed **287**, worst **2 165** (chars/3 + 256 reply
+    = 3 139).
 - The new budgets are fixed **≤ 300** and worst **≤ 2 200**
   (`QUIZ_PROMPT_TOKEN_BUDGET = 2200`). The worst plus a 256-token reply is
   about 2 456 tokens. That fits a 4 096 context even if the heuristic
@@ -610,7 +619,7 @@ with the quiz sections.
 The ADR is written with these recommendations in place. If the founder
 decides otherwise, the change is an amendment to this ADR.
 
-1. **Quiz budgets 300 / 2 200: accept.** The measured values are 279 and
+1. **Quiz budgets 300 / 2 200: accept.** The measured values are 287 (as built) and
    2 165. With the reply, the worst case fits 4 096 even at a 1.5× token
    underestimate.
 2. **CSV mapping: only `Reference approach`, `Solution approach` and
