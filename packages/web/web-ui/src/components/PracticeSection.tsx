@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { fetchPractice, resetPractice } from '../lib/api';
 import type { PracticeResponse, PracticeSlip } from '../lib/api';
@@ -54,7 +55,10 @@ export function PracticeSection(): JSX.Element | null {
   const mounted = useRef(true);
   const resetBtn = useRef<HTMLButtonElement>(null);
   const cancelBtn = useRef<HTMLButtonElement>(null);
-  const returnFocus = useRef(false);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  // Where focus goes once the inline confirm closes (it unmounts the focused
+  // button, so without this focus would fall to <body>).
+  const pendingFocus = useRef<'reset' | 'notice' | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -81,26 +85,37 @@ export function PracticeSection(): JSX.Element | null {
   useEffect(() => {
     if (step === 'confirm') {
       cancelBtn.current?.focus();
-    } else if (step === 'idle' && returnFocus.current) {
-      returnFocus.current = false;
-      resetBtn.current?.focus();
+    } else if (step === 'idle' && pendingFocus.current !== null) {
+      const target = pendingFocus.current;
+      pendingFocus.current = null;
+      (target === 'notice' ? noticeRef.current : resetBtn.current)?.focus();
     }
   }, [step]);
 
   const cancel = (): void => {
-    returnFocus.current = true;
+    pendingFocus.current = 'reset';
     setStep('idle');
+  };
+
+  const onConfirmKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Escape' && step === 'confirm') {
+      e.preventDefault();
+      e.stopPropagation();
+      cancel();
+    }
   };
 
   const confirm = async (): Promise<void> => {
     setStep('busy');
     setNotice(null);
+    let succeeded = false;
     try {
       const res = await resetPractice();
       if (!mounted.current) {
         return;
       }
       if (res.ok) {
+        succeeded = true;
         setNotice({ kind: 'success', backup: res.backup });
       } else {
         setNotice({
@@ -118,6 +133,9 @@ export function PracticeSection(): JSX.Element | null {
       }
     }
     if (mounted.current) {
+      // Success: the body may unmount, so land on the notice. Error: the
+      // section stays, so return to the Reset button.
+      pendingFocus.current = succeeded ? 'notice' : 'reset';
       setStep('idle');
       await load();
     }
@@ -140,7 +158,15 @@ export function PracticeSection(): JSX.Element | null {
         Practice (intuition checks)
       </h2>
 
-      {notice !== null && <NoticeLine notice={notice} />}
+      {/* Always mounted (empty until a successful reset) so screen readers
+          that ignore live regions inserted already filled still announce it.
+          Errors use role="alert" below, which announces on insertion. */}
+      <div role="status" aria-live="polite" data-testid="practice-live">
+        {notice?.kind === 'success' && (
+          <SuccessLine ref={noticeRef} backup={notice.backup} />
+        )}
+      </div>
+      {notice?.kind === 'error' && <ErrorLine notice={notice} />}
 
       {ready && data !== null && (
         <>
@@ -158,6 +184,7 @@ export function PracticeSection(): JSX.Element | null {
             ) : (
               <div
                 role="group"
+                onKeyDown={onConfirmKeyDown}
                 aria-labelledby="an-practice-reset-warning"
                 className="flex flex-wrap items-center gap-3 rounded-lg border border-status-blocked/40 bg-status-blocked/10 p-3"
               >
@@ -199,12 +226,13 @@ export function PracticeSection(): JSX.Element | null {
   );
 }
 
-function NoticeLine({ notice }: { notice: Notice }): JSX.Element {
-  if (notice.kind === 'success') {
+const SuccessLine = forwardRef<HTMLParagraphElement, { backup: string }>(
+  function SuccessLine({ backup }, ref): JSX.Element {
     return (
       <p
-        role="status"
-        className="mt-2 flex items-start gap-2 text-xs text-slate-300"
+        ref={ref}
+        tabIndex={-1}
+        className="mt-2 flex items-start gap-2 text-xs text-slate-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-slate-500"
       >
         <CheckCircle2
           className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-done"
@@ -212,17 +240,24 @@ function NoticeLine({ notice }: { notice: Notice }): JSX.Element {
         />
         <span>
           Practice history reset.
-          {notice.backup !== '' && (
+          {backup !== '' && (
             <>
               {' '}
               Backup saved to{' '}
-              <code className="break-all text-slate-200">{notice.backup}</code>
+              <code className="break-all text-slate-200">{backup}</code>
             </>
           )}
         </span>
       </p>
     );
-  }
+  },
+);
+
+function ErrorLine({
+  notice,
+}: {
+  notice: Extract<Notice, { kind: 'error' }>;
+}): JSX.Element {
   return (
     <p
       role="alert"

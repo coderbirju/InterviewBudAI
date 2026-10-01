@@ -257,6 +257,29 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
     );
   });
 
+  it('reset: Escape cancels the inline confirm without a request', async () => {
+    const user = userEvent.setup();
+    const fn = mockApi([ok(PRACTICE_READY)]);
+    await renderPage();
+    const section = await findPractice();
+
+    await user.click(
+      within(section).getByRole('button', { name: 'Reset practice history' }),
+    );
+    expect(within(section).getByRole('group')).toBeInTheDocument();
+    expect(
+      within(section).getByRole('button', { name: 'Cancel' }),
+    ).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(within(section).queryByRole('group')).not.toBeInTheDocument();
+    expect(
+      within(section).getByRole('button', { name: 'Reset practice history' }),
+    ).toHaveFocus();
+    expect(fn.mock.calls.some((c) => c[0] === '/api/practice/reset')).toBe(
+      false,
+    );
+  });
+
   it('reset: confirm POSTs the token, shows the backup path, refetches and hides', async () => {
     const user = userEvent.setup();
     const fn = mockApi([ok(PRACTICE_READY), ok(PRACTICE_EMPTY)], {
@@ -266,6 +289,11 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
     await renderPage();
     const section = await findPractice();
 
+    // An empty polite live region is mounted before anything is announced.
+    const live = within(section).getByTestId('practice-live');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toBeEmptyDOMElement();
+
     await user.click(
       within(section).getByRole('button', { name: 'Reset practice history' }),
     );
@@ -274,9 +302,14 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
     );
 
     const status = await screen.findByText(/Backup saved to/);
-    expect(status.closest('[role="status"]')).toHaveTextContent(
+    expect(status.closest('[role="status"]')).toBe(live);
+    expect(live).toHaveTextContent(
       'Practice history reset. Backup saved to /home/me/.ibai/.backups/2026-10-01T12-00',
     );
+    // Focus lands on the (programmatically focusable) notice, not <body>.
+    const noticeLine = status.closest('p');
+    expect(noticeLine).toHaveAttribute('tabindex', '-1');
+    expect(noticeLine).toHaveFocus();
 
     const call = fn.mock.calls.find((c) => c[0] === '/api/practice/reset');
     expect(call?.[1]?.method).toBe('POST');
@@ -290,8 +323,11 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
         screen.queryByRole('img', { name: /first-check outcomes/i }),
       ).not.toBeInTheDocument(),
     );
-    // The backup notice stays after the section's data hides.
+    // The backup notice stays (still in the same live region, still
+    // focused) after the section's data hides.
     expect(screen.getByText(/Backup saved to/)).toBeVisible();
+    expect(screen.getByTestId('practice-live')).toBe(live);
+    expect(noticeLine).toHaveFocus();
     // Quiz analytics untouched.
     expect(screen.getByRole('heading', { name: 'Focus next' })).toBeVisible();
   });
@@ -351,18 +387,26 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
       expect(alert).toHaveTextContent(text);
       expect(alert.textContent?.includes('Backup saved to')).toBe(hasBackup);
       await waitFor(() => expect(practiceCalls(fn)).toBe(2));
+      await settle();
       expect(
         within(section).getByRole('img', { name: /first-check outcomes/i }),
       ).toBeInTheDocument();
+      const resetBtn = within(section).getByRole('button', {
+        name: 'Reset practice history',
+      });
+      expect(resetBtn).toBeEnabled();
+      // Focus returns to the Reset button, not <body>.
+      expect(resetBtn).toHaveFocus();
+      // Errors are announced via role="alert"; the polite region stays empty.
       expect(
-        within(section).getByRole('button', { name: 'Reset practice history' }),
-      ).toBeEnabled();
+        within(section).getByTestId('practice-live'),
+      ).toBeEmptyDOMElement();
     },
   );
 
   it('reset network failure: a friendly alert, nothing reset', async () => {
     const user = userEvent.setup();
-    mockApi([ok(PRACTICE_READY)], new TypeError('Failed to fetch'));
+    const fn = mockApi([ok(PRACTICE_READY)], new TypeError('Failed to fetch'));
     await renderPage();
     const section = await findPractice();
     await user.click(
@@ -374,6 +418,12 @@ describe('Analytics Practice section (ADR 0013 D5)', () => {
     expect(await within(section).findByRole('alert')).toHaveTextContent(
       "Couldn't reach the local API. Practice history was not reset.",
     );
+    // Wait for the post-reset refetch so no state update leaks past the test.
+    await waitFor(() => expect(practiceCalls(fn)).toBe(2));
+    await settle();
+    expect(
+      within(section).getByRole('button', { name: 'Reset practice history' }),
+    ).toHaveFocus();
   });
 
   it('renders labels and server text as text (XSS-safe)', async () => {
