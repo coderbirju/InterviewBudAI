@@ -1446,3 +1446,147 @@ describe('quiz reliability (W1) — no orphan sessions, catalog presentation', (
     expect(provider.evalCalls).toBe(1);
   });
 });
+
+describe('POST /api/quiz/answer — miss codes + post-nudge prompt (ADR 0012)', () => {
+  /** Queue of verdicts; records every prompt it is sent. */
+  class RecordingProvider implements LlmProvider {
+    readonly prompts: (readonly { role: string; content: string }[])[] = [];
+    private readonly queue: string[];
+    constructor(verdicts: string[]) {
+      this.queue = [...verdicts];
+    }
+    async complete(request: CompletionRequest): Promise<CompletionResponse> {
+      this.prompts.push(request.messages);
+      return {
+        content:
+          this.queue.shift() ?? '{"verdict":"correct","feedback":"fallback"}',
+      };
+    }
+  }
+
+  const v = (verdict: string, miss?: string): string =>
+    JSON.stringify({ verdict, feedback: 'fb?', ...(miss && { miss }) });
+
+  async function play(verdicts: string[], answers: string[]) {
+    await seedDone(DONE_IDS);
+    const provider = new RecordingProvider(verdicts);
+    const deps = makeQuizDeps(provider);
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const firstId = (await adapter.readActiveQuizSession())!.deck[0]!;
+    for (const a of answers) {
+      const res = await handleApiRoute(
+        'POST',
+        '/api/quiz/answer',
+        deps,
+        JSON.stringify({ answer: a }),
+      );
+      expect(res.status).toBe(200);
+    }
+    const topics = CATALOG.getById(firstId)!.topics;
+    return {
+      provider,
+      adapter,
+      firstId,
+      topics,
+      signals: await adapter.readCompetencySignals(),
+    };
+  }
+
+  it('incorrect with a code records it globally and on every topic of the problem', async () => {
+    const { signals, topics } = await play([v('incorrect', 'edge')], ['a']);
+    expect(signals.misses).toEqual({
+      edge: { count: 1, lastSeen: expect.any(String) },
+    });
+    for (const t of topics) {
+      expect(signals.topics[t]?.misses).toEqual({ edge: 1 });
+    }
+  });
+
+  it('first-try correct records none; correct with brute records brute', async () => {
+    const plain = await play([v('correct', 'edge')], ['a']);
+    expect(plain.signals.misses).toBeUndefined();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-quiz-test-'));
+    const brute = await play([v('correct', 'brute')], ['a']);
+    expect(Object.keys(brute.signals.misses ?? {})).toEqual(['brute']);
+  });
+
+  it('on_track keeps its code on the probe entry; correct after the nudge records the probe code', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new RecordingProvider([
+      v('on_track', 'complexity'),
+      v('correct'),
+    ]);
+    const deps = makeQuizDeps(provider);
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'my first idea' }),
+    );
+    const mid = await adapter.readActiveQuizSession();
+    expect(mid?.transcript.at(-1)).toMatchObject({
+      role: 'assistant',
+      miss: 'complexity',
+    });
+    // Nothing tallied while the question is open.
+    expect((await adapter.readCompetencySignals()).misses).toBeUndefined();
+    await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'my second idea' }),
+    );
+    const signals = await adapter.readCompetencySignals();
+    expect(Object.keys(signals.misses ?? {})).toEqual(['complexity']);
+    expect(signals.misses?.complexity?.count).toBe(1);
+
+    // The post-nudge prompt carries this question's first answer + probe,
+    // before the answer being graded; the first prompt has neither.
+    const [p1, p2] = provider.prompts;
+    expect(p1![1]!.content).not.toContain('PROBE GIVEN');
+    expect(p2).toHaveLength(2);
+    expect(p2![1]!.content).toContain(
+      'FIRST ANSWER:\n"""\nmy first idea\n"""\nPROBE GIVEN:\n"""\nfb?\n"""\nAnswer:\n"""\nmy second idea\n"""',
+    );
+  });
+
+  it('terminal code wins over the probe code; a missing terminal code falls back to the probe', async () => {
+    const wins = await play(
+      [v('on_track', 'edge'), v('incorrect', 'vague')],
+      ['a', 'b'],
+    );
+    expect(Object.keys(wins.signals.misses ?? {})).toEqual(['vague']);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-quiz-test-'));
+    const falls = await play(
+      [v('on_track', 'edge'), v('incorrect', 'unknown-code')],
+      ['a', 'b'],
+    );
+    expect(Object.keys(falls.signals.misses ?? {})).toEqual(['edge']);
+  });
+
+  it('a second on_track coerced to incorrect records its own code (A3 coercion kept)', async () => {
+    const { signals, adapter, firstId } = await play(
+      [v('on_track', 'edge'), v('on_track', 'technique')],
+      ['a', 'b'],
+    );
+    expect(Object.keys(signals.misses ?? {})).toEqual(['technique']);
+    expect((await adapter.readIntuitionNote(firstId))?.status).toBe(
+      'to_revisit',
+    );
+    const session = await adapter.readActiveQuizSession();
+    expect(session?.answered[0]?.verdict).toBe('incorrect');
+  });
+
+  it('one miss per question at most', async () => {
+    const { signals } = await play(
+      [v('on_track', 'edge'), v('incorrect', 'edge')],
+      ['a', 'b'],
+    );
+    expect(signals.misses?.edge?.count).toBe(1);
+  });
+});
