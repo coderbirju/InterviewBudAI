@@ -547,6 +547,9 @@ and the intuition check; never shown in either." It is saved with the note.
     opening line grades "against their own Note and Reference, and your
     knowledge". Measured: fixed **287**, worst **2 165** (chars/3 + 256 reply
     = 3 139).
+  - Note: the ADR 0012 log records the worst case as 1 978; the 1 986
+    baseline here differs because of fixture and wording differences. The
+    current measured worst is 2 165.
 - The new budgets are fixed **≤ 300** and worst **≤ 2 200**
   (`QUIZ_PROMPT_TOKEN_BUDGET = 2200`). The worst plus a 256-token reply is
   about 2 456 tokens. That fits a 4 096 context even if the heuristic
@@ -614,13 +617,13 @@ with the quiz sections.
 - Time-series charts of practice.
 - A coach on any page other than Notes.
 
-## Architect recommendations pending founder confirmation
+## Founder decisions (2026-10-01)
 
-The ADR is written with these recommendations in place. If the founder
-decides otherwise, the change is an amendment to this ADR.
+The founder confirmed all three ("Yes, go ahead"). Any later change is an
+amendment to this ADR.
 
-1. **Quiz budgets 300 / 2 200: accept.** The measured values are 287 (as built) and
-   2 165. With the reply, the worst case fits 4 096 even at a 1.5× token
+1. **Quiz budgets: fixed ≤ 300, worst ≤ 2 200.** The measured values are 287 (as
+   built) and 2 165. With the reply, the worst case fits 4 096 even at a 1.5× token
    underestimate.
 2. **CSV mapping: only `Reference approach`, `Solution approach` and
    `Reference`.** Bare `Solution` and `Approach` are not mapped, URL-only
