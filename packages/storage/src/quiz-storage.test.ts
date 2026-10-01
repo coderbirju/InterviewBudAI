@@ -10,7 +10,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalFileStorageAdapter } from './local-file-adapter.js';
-import { deriveTopicStrength } from './index.js';
+import { deriveTopicStrength, MISS_CODES, isMissCode } from './index.js';
 import type {
   QuizSession,
   CompetencySignals,
@@ -537,5 +537,129 @@ describe('back-compat: existing methods unaffected by ADR 0007 additions', () =>
     expect(result).not.toBeNull();
     expect(result!.content).toBe('Hash map complement.');
     expect(result!.status).toBe('done');
+  });
+});
+
+describe('LocalFileStorageAdapter - miss codes (ADR 0012 D1, additive)', () => {
+  let tempDir: string;
+  let adapter: LocalFileStorageAdapter;
+  const AT = '2026-09-30T10:00:00.000Z';
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ibai-miss-test-'));
+    adapter = new LocalFileStorageAdapter(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('exports the fixed enum and its guard', () => {
+    expect(MISS_CODES).toEqual([
+      'edge',
+      'complexity',
+      'brute',
+      'technique',
+      'vague',
+      'boundary',
+      'misread',
+    ]);
+    expect(isMissCode('edge')).toBe(true);
+    expect(isMissCode('EDGE')).toBe(false);
+    expect(isMissCode(1)).toBe(false);
+  });
+
+  it('a pre-ADR signals file (no misses) reads unchanged', async () => {
+    const legacy = {
+      topics: {
+        arrays: {
+          topicId: 'arrays',
+          correct: 2,
+          incorrect: 1,
+          lastSeen: AT,
+          strength: 'improving',
+        },
+      },
+      patterns: [],
+      lastUpdated: AT,
+    };
+    await writeFile(
+      join(tempDir, 'competency-signals.json'),
+      JSON.stringify(legacy),
+    );
+    const read = await adapter.readCompetencySignals();
+    expect(read).toEqual(legacy);
+    expect('misses' in read).toBe(false);
+  });
+
+  it('round-trips valid misses; unknown/malformed entries are dropped, the rest kept', async () => {
+    await writeFile(
+      join(tempDir, 'competency-signals.json'),
+      JSON.stringify({
+        topics: {
+          arrays: {
+            topicId: 'arrays',
+            correct: 0,
+            incorrect: 2,
+            lastSeen: AT,
+            strength: 'unknown',
+            misses: { edge: 2, nope: 4, vague: -1, brute: 1.5 },
+          },
+          trees: {
+            topicId: 'trees',
+            correct: 0,
+            incorrect: 1,
+            lastSeen: AT,
+            strength: 'unknown',
+            misses: 'junk',
+          },
+        },
+        patterns: [],
+        lastUpdated: AT,
+        misses: {
+          edge: { count: 2, lastSeen: AT },
+          nope: { count: 9, lastSeen: AT },
+          vague: { count: 'x', lastSeen: AT },
+          boundary: { count: 1 },
+        },
+      }),
+    );
+    const read = await adapter.readCompetencySignals();
+    expect(read.misses).toEqual({ edge: { count: 2, lastSeen: AT } });
+    expect(read.topics['arrays']?.misses).toEqual({ edge: 2 });
+    expect(read.topics['arrays']?.incorrect).toBe(2);
+    expect('misses' in read.topics['trees']!).toBe(false);
+    // Re-writing what was read keeps the clean tallies.
+    await adapter.writeCompetencySignals(read);
+    expect(await adapter.readCompetencySignals()).toEqual(read);
+  });
+
+  it('a transcript entry keeps a valid miss and drops an unknown one', async () => {
+    const session = makeSession({
+      transcript: [
+        { role: 'assistant', content: 'Two Sum (easy)', at: AT },
+        { role: 'user', content: 'first', at: AT },
+        { role: 'assistant', content: 'Why?', at: AT, miss: 'edge' },
+      ],
+    });
+    await adapter.writeQuizSession(session);
+    expect(await adapter.readQuizSession('quiz-1')).toEqual(session);
+
+    await writeFile(
+      join(tempDir, 'quiz-sessions', 'quiz-1.json'),
+      JSON.stringify({
+        ...session,
+        transcript: [
+          ...session.transcript.slice(0, 2),
+          { role: 'assistant', content: 'Why?', at: AT, miss: 'nope' },
+        ],
+      }),
+    );
+    const read = await adapter.readQuizSession('quiz-1');
+    expect(read?.transcript[2]).toEqual({
+      role: 'assistant',
+      content: 'Why?',
+      at: AT,
+    });
   });
 });

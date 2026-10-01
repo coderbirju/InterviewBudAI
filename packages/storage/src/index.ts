@@ -264,6 +264,12 @@ export interface QuizTranscriptEntry {
   readonly content: string;
   /** When the turn occurred. */
   readonly at: IsoTimestamp;
+  /**
+   * The miss code the grader tagged on an `on_track` probe turn (ADR 0012 D1,
+   * additive). Optional: absent on every other turn and on data written
+   * before ADR 0012; an unknown value read from disk is dropped.
+   */
+  readonly miss?: MissCode;
 }
 
 /**
@@ -361,6 +367,11 @@ export interface TopicCompetency {
   readonly lastSeen: IsoTimestamp;
   /** Derived strength band (see {@link TopicStrength}). */
   readonly strength: TopicStrength;
+  /**
+   * Recorded quiz misses per code for this topic (ADR 0012 D1, additive).
+   * Absent on data written before ADR 0012 ("no misses").
+   */
+  readonly misses?: Readonly<Partial<Record<MissCode, number>>>;
 }
 
 /**
@@ -405,6 +416,30 @@ export interface CompetencySignals {
   readonly patterns: readonly PatternSignal[];
   /** When this dataset was last updated. */
   readonly lastUpdated: IsoTimestamp;
+  /**
+   * Global miss tallies per code (ADR 0012 D1, additive). Absent on data
+   * written before ADR 0012 ("no misses"); old builds ignore it.
+   */
+  readonly misses?: Readonly<Partial<Record<MissCode, MissTally>>>;
+}
+
+/**
+ * One generic miss code: HOW the user slipped on a quiz question, never WHAT
+ * the answer is (ADR 0012 D1, §6.2). Fixed enum; see {@link MISS_CODES}.
+ */
+export type MissCode =
+  | 'edge'
+  | 'complexity'
+  | 'brute'
+  | 'technique'
+  | 'vague'
+  | 'boundary'
+  | 'misread';
+
+/** A global miss tally: how often a code was recorded and when last. */
+export interface MissTally {
+  readonly count: number;
+  readonly lastSeen: IsoTimestamp;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +471,13 @@ export interface CustomProblem {
 // `deriveTopicStrength` lives in a side-effect-free module so consumers that
 // only need the pure rule (e.g. `@ibai/core`) can import
 // `@ibai/storage/competency` without loading the concrete adapter.
-export { deriveTopicStrength } from './competency.js';
+export {
+  deriveTopicStrength,
+  MISS_CODES,
+  isMissCode,
+  sanitizeMisses,
+  sanitizeTopicMisses,
+} from './competency.js';
 
 // ---------------------------------------------------------------------------
 // Storage Adapter Contract

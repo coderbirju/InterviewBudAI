@@ -79,3 +79,23 @@ export type {
   LegacyCandidate,
   ChooseResult,
 } from './data-dir-control.js';
+
+// Analytics v2 insights + slip labels (ADR 0012)
+export { MISS_LABELS } from './miss-labels.js';
+export {
+  buildInsights,
+  INSIGHTS_UNLOCK_SESSIONS,
+  INSIGHTS_MAX_FOCUS,
+  INSIGHTS_MAX_SLIPS,
+  INSIGHTS_MAX_SLIP_TOPICS,
+  INSIGHTS_MAX_STRENGTHS,
+} from './insights.js';
+export type {
+  ApiInsightsResponse,
+  ApiInsightsTopic,
+  ApiInsightsFocus,
+  ApiInsightsSlip,
+  ApiInsightsStrength,
+  InsightsState,
+  InsightsInput,
+} from './insights.js';
