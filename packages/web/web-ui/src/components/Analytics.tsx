@@ -24,6 +24,7 @@ import {
   missLabel,
   ringFraction,
 } from '../lib/analytics';
+import { PracticeSection } from './PracticeSection';
 import { STRENGTH_COLORS, STRENGTH_LABELS } from '../lib/competency';
 import { dataHref, interviewHref } from '../lib/router';
 
@@ -37,6 +38,10 @@ import { dataHref, interviewHref } from '../lib/router';
  *    Strengths (≤ 5, never a Focus topic), compact topic tiles. `state` comes
  *    from the session count alone, so each section has its own empty line.
  *  - Labels fall back to the topic id.
+ *
+ * Below the quiz sections, a separate compact Practice section (ADR 0013 D5,
+ * `PracticeSection`) shows intuition-check trends; it shares no numbers with
+ * the quiz sections and hides itself unless `GET /api/practice` is ready.
  *
  * Kept short and calm on purpose (founder: "keep it simple"). Hand-built SVG,
  * no chart library. Every string renders via JSX (auto-escaped); color is
@@ -181,6 +186,9 @@ export function Analytics(): JSX.Element {
         </h2>
         <TopicTiles topics={data.topics} />
       </section>
+
+      {/* Practice trends (ADR 0013 D5): separate, compact, hidden unless ready. */}
+      <PracticeSection />
     </div>
   );
 }

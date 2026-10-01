@@ -476,6 +476,217 @@ export async function fetchInsights(): Promise<InsightsResponse> {
   return normalizeInsights(await getJson<InsightsResponse>('/api/insights'));
 }
 
+// ---------------------------------------------------------------------------
+// Practice trends (ADR 0013 D3) — separate from quiz analytics
+// ---------------------------------------------------------------------------
+
+/** `no_db` (no data folder), `empty` (no practice checks), `ready`. */
+export type PracticeState = 'no_db' | 'empty' | 'ready';
+
+/** The coach's assessment of an intuition check (ADR 0013 D1). */
+export type CoachAssessment = 'on_track' | 'partial' | 'off_track';
+
+export interface PracticeTotals {
+  /** Events in the window (same as `windowEvents`). */
+  readonly checks: number;
+  /** All-time distinct problems checked (the `seen` set). */
+  readonly problems: number;
+  readonly windowEvents: number;
+  readonly windowCap: number;
+}
+
+/** First-check outcome counts in the window. */
+export type PracticeFirstCheck = Readonly<Record<CoachAssessment, number>>;
+
+export interface PracticeSlipTopic {
+  readonly topicId: string;
+  readonly label: string;
+  readonly count: number;
+}
+
+export interface PracticeSlip {
+  /** Usually a {@link MissCode}; a string so unknown codes degrade gracefully. */
+  readonly code: string;
+  readonly label: string;
+  readonly count: number;
+  readonly topics: readonly PracticeSlipTopic[];
+}
+
+export interface PracticeRatio {
+  readonly count: number;
+  readonly of: number;
+}
+
+/** GET /api/practice response shape (ADR 0013 D3). */
+export interface PracticeResponse {
+  readonly state: PracticeState;
+  readonly generatedAt: string;
+  readonly totals: PracticeTotals;
+  readonly firstCheck: PracticeFirstCheck;
+  readonly slips: readonly PracticeSlip[];
+  readonly fixedAfterRecheck: PracticeRatio;
+  readonly readyToCodeFirstTry: PracticeRatio;
+  /** The oldest event's `at`, or `null`. */
+  readonly since: string | null;
+}
+
+/** A non-negative finite count; anything else reads as 0. */
+function countOf(n: unknown): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function ratioOf(raw: unknown): PracticeRatio {
+  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  return { count: countOf(o.count), of: countOf(o.of) };
+}
+
+function isPracticeSlip(s: unknown): s is PracticeSlip {
+  if (typeof s !== 'object' || s === null) {
+    return false;
+  }
+  const o = s as Record<string, unknown>;
+  return typeof o.code === 'string' && o.code !== '';
+}
+
+function isSlipTopic(t: unknown): t is PracticeSlipTopic {
+  return (
+    typeof t === 'object' &&
+    t !== null &&
+    typeof (t as Record<string, unknown>).topicId === 'string' &&
+    (t as Record<string, unknown>).topicId !== ''
+  );
+}
+
+/**
+ * Normalize a raw /api/practice payload at the client boundary. Only a
+ * literal `state: 'ready'` reads as ready (anything else — including a
+ * payload from an older server — reads as `empty`, which the UI hides).
+ * Counts are clamped to non-negative numbers; malformed slips/topics are
+ * dropped; `since` is a string or `null`.
+ */
+export function normalizePractice(raw: unknown): PracticeResponse {
+  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const state: PracticeState =
+    o.state === 'ready' || o.state === 'no_db' ? o.state : 'empty';
+  const ready = state === 'ready';
+  const t = (typeof o.totals === 'object' && o.totals !== null
+    ? o.totals
+    : {}) as Record<string, unknown>;
+  const fc = (typeof o.firstCheck === 'object' && o.firstCheck !== null
+    ? o.firstCheck
+    : {}) as Record<string, unknown>;
+  const slips =
+    ready && Array.isArray(o.slips)
+      ? o.slips.filter(isPracticeSlip).map((s) => ({
+          code: s.code,
+          label: typeof s.label === 'string' ? s.label : '',
+          count: countOf(s.count),
+          topics: Array.isArray(s.topics)
+            ? s.topics.filter(isSlipTopic).map((tp) => ({
+                topicId: tp.topicId,
+                label: typeof tp.label === 'string' ? tp.label : '',
+                count: countOf(tp.count),
+              }))
+            : [],
+        }))
+      : [];
+  return {
+    state,
+    generatedAt: typeof o.generatedAt === 'string' ? o.generatedAt : '',
+    totals: {
+      checks: countOf(t.checks),
+      problems: countOf(t.problems),
+      windowEvents: countOf(t.windowEvents),
+      windowCap: countOf(t.windowCap),
+    },
+    firstCheck: {
+      on_track: countOf(fc.on_track),
+      partial: countOf(fc.partial),
+      off_track: countOf(fc.off_track),
+    },
+    slips,
+    fixedAfterRecheck: ratioOf(o.fixedAfterRecheck),
+    readyToCodeFirstTry: ratioOf(o.readyToCodeFirstTry),
+    since: typeof o.since === 'string' && o.since !== '' ? o.since : null,
+  };
+}
+
+/**
+ * GET /api/practice — practice trends from intuition checks (ADR 0013 D3).
+ * Read-only. Throws `ApiError` on a non-2xx (e.g. `404` on a server without
+ * the route); the UI just hides the Practice section then.
+ */
+export async function fetchPractice(): Promise<PracticeResponse> {
+  return normalizePractice(await getJson<unknown>('/api/practice'));
+}
+
+/** Confirm token the server requires for a practice reset (ADR 0013 D3). */
+export const PRACTICE_RESET_CONFIRM = 'reset-practice';
+
+/**
+ * Result of `POST /api/practice/reset`. HTTP errors resolve (not throw) so
+ * the UI can show the server's message and, for `reset_failed`, the backup
+ * path the server already made. Only a network failure throws.
+ */
+export type PracticeResetResult =
+  | { readonly ok: true; readonly backup: string }
+  | {
+      readonly ok: false;
+      readonly status: number;
+      /** Server `error` text (rendered as JSX text), or a generic fallback. */
+      readonly error: string;
+      /** `read_only` | `backup_failed` | `reset_failed` | `invalid_body` | … */
+      readonly code?: string;
+      /** Present on `reset_failed`: the backup was made before the failure. */
+      readonly backup?: string;
+    };
+
+/**
+ * POST /api/practice/reset with `{ confirm: 'reset-practice' }`. The server
+ * backs up the data folder first, then deletes the practice history only —
+ * quiz analytics are never touched.
+ */
+export async function resetPractice(): Promise<PracticeResetResult> {
+  const path = '/api/practice/reset';
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ confirm: PRACTICE_RESET_CONFIRM }),
+  });
+  let data: Record<string, unknown> = {};
+  try {
+    const parsed = (await res.json()) as unknown;
+    if (typeof parsed === 'object' && parsed !== null) {
+      data = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Non-JSON body — fall through to the generic handling.
+  }
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.trim() !== '' ? v : undefined;
+  if (res.ok) {
+    return { ok: true, backup: str(data.backup) ?? '' };
+  }
+  const code = str(data.code);
+  const backup = str(data.backup);
+  return {
+    ok: false,
+    status: res.status,
+    error: str(data.error) ?? `POST ${path} failed (${res.status})`,
+    ...(code !== undefined ? { code } : {}),
+    ...(backup !== undefined ? { backup } : {}),
+  };
+}
+
 /**
  * POST /api/notes/:id — set a problem's status. The server keeps `completed`
  * consistent with `status === 'done'` and preserves other note fields. Returns

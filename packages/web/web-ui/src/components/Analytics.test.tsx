@@ -9,16 +9,24 @@ import {
   TOPIC_FIXTURE,
 } from '../lib/insights.fixture';
 
-/** Mock `fetch` so `/api/insights` answers `body` (or fails with `status`). */
+/**
+ * Mock `fetch` so `/api/insights` answers `body` (or fails with `status`).
+ * `/api/practice` answers 404 (a server without it), so the Practice section
+ * stays hidden here; it has its own spec (PracticeSection.test.tsx).
+ */
 function mockInsights(
   body: unknown,
   status = 200,
 ): ReturnType<typeof vi.fn<[string], Promise<unknown>>> {
-  const fn = vi.fn<[string], Promise<unknown>>(async () => ({
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-  }));
+  const fn = vi.fn<[string], Promise<unknown>>(async (url: string) =>
+    url === '/api/practice'
+      ? { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
+      : {
+          ok: status >= 200 && status < 300,
+          status,
+          json: async () => body,
+        },
+  );
   vi.stubGlobal('fetch', fn);
   return fn;
 }
@@ -42,7 +50,10 @@ describe('Analytics v2', () => {
     render(<Analytics />);
     expect(screen.getByRole('status')).toHaveTextContent(/loading/i);
     await screen.findByRole('heading', { name: 'Your problems' });
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const insightCalls = fetchFn.mock.calls.filter(
+      (c) => c[0] === '/api/insights',
+    );
+    expect(insightCalls).toHaveLength(1);
     expect(fetchFn.mock.calls[0]?.[0]).toBe('/api/insights');
   });
 
