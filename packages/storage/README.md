@@ -160,8 +160,11 @@ feedback or complexity). Shape `{ version: 1, updatedAt, events, seen }`:
   `seen`, inside the write queue.
 - Optional adapter methods (ADR 0002 pattern): `readPracticeSignals()`
   (missing/corrupt ⇒ `null`, never throws), `appendPracticeEvent(e)` and
-  `resetPracticeSignals()` — these two share ONE per-process write queue per
-  file (also across adapter instances), writes are temp file + rename.
+  `resetPracticeSignals(beforeDelete?)` — these two share ONE per-process
+  write queue per file (also across adapter instances), writes are temp file
+  + rename. `beforeDelete` (the caller's backup) runs inside the queue before
+  the delete, so an append is either in the backup or after the reset; if it
+  throws, nothing is deleted.
 - Untrusted on read: bad events are skipped, unknown or `on_track` miss codes
   dropped. A file that is not JSON or not `{ version: 1, events: [], seen:
   [] }` reads as empty and is renamed to
