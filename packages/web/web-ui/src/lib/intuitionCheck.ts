@@ -217,7 +217,14 @@ export async function checkIntuition(
       extra,
     );
   }
-  const result = normalizeCheckResult(await res.json());
+  let raw: unknown;
+  try {
+    raw = await res.json();
+  } catch {
+    // A non-JSON `200` is as unusable as a malformed one — same 502 path.
+    raw = null;
+  }
+  const result = normalizeCheckResult(raw);
   if (result === null) {
     throw new IntuitionCheckError(
       'The model gave an unusable reply.',

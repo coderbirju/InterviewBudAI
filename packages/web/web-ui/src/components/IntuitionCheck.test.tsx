@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { IntuitionCheck } from './IntuitionCheck';
 import { Notes } from './Notes';
+import { IntuitionCheckError, checkIntuition } from '../lib/intuitionCheck';
 import type { IntuitionCheckResult } from '../lib/intuitionCheck';
 
 /** A D2 `200` fixture (ADR 0013). */
@@ -110,6 +112,26 @@ function Harness({ initial = 'Sort, then two loops.' }: { initial?: string }) {
 
 const checkButton = (): HTMLElement =>
   screen.getByRole('button', { name: /check my intuition|re-check|checking/i });
+
+/** A check reply the test releases by hand. */
+function deferCheck(): { release: (r: Response) => void } {
+  const handle = { release: (_r: Response): void => undefined };
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === '/api/settings') return json(200, settingsBody);
+    return new Promise<Response>((r) => {
+      handle.release = r;
+    });
+  });
+  return handle;
+}
+
+const BASE = {
+  problemId: 'a',
+  content: 'x',
+  timeComplexity: '',
+  spaceComplexity: '',
+  status: 'none' as const,
+};
 
 async function settle(): Promise<void> {
   await waitFor(() =>
@@ -453,18 +475,180 @@ describe('IntuitionCheck', () => {
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
   });
 
-  it('treats a missing content prop as empty (partial note payload)', async () => {
-    render(
-      <IntuitionCheck
-        problemId="a"
-        content={undefined as unknown as string}
-        timeComplexity=""
-        spaceComplexity=""
-        status="none"
-      />,
+  it('treats a non-JSON 200 as the 502 unusable-reply error', async () => {
+    const user = userEvent.setup();
+    checkHandler = () =>
+      new Response('<html>oops</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      });
+    await expect(checkIntuition('a', { content: 'x' })).rejects.toMatchObject({
+      status: 502,
+    });
+    await expect(checkIntuition('a', { content: 'x' })).rejects.toBeInstanceOf(
+      IntuitionCheckError,
     );
+    render(<Harness />);
     await settle();
-    expect(checkButton()).toBeDisabled();
+    await user.click(checkButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The model gave an unusable reply. Try again.',
+    );
+  });
+
+  it('announces the no_provider hint politely and moves focus to it', async () => {
+    const user = userEvent.setup();
+    checkHandler = () =>
+      json(400, { error: 'no model configured', code: 'no_provider' });
+    render(<Harness />);
+    await settle();
+    const live = screen.getByTestId('intuition-check-hint-live');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toBeEmptyDOMElement();
+    await user.click(checkButton());
+    await waitFor(() => expect(checkButton()).toBeDisabled());
+    const hint = screen.getByText(
+      'Set up an AI provider in Settings to use this.',
+    );
+    expect(live).toContainElement(hint);
+    expect(hint).toHaveFocus();
+    expect(checkButton()).toHaveAccessibleDescription(
+      'Set up an AI provider in Settings to use this.',
+    );
+  });
+
+  it('sends one request when onCheck fires twice before a re-render', async () => {
+    const handle = deferCheck();
+    render(<IntuitionCheck {...BASE} />);
+    await settle();
+    const btn = checkButton();
+    const propsKey = Object.keys(btn).find((k) =>
+      k.startsWith('__reactProps'),
+    )!;
+    const { onClick } = (
+      btn as unknown as Record<string, { onClick: () => void }>
+    )[propsKey]!;
+    act(() => {
+      onClick();
+      onClick();
+    });
+    await waitFor(() => expect(checkButton()).toHaveTextContent('Checking…'));
+    expect(checkCalls()).toHaveLength(1);
+    await act(async () => handle.release(json(200, reply())));
+    await screen.findByText('Partly there');
+    expect(checkCalls()).toHaveLength(1);
+  });
+
+  it('drops a late reply after unmount without setState warnings', async () => {
+    const user = userEvent.setup();
+    const handle = deferCheck();
+    const { unmount } = render(<IntuitionCheck {...BASE} />);
+    await settle();
+    await user.click(checkButton());
+    expect(checkButton()).toHaveTextContent('Checking…');
+    const error = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      unmount();
+      await act(async () => handle.release(json(200, reply())));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('drops a late reply that arrives after the problem changed', async () => {
+    const user = userEvent.setup();
+    const handle = deferCheck();
+    const { rerender } = render(<IntuitionCheck {...BASE} />);
+    await settle();
+    await user.click(checkButton());
+    expect(checkButton()).toHaveTextContent('Checking…');
+    rerender(<IntuitionCheck {...BASE} problemId="b" />);
+    expect(checkButton()).toHaveTextContent('Check my intuition');
+    await act(async () => handle.release(json(200, reply())));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.queryByText('Partly there')).toBeNull();
+    expect(checkButton()).not.toBeDisabled();
+  });
+
+  it.each([
+    ['timeComplexity', 'O(n)'],
+    ['spaceComplexity', 'O(1)'],
+  ] as const)('marks the panel stale when %s is edited', async (key, value) => {
+    const user = userEvent.setup();
+    const props: ComponentProps<typeof IntuitionCheck> = BASE;
+    const { rerender } = render(<IntuitionCheck {...props} />);
+    await settle();
+    await user.click(checkButton());
+    const panel = await screen.findByRole('region', {
+      name: 'Intuition check',
+    });
+    expect(panel).toHaveAttribute('data-stale', 'false');
+    rerender(<IntuitionCheck {...props} {...{ [key]: value }} />);
+    expect(panel).toHaveAttribute('data-stale', 'true');
+    expect(checkButton()).toHaveTextContent('Re-check');
+    rerender(<IntuitionCheck {...props} />);
+    expect(panel).toHaveAttribute('data-stale', 'false');
+  });
+
+  it('sends referenceApproach and includes it in the stale snapshot', async () => {
+    const user = userEvent.setup();
+    const props = { ...BASE, referenceApproach: 'Hash map of seen values.' };
+    const { rerender } = render(<IntuitionCheck {...props} />);
+    await settle();
+    await user.click(checkButton());
+    const panel = await screen.findByRole('region', {
+      name: 'Intuition check',
+    });
+    expect(checkCalls()[0]!.body).toEqual({
+      content: 'x',
+      referenceApproach: 'Hash map of seen values.',
+      status: 'none',
+    });
+    expect(panel).toHaveAttribute('data-stale', 'false');
+    rerender(<IntuitionCheck {...props} referenceApproach="Sort first." />);
+    expect(panel).toHaveAttribute('data-stale', 'true');
+  });
+
+  it('clears the cooldown timer when unmounted mid rate-limit', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+    try {
+      checkHandler = () =>
+        json(429, {
+          error: 'too many',
+          code: 'rate_limited',
+          retryAfterMs: 5000,
+        });
+      const { unmount } = render(<IntuitionCheck {...BASE} />);
+      await settle();
+      await user.click(checkButton());
+      await screen.findByText('Try again in 5s.');
+      // The component's 250ms ticker (waitFor uses its own intervals).
+      const timers = setIntervalSpy.mock.calls
+        .map((call, i) => ({
+          delay: call[1],
+          id: setIntervalSpy.mock.results[i]!.value as unknown,
+        }))
+        .filter((t) => t.delay === 250);
+      expect(timers).toHaveLength(1);
+      const cooldownTimer = timers[0]!.id;
+      expect(clearIntervalSpy).not.toHaveBeenCalledWith(cooldownTimer);
+      unmount();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(cooldownTimer);
+    } finally {
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+    }
   });
 
   it('clears the panel when the problem changes', async () => {
