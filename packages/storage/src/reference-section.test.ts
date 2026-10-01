@@ -59,7 +59,12 @@ describe('splitReferenceSection / joinReferenceSection', () => {
     const body = `note\r\n\r\n${REFERENCE_MARKER} \t\r\n## Reference approach\r\n\r\nref text\r\n`;
     const split = splitReferenceSection(body);
     expect(split.content).toBe('note\r');
-    expect(split.referenceApproach).toBe('ref text\r');
+    // The reference's trailing `\r`s are trimmed on read.
+    expect(split.referenceApproach).toBe('ref text');
+    expect(
+      splitReferenceSection(`n\r\n${REFERENCE_MARKER}\r\nline 1\r\nline 2\r`)
+        .referenceApproach,
+    ).toBe('line 1\nline 2');
   });
 
   it('uses the LAST marker; the heading is optional', () => {
