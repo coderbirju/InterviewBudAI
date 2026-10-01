@@ -556,6 +556,82 @@ describe('api notes POST', () => {
     }
   });
 
+  describe('referenceApproach (ADR 0013 D4)', () => {
+    const MARKER = '<!-- ibai:reference-approach -->';
+    const post = (handler: ReturnType<typeof makeHandler>, body: unknown) =>
+      handler({
+        method: 'POST',
+        url: `/api/notes/${SECOND_ID}`,
+        body: JSON.stringify(body),
+      });
+    const get = async (handler: ReturnType<typeof makeHandler>) =>
+      JSON.parse(
+        (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
+      ) as ApiNoteResponse;
+
+    it("GET carries '' when none; POST saves it; absent keeps; '' clears", async () => {
+      const handler = makeHandler(makeDeps());
+      expect((await get(handler)).referenceApproach).toBe('');
+      const saved = JSON.parse(
+        (await post(handler, { content: 'n', referenceApproach: 'my ref' }))
+          .body,
+      ) as ApiNoteResponse;
+      expect(saved.referenceApproach).toBe('my ref');
+      expect((await get(handler)).referenceApproach).toBe('my ref');
+      // Absent → keep (status-only save).
+      await post(handler, { status: 'done' });
+      const kept = await get(handler);
+      expect(kept.referenceApproach).toBe('my ref');
+      expect(kept.content).toBe('n');
+      // '' (or blank) → clear.
+      await post(handler, { referenceApproach: '  ' });
+      expect((await get(handler)).referenceApproach).toBe('');
+      const disk = await new LocalFileStorageAdapter(tmpDir).readIntuitionNote(
+        SECOND_ID,
+      );
+      expect(disk?.referenceApproach).toBeUndefined();
+    });
+
+    it('content holding a marker section is split, never stored twice', async () => {
+      const handler = makeHandler(makeDeps());
+      const res = await post(handler, {
+        content: `my note\n\n${MARKER}\n## Reference approach\n\npasted ref`,
+      });
+      expect(res.status).toBe(200);
+      const got = await get(handler);
+      expect(got.content).toBe('my note');
+      expect(got.referenceApproach).toBe('pasted ref');
+      const raw = fs.readFileSync(
+        path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
+        'utf-8',
+      );
+      expect(raw.split(MARKER)).toHaveLength(2);
+      expect(raw.split('pasted ref')).toHaveLength(2);
+    });
+
+    it('bad type / over cap / marker in the reference / ambiguous marker → 400, nothing written', async () => {
+      const handler = makeHandler(makeDeps());
+      const cases: [unknown, string][] = [
+        [{ referenceApproach: 5 }, 'invalid_body'],
+        [{ referenceApproach: 'x'.repeat(50_001) }, 'invalid_body'],
+        [{ referenceApproach: `a\n${MARKER}\nb` }, 'marker_in_text'],
+        [
+          { content: `a\n${MARKER}\nb`, referenceApproach: 'c' },
+          'marker_in_text',
+        ],
+        [{ content: `a\n${MARKER}\nb\n${MARKER}\nc` }, 'marker_in_text'],
+      ];
+      for (const [body, code] of cases) {
+        const res = await post(handler, body);
+        expect(res.status).toBe(400);
+        expect((JSON.parse(res.body) as { code: string }).code).toBe(code);
+      }
+      expect(
+        await new LocalFileStorageAdapter(tmpDir).readIntuitionNote(SECOND_ID),
+      ).toBeNull();
+    });
+  });
+
   it('a multi-line complexity → 400 JSON, nothing written', async () => {
     const handler = makeHandler(makeDeps());
     const res = await handler({
