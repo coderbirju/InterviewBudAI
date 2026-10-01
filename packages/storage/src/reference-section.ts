@@ -96,7 +96,11 @@ export function splitReferenceSection(body: string): ReferenceSplit {
   }
   while (after.length > 0 && isBlank(after[after.length - 1]!)) after.pop();
 
-  const reference = after.join('\n');
+  // CRLF-edited files: drop each reference line's trailing `\r` (the content
+  // before the marker stays byte-for-byte as written).
+  const reference = after
+    .map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
+    .join('\n');
   return {
     content: before.join('\n'),
     ...(reference.trim().length > 0 && { referenceApproach: reference }),
