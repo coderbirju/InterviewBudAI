@@ -8,7 +8,12 @@
  * Colors map to the Tailwind design tokens (ADR 0006 D1/D2):
  *   done=emerald  to revisit=amber  didn't understand=red  not started=slate
  */
-import type { InsightsStatus, MissCode } from './api';
+import type {
+  CoachAssessment,
+  InsightsStatus,
+  MissCode,
+  PracticeFirstCheck,
+} from './api';
 
 /** The four donut buckets, keyed like `InsightsStatus`. */
 export type StatusKey =
@@ -149,4 +154,85 @@ export function missLabel(code: string, apiLabel: unknown): string {
   return Object.prototype.hasOwnProperty.call(MISS_LABELS, code)
     ? MISS_LABELS[code as MissCode]
     : UNKNOWN_MISS_LABEL;
+}
+
+// ---------------------------------------------------------------------------
+// Practice (ADR 0013 D5) — first-check outcomes donut
+// ---------------------------------------------------------------------------
+
+/** Fixed order of the first-check outcome segments (and legend). */
+export const ASSESSMENT_ORDER: readonly CoachAssessment[] = [
+  'on_track',
+  'partial',
+  'off_track',
+];
+
+/** Same chip labels as the Notes result panel (ADR 0013 D5). */
+export const ASSESSMENT_LABELS: Record<CoachAssessment, string> = {
+  on_track: 'On track',
+  partial: 'Partly there',
+  off_track: 'Off track',
+};
+
+/** emerald / amber / red — the status tokens, never the only signal. */
+export const ASSESSMENT_COLORS: Record<CoachAssessment, string> = {
+  on_track: '#22c55e',
+  partial: '#f59e0b',
+  off_track: '#ef4444',
+};
+
+export interface AssessmentSegment {
+  readonly key: CoachAssessment;
+  readonly label: string;
+  readonly color: string;
+  readonly count: number;
+  readonly start: number;
+  readonly length: number;
+}
+
+/** Donut segments for first-check outcomes; same math as `donutSegments`. */
+export function assessmentSegments(
+  fc: PracticeFirstCheck,
+): readonly AssessmentSegment[] {
+  const counts = ASSESSMENT_ORDER.map((key) => safeCount(fc[key]));
+  const sum = counts.reduce((a, b) => a + b, 0);
+  let start = 0;
+  return ASSESSMENT_ORDER.map((key, i) => {
+    const count = counts[i] ?? 0;
+    const length = sum > 0 ? count / sum : 0;
+    const seg = {
+      key,
+      label: ASSESSMENT_LABELS[key],
+      color: ASSESSMENT_COLORS[key],
+      count,
+      start,
+      length,
+    };
+    start += length;
+    return seg;
+  });
+}
+
+/** Screen-reader summary, e.g. "17 first checks: 5 on track, 8 partly there, 4 off track". */
+export function assessmentSummary(fc: PracticeFirstCheck): string {
+  const segs = assessmentSegments(fc);
+  const total = segs.reduce((a, s) => a + s.count, 0);
+  const parts = segs.map((s) => `${s.count} ${s.label.toLowerCase()}`);
+  return `${total} first checks: ${parts.join(', ')}`;
+}
+
+/** "Sep 1, 2026"-style date for an ISO timestamp; `null` when unparseable. */
+export function shortDate(iso: string | null): string | null {
+  if (iso === null) {
+    return null;
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
