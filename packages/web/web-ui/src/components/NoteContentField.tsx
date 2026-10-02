@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { ComponentType } from 'react';
 import { Check, Copy, FileCode } from 'lucide-react';
 import { fencedBlockEdit } from '../lib/noteEditor/fencedBlock';
