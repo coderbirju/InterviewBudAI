@@ -58,6 +58,7 @@ and is listed there with what you need to do (ADR 0009 D4).
   deleted, and the backup path is shown. Read-only folder (`409`) and backup
   or reset failures (`500`) show the server's message. UI only; no new
   dependencies.
+
 - **Notes: "Check my intuition"** (ADR 0013 D5, PR 3). A button next to Save
   sends the current editor text (unsaved edits included) to
   `POST /api/notes/:id/check` and shows the coach's verdict (On track / Partly

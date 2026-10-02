@@ -3,7 +3,8 @@
  * REAL UI client and panel. `fetch` is routed straight into `handleApiRoute`
  * with a fake provider, so the request the panel builds, the server's reply
  * and the client's normalizer are all exercised together. GET /api/practice
- * then shows the check was counted (first check true, then false).
+ * through the real `fetchPractice` client then shows the check was counted
+ * (first check true, then false).
  *
  * Node environment with a hand-installed jsdom window: vitest's jsdom
  * environment replaces the global `URL`, which breaks the server's
@@ -24,6 +25,7 @@ import { handleApiRoute } from './api.js';
 import type { ApiDeps } from './api.js';
 import { createCoachLimiter } from './coach-routes.js';
 import { checkIntuition } from '../web-ui/src/lib/intuitionCheck.js';
+import { fetchPractice } from '../web-ui/src/lib/api.js';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/',
@@ -108,12 +110,6 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-async function practice(): Promise<Record<string, unknown>> {
-  const res = await fetch('/api/practice');
-  expect(res.status).toBe(200);
-  return (await res.json()) as Record<string, unknown>;
-}
-
 describe('coach end to end: real handler + real UI client/panel', () => {
   it('panel check renders the reply; practice counts first and later checks', async () => {
     render(
@@ -142,7 +138,7 @@ describe('coach end to end: real handler + real UI client/panel', () => {
     // The panel's request carried the reference to the model (grounding).
     expect(prompts.join('\n')).toContain('Hash map of complements.');
 
-    const first = await practice();
+    const first = await fetchPractice();
     expect(first.state).toBe('ready');
     expect(first.totals).toMatchObject({ checks: 1, problems: 1 });
     expect(first.firstCheck).toEqual({ on_track: 0, partial: 1, off_track: 0 });
@@ -153,7 +149,7 @@ describe('coach end to end: real handler + real UI client/panel', () => {
     });
     expect(second.firstCheck).toBe(false);
     expect(second.assessment).toBe('partial');
-    const after = await practice();
+    const after = await fetchPractice();
     expect(after.totals).toMatchObject({ checks: 2, problems: 1 });
     // Only the first check of a problem feeds the first-check split.
     expect(after.firstCheck).toEqual({ on_track: 0, partial: 1, off_track: 0 });
