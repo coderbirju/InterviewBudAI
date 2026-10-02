@@ -90,8 +90,8 @@ export class IntuitionCheckError extends ApiError {
 /** A `200` body that does not match the D2 shape (treated like a `502`). */
 export const MALFORMED_REPLY_STATUS = 502;
 
-function optionalText(value: string | undefined): string | undefined {
-  return value !== undefined && value.trim() !== '' ? value : undefined;
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
 /** Build the wire body: only non-blank optional fields are sent. */

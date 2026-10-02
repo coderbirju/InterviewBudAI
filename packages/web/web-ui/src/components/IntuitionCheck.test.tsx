@@ -1,11 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { IntuitionCheck } from './IntuitionCheck';
 import { Notes } from './Notes';
-import { IntuitionCheckError, checkIntuition } from '../lib/intuitionCheck';
+import {
+  IntuitionCheckError,
+  buildCheckBody,
+  checkIntuition,
+} from '../lib/intuitionCheck';
 import type { IntuitionCheckResult } from '../lib/intuitionCheck';
 
 /** A D2 `200` fixture (ADR 0013). */
@@ -522,15 +532,9 @@ describe('IntuitionCheck', () => {
     render(<IntuitionCheck {...BASE} />);
     await settle();
     const btn = checkButton();
-    const propsKey = Object.keys(btn).find((k) =>
-      k.startsWith('__reactProps'),
-    )!;
-    const { onClick } = (
-      btn as unknown as Record<string, { onClick: () => void }>
-    )[propsKey]!;
     act(() => {
-      onClick();
-      onClick();
+      fireEvent.click(btn);
+      fireEvent.click(btn);
     });
     await waitFor(() => expect(checkButton()).toHaveTextContent('Checking…'));
     expect(checkCalls()).toHaveLength(1);
@@ -721,5 +725,89 @@ describe('Notes page mounts the coach', () => {
           (init as RequestInit | undefined)?.method === 'POST',
       ),
     ).toBe(false);
+  });
+
+  it('sends the saved Reference approach and stales the result when it is edited', async () => {
+    const user = userEvent.setup();
+    const saved = {
+      problemId: 'two-sum',
+      content: 'Saved text.',
+      referenceApproach: 'Hash map of complements.',
+      status: 'done',
+      completed: true,
+      lastUpdated: '2026-09-24T00:00:00.000Z',
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/settings') return json(200, settingsBody);
+      if (url === '/api/notes/two-sum' && !init?.method) {
+        return json(200, saved);
+      }
+      if (url.endsWith('/check')) return json(200, reply());
+      return json(404, { error: 'nope' });
+    });
+    render(<Notes problemId="two-sum" />);
+    await screen.findByLabelText(/intuition & approach/i);
+    await user.click(
+      screen.getByRole('button', { name: 'Check my intuition' }),
+    );
+    const panel = await screen.findByRole('region', {
+      name: 'Intuition check',
+    });
+    expect(checkCalls()[0]!.body).toEqual({
+      content: 'Saved text.',
+      referenceApproach: 'Hash map of complements.',
+      status: 'done',
+    });
+    expect(panel).toHaveAttribute('data-stale', 'false');
+    await user.click(
+      screen.getByRole('button', { name: /your reference approach/i }),
+    );
+    await user.type(screen.getByLabelText('Your reference approach'), '!');
+    expect(panel).toHaveAttribute('data-stale', 'true');
+    expect(
+      screen.getByRole('button', { name: 'Re-check' }),
+    ).toBeInTheDocument();
+  });
+
+  it('treats a null referenceApproach from the API as empty (not sent)', async () => {
+    const user = userEvent.setup();
+    const saved = {
+      problemId: 'two-sum',
+      content: 'Saved text.',
+      referenceApproach: null,
+      status: 'none',
+      completed: false,
+      lastUpdated: '2026-09-24T00:00:00.000Z',
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/settings') return json(200, settingsBody);
+      if (url === '/api/notes/two-sum' && !init?.method) {
+        return json(200, saved);
+      }
+      if (url.endsWith('/check')) return json(200, reply());
+      return json(404, { error: 'nope' });
+    });
+    render(<Notes problemId="two-sum" />);
+    await screen.findByLabelText(/intuition & approach/i);
+    await user.click(
+      screen.getByRole('button', { name: 'Check my intuition' }),
+    );
+    await screen.findByText('Partly there');
+    expect(checkCalls()[0]!.body).toEqual({
+      content: 'Saved text.',
+      status: 'none',
+    });
+  });
+});
+
+describe('buildCheckBody', () => {
+  it('drops null / non-string optional fields instead of throwing', () => {
+    const input = {
+      content: 'c',
+      timeComplexity: null,
+      spaceComplexity: 3,
+      referenceApproach: null,
+    } as unknown as Parameters<typeof buildCheckBody>[0];
+    expect(buildCheckBody(input)).toEqual({ content: 'c' });
   });
 });
