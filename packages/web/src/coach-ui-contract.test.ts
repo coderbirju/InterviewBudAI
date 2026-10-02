@@ -1,15 +1,11 @@
 /**
  * Contract check: REAL route responses through the UI clients' normalizers.
  *
- * The clients live on unmerged branches, so they cannot be imported yet. The
- * normalizers and the field/code lists below are copied VERBATIM (types
- * trimmed) from:
- *   - origin/feature/intuition-check-ui:
- *       packages/web/web-ui/src/lib/intuitionCheck.ts  (normalizeCheckResult,
- *       ERROR_CODES)
- *   - origin/feature/practice-analytics-ui:
- *       packages/web/web-ui/src/lib/api.ts  (normalizePractice, resetPractice)
- * When those land, replace this copy with imports from `../web-ui/src/lib`.
+ * `normalizeCheckResult` is the REAL check client's (imported). The practice
+ * normalizer is still copied VERBATIM (types trimmed) from
+ * origin/feature/practice-analytics-ui:packages/web/web-ui/src/lib/api.ts
+ * (normalizePractice, resetPractice) until that branch lands; then replace
+ * the copy with an import from `../web-ui/src/lib/api.js`.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -22,17 +18,13 @@ import type { LlmProvider } from '@ibai/providers';
 import { handleApiRoute } from './api.js';
 import type { ApiDeps } from './api.js';
 import { createCoachLimiter } from './coach-routes.js';
+import { normalizeCheckResult } from '../web-ui/src/lib/intuitionCheck.js';
+import type { IntuitionCheckErrorCode } from '../web-ui/src/lib/intuitionCheck.js';
 
-// --------------------------- copied client code ----------------------------
+// ------------------- field lists + copied practice client -------------------
 
-type CoachAssessment = 'on_track' | 'partial' | 'off_track';
-const ASSESSMENTS: readonly CoachAssessment[] = [
-  'on_track',
-  'partial',
-  'off_track',
-];
-/** `IntuitionCheckErrorCode` of the check client. */
-const ERROR_CODES = [
+/** Every `IntuitionCheckErrorCode` of the check client. */
+const ERROR_CODES: readonly IntuitionCheckErrorCode[] = [
   'empty_note',
   'invalid_body',
   'no_provider',
@@ -63,47 +55,6 @@ const PRACTICE_FIELDS = [
   'readyToCodeFirstTry',
   'since',
 ];
-
-function normalizeCheckResult(raw: unknown) {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const data = raw as Record<string, unknown>;
-  const assessment = data.assessment;
-  if (
-    typeof assessment !== 'string' ||
-    !ASSESSMENTS.includes(assessment as CoachAssessment)
-  ) {
-    return null;
-  }
-  const questions = Array.isArray(data.questions)
-    ? data.questions
-        .filter((q): q is string => typeof q === 'string' && q.trim() !== '')
-        .slice(0, 3)
-    : [];
-  const truncatedRaw =
-    typeof data.truncated === 'object' && data.truncated !== null
-      ? (data.truncated as Record<string, unknown>)
-      : {};
-  const hasMiss =
-    typeof data.miss === 'string' && typeof data.missLabel === 'string';
-  return {
-    assessment: assessment as CoachAssessment,
-    questions,
-    readyToCode: assessment === 'on_track' && data.readyToCode === true,
-    note: typeof data.note === 'string' ? data.note : '',
-    ...(hasMiss && {
-      miss: data.miss as string,
-      missLabel: data.missLabel as string,
-    }),
-    firstCheck: data.firstCheck === true,
-    truncated: {
-      note: truncatedRaw.note === true,
-      reference: truncatedRaw.reference === true,
-      statement: truncatedRaw.statement === true,
-    },
-    checkedAt: typeof data.checkedAt === 'string' ? data.checkedAt : '',
-    recorded: data.recorded === true,
-  };
-}
 
 function countOf(n: unknown): number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;

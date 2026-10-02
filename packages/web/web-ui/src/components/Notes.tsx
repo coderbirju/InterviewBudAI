@@ -30,6 +30,7 @@ import type {
 import { setFlash } from '../lib/flash';
 import { lastHomeHref, navigate } from '../lib/router';
 import { CustomBadge } from './CustomBadge';
+import { IntuitionCheck } from './IntuitionCheck';
 import { Modal } from './Modal';
 import { ProblemForm } from './ProblemForm';
 import type { TopicOption } from './ProblemForm';
@@ -145,7 +146,8 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
         const note = result as FullNote;
         // Pre-fill the form from the saved note.
         setStatus(note.status);
-        setContent(note.content);
+        // Defensive at the boundary: a partial payload must not crash the editor.
+        setContent(note.content ?? '');
         setTimeComplexity(note.timeComplexity ?? '');
         setSpaceComplexity(note.spaceComplexity ?? '');
         setReferenceApproach(note.referenceApproach ?? '');
@@ -192,7 +194,7 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
       });
       // Reconcile local state with what the server persisted.
       setStatus(persisted.status);
-      setContent(persisted.content);
+      setContent(persisted.content ?? '');
       setTimeComplexity(persisted.timeComplexity ?? '');
       setSpaceComplexity(persisted.spaceComplexity ?? '');
       setReferenceApproach(persisted.referenceApproach ?? '');
@@ -662,6 +664,16 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
             )}
             {save.kind === 'saving' ? 'Saving…' : 'Save'}
           </button>
+
+          {/* ADR 0013 D5: the coach — current editor text, never persisted. */}
+          <IntuitionCheck
+            problemId={problemId}
+            content={content}
+            timeComplexity={timeComplexity}
+            spaceComplexity={spaceComplexity}
+            status={status}
+            referenceApproach={referenceApproach}
+          />
 
           {save.kind === 'saved' && (
             <span
