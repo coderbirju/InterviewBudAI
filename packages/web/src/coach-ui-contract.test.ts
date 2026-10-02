@@ -1,11 +1,8 @@
 /**
  * Contract check: REAL route responses through the UI clients' normalizers.
  *
- * `normalizeCheckResult` is the REAL check client's (imported). The practice
- * normalizer is still copied VERBATIM (types trimmed) from
- * origin/feature/practice-analytics-ui:packages/web/web-ui/src/lib/api.ts
- * (normalizePractice, resetPractice) until that branch lands; then replace
- * the copy with an import from `../web-ui/src/lib/api.js`.
+ * Both normalizers are the REAL UI clients' (imported): `normalizeCheckResult`
+ * from `lib/intuitionCheck.ts`, `normalizePractice` from `lib/api.ts`.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -20,8 +17,9 @@ import type { ApiDeps } from './api.js';
 import { createCoachLimiter } from './coach-routes.js';
 import { normalizeCheckResult } from '../web-ui/src/lib/intuitionCheck.js';
 import type { IntuitionCheckErrorCode } from '../web-ui/src/lib/intuitionCheck.js';
+import { normalizePractice } from '../web-ui/src/lib/api.js';
 
-// ------------------- field lists + copied practice client -------------------
+// ------------------------------- field lists --------------------------------
 
 /** Every `IntuitionCheckErrorCode` of the check client. */
 const ERROR_CODES: readonly IntuitionCheckErrorCode[] = [
@@ -55,86 +53,6 @@ const PRACTICE_FIELDS = [
   'readyToCodeFirstTry',
   'since',
 ];
-
-function countOf(n: unknown): number {
-  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
-}
-function ratioOf(raw: unknown) {
-  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
-    string,
-    unknown
-  >;
-  return { count: countOf(o.count), of: countOf(o.of) };
-}
-function isPracticeSlip(s: unknown): s is Record<string, unknown> & {
-  code: string;
-} {
-  if (typeof s !== 'object' || s === null) {
-    return false;
-  }
-  const o = s as Record<string, unknown>;
-  return typeof o.code === 'string' && o.code !== '';
-}
-function isSlipTopic(t: unknown): t is Record<string, unknown> & {
-  topicId: string;
-} {
-  return (
-    typeof t === 'object' &&
-    t !== null &&
-    typeof (t as Record<string, unknown>).topicId === 'string' &&
-    (t as Record<string, unknown>).topicId !== ''
-  );
-}
-function normalizePractice(raw: unknown) {
-  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
-    string,
-    unknown
-  >;
-  const state = o.state === 'ready' || o.state === 'no_db' ? o.state : 'empty';
-  const ready = state === 'ready';
-  const t = (
-    typeof o.totals === 'object' && o.totals !== null ? o.totals : {}
-  ) as Record<string, unknown>;
-  const fc = (
-    typeof o.firstCheck === 'object' && o.firstCheck !== null
-      ? o.firstCheck
-      : {}
-  ) as Record<string, unknown>;
-  const slips =
-    ready && Array.isArray(o.slips)
-      ? o.slips.filter(isPracticeSlip).map((s) => ({
-          code: s.code,
-          label: typeof s.label === 'string' ? s.label : '',
-          count: countOf(s.count),
-          topics: Array.isArray(s.topics)
-            ? s.topics.filter(isSlipTopic).map((tp) => ({
-                topicId: tp.topicId,
-                label: typeof tp.label === 'string' ? tp.label : '',
-                count: countOf(tp.count),
-              }))
-            : [],
-        }))
-      : [];
-  return {
-    state,
-    generatedAt: typeof o.generatedAt === 'string' ? o.generatedAt : '',
-    totals: {
-      checks: countOf(t.checks),
-      problems: countOf(t.problems),
-      windowEvents: countOf(t.windowEvents),
-      windowCap: countOf(t.windowCap),
-    },
-    firstCheck: {
-      on_track: countOf(fc.on_track),
-      partial: countOf(fc.partial),
-      off_track: countOf(fc.off_track),
-    },
-    slips,
-    fixedAfterRecheck: ratioOf(o.fixedAfterRecheck),
-    readyToCodeFirstTry: ratioOf(o.readyToCodeFirstTry),
-    since: typeof o.since === 'string' && o.since !== '' ? o.since : null,
-  };
-}
 
 // ------------------------------- the checks --------------------------------
 
