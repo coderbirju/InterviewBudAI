@@ -2,7 +2,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HandlerResponse } from './handler.js';
-import { SERVER_PAGE_CSP } from './security.js';
+import {
+  SERVER_PAGE_CSP,
+  newStyleNonce,
+  spaCspWithStyleNonce,
+} from './security.js';
 
 /**
  * Serves the built React SPA (ADR 0006) at the site ROOT.
@@ -21,7 +25,14 @@ import { SERVER_PAGE_CSP } from './security.js';
 
 /** Resolve the built-bundle directory: packages/web/dist-ui.
  *  This module compiles to packages/web/dist/spa.js, so dist-ui is one level up. */
-const BUNDLE_DIR = fileURLToPath(new URL('../dist-ui', import.meta.url));
+export const BUNDLE_DIR = fileURLToPath(new URL('../dist-ui', import.meta.url));
+
+/**
+ * The placeholder in `web-ui/index.html`
+ * (`<meta name="ibai-style-nonce" nonce="__IBAI_STYLE_NONCE__">`) that every
+ * `index.html` response replaces with a fresh nonce (ADR 0014 D2).
+ */
+export const STYLE_NONCE_PLACEHOLDER = '__IBAI_STYLE_NONCE__';
 
 /** Minimal, explicit content-type map for the asset types Vite emits. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -56,9 +67,9 @@ export function isSpaRequest(pathname: string): boolean {
 }
 
 /** True if the built bundle (index.html) exists on disk. */
-export function bundleExists(): boolean {
+export function bundleExists(bundleDir: string = BUNDLE_DIR): boolean {
   try {
-    return fs.statSync(path.join(BUNDLE_DIR, 'index.html')).isFile();
+    return fs.statSync(path.join(bundleDir, 'index.html')).isFile();
   } catch {
     return false;
   }
@@ -89,30 +100,43 @@ function notBuiltResponse(): HandlerResponse {
  * against path traversal. Returns an absolute path inside BUNDLE_DIR, or null
  * if the resolved path escapes the bundle. `/` maps to index.html.
  */
-function resolveBundleFile(pathname: string): string | null {
+function resolveBundleFile(pathname: string, bundleDir: string): string | null {
   let rel = pathname;
   if (rel === '' || rel === '/') {
     rel = '/index.html';
   }
-  const resolved = path.resolve(BUNDLE_DIR, '.' + rel);
-  const bundleRoot = path.resolve(BUNDLE_DIR);
+  const resolved = path.resolve(bundleDir, '.' + rel);
+  const bundleRoot = path.resolve(bundleDir);
   if (resolved !== bundleRoot && !resolved.startsWith(bundleRoot + path.sep)) {
     return null;
   }
   return resolved;
 }
 
-/** Read and serve index.html, or the not-built message if it is missing. */
-function serveIndexHtml(): HandlerResponse {
+/**
+ * THE one way `index.html` is served (`/`, `/index.html` and the SPA fallback
+ * for client routes; ADR 0014 D2). Each response gets a fresh 128-bit style
+ * nonce, written into the meta placeholder and into `style-src` of the CSP,
+ * and `Cache-Control: no-store` so a nonce is never replayed from a cache.
+ * Falls back to the not-built message if the file is missing.
+ */
+function serveIndexHtml(bundleDir: string): HandlerResponse {
+  let html: string;
   try {
-    return {
-      status: 200,
-      contentType: 'text/html; charset=utf-8',
-      body: fs.readFileSync(path.join(BUNDLE_DIR, 'index.html'), 'utf8'),
-    };
+    html = fs.readFileSync(path.join(bundleDir, 'index.html'), 'utf8');
   } catch {
     return notBuiltResponse();
   }
+  const nonce = newStyleNonce();
+  return {
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    body: html.split(STYLE_NONCE_PLACEHOLDER).join(nonce),
+    headers: {
+      'Content-Security-Policy': spaCspWithStyleNonce(nonce),
+      'Cache-Control': 'no-store',
+    },
+  };
 }
 
 /**
@@ -122,12 +146,15 @@ function serveIndexHtml(): HandlerResponse {
  * falls back to index.html so client-side routing works on refresh. A missing
  * asset-looking path (has an extension) 404s.
  */
-export function handleSpaRequest(pathname: string): HandlerResponse {
-  if (!bundleExists()) {
+export function handleSpaRequest(
+  pathname: string,
+  bundleDir: string = BUNDLE_DIR,
+): HandlerResponse {
+  if (!bundleExists(bundleDir)) {
     return notBuiltResponse();
   }
 
-  const filePath = resolveBundleFile(pathname);
+  const filePath = resolveBundleFile(pathname, bundleDir);
   if (filePath === null) {
     return {
       status: 404,
@@ -137,6 +164,13 @@ export function handleSpaRequest(pathname: string): HandlerResponse {
   }
 
   try {
+    // `/` and `/index.html` resolve here: same nonce'd path as the fallback.
+    if (
+      path.dirname(filePath) === path.resolve(bundleDir) &&
+      path.basename(filePath).toLowerCase() === 'index.html'
+    ) {
+      return serveIndexHtml(bundleDir);
+    }
     const stat = fs.statSync(filePath);
     if (stat.isFile()) {
       return {
@@ -152,7 +186,7 @@ export function handleSpaRequest(pathname: string): HandlerResponse {
   // SPA fallback: an extensionless path is a client-side route -> index.html.
   // Asset-looking paths (with an extension) that do not exist are a real 404.
   if (path.extname(pathname) === '') {
-    return serveIndexHtml();
+    return serveIndexHtml(bundleDir);
   }
 
   return {

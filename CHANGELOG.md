@@ -59,6 +59,16 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Code editor for notes** (ADR 0014 D2). The "Intuition & approach" box on
+  the Notes page is now a CodeMirror 6 Markdown editor. Fenced ` ```python `
+  (also `py`, `python3`) and ` ```go ` (also `golang`) blocks get syntax
+  highlighting and language-aware auto-indent; other fences stay plain. Tab /
+  Shift-Tab indent (press Esc then Tab to leave the editor), lines wrap, and a
+  toolbar has **Python block**, **Go block** and **Copy note**. Notes stay
+  plain Markdown on disk. The editor is a separate lazy chunk (~148 KB gzip)
+  loaded only on the Notes page, bundled locally (no CDN). If it cannot start,
+  the page keeps the plain text box.
+
 - **Analytics Practice section** (ADR 0013 D5, PR 4). Below the quiz
   sections, a compact "Practice (intuition checks)" section, fed by
   `GET /api/practice`, shows first-check outcomes (On track / Partly there /
@@ -342,6 +352,10 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Security
 
+- Every `index.html` response now carries a fresh per-response style nonce
+  (`style-src 'self' 'nonce-…'`, `script-src` unchanged) and
+  `Cache-Control: no-store`, so the note editor can mount its styles without
+  `'unsafe-inline'` (ADR 0014 D2).
 - Localhost hardening: Host allowlist (DNS-rebinding defence), Origin /
   `Sec-Fetch-Site` checks, JSON content-type on API writes, CSRF token on
   `/setup` (#58).

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { EditorView } from '@codemirror/view';
 import userEvent from '@testing-library/user-event';
 import { Notes } from './Notes';
 import * as api from '../lib/api';
@@ -234,5 +235,54 @@ describe('Notes editor', () => {
     await waitFor(() =>
       expect(screen.getByText(/could not save your note/i)).toBeInTheDocument(),
     );
+  });
+
+  // ADR 0014 D2: the other tests run the textarea fallback (jsdom has no style
+  // nonce); this one runs the real lazy CodeMirror editor.
+  it('with a valid style nonce, saves the CodeMirror editor content', async () => {
+    const user = userEvent.setup();
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'ibai-style-nonce');
+    meta.setAttribute('nonce', 'AAECAwQFBgcICQoLDA0ODw==');
+    document.head.appendChild(meta);
+    try {
+      mockedApi.fetchNote.mockResolvedValue(SAVED_NOTE);
+      mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+      mockedApi.saveNote.mockImplementation(async (_id, body) => ({
+        ...SAVED_NOTE,
+        content: body.content ?? '',
+      }));
+
+      render(<Notes problemId="two-sum" />);
+      await screen.findByTestId('note-editor');
+      const content = await screen.findByRole('textbox', {
+        name: /Intuition/i,
+      });
+      expect(content).toHaveAttribute('contenteditable', 'true');
+      const view = EditorView.findFromDOM(content);
+      expect(view?.state.doc.toString()).toBe(SAVED_NOTE.content);
+      act(() => {
+        view?.dispatch({
+          changes: {
+            from: view.state.doc.length,
+            insert: '\n```python\nseen = {}\n```',
+          },
+        });
+      });
+
+      await user.click(screen.getByRole('button', { name: /^Save$/ }));
+      await waitFor(() =>
+        expect(mockedApi.saveNote).toHaveBeenCalledWith(
+          'two-sum',
+          expect.objectContaining({
+            content: SAVED_NOTE.content + '\n```python\nseen = {}\n```',
+          }),
+        ),
+      );
+      // The save reconcile is an outside value: it must not clear "Saved".
+      expect(await screen.findByText(/^Saved$/)).toBeInTheDocument();
+    } finally {
+      meta.remove();
+    }
   });
 });

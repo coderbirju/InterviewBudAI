@@ -141,18 +141,31 @@ echo "ok - no .env in the image"
 
 # 7. Built output and production deps only: no source, no dev tooling, no
 #    SPA build-time deps, no dangling workspace links.
+#    Each failing check is printed, so a red run names its cause.
 "${compose[@]}" exec -T app sh -c '
-  cd /app &&
-  test -z "$(find packages -maxdepth 2 -name src)" &&
-  test ! -e node_modules/typescript &&
-  test ! -e node_modules/vite &&
-  test ! -e node_modules/react &&
-  test ! -e node_modules/react-dom &&
-  test ! -e node_modules/lucide-react &&
-  test ! -L node_modules/@ibai/cli &&
-  test -z "$(find node_modules -xtype l)" &&
-  test -z "$(find /app /home/app -name .env)"
+  cd /app || exit 1
+  bad=0
+  check() { if ! eval "$1"; then echo "image check failed: $1" >&2; bad=1; fi; }
+  check "test -z \"\$(find packages -maxdepth 2 -name src)\""
+  # Scoped deps are checked by package dir: npm may leave an empty scope dir.
+  for dep in typescript vite react react-dom lucide-react \
+    @codemirror/state @codemirror/view @codemirror/language \
+    @lezer/common @lezer/markdown @lezer/highlight \
+    style-mod crelt w3c-keyname @marijn/find-cluster-break; do
+    check "test ! -e node_modules/$dep"
+  done
+  # An empty scope dir is fine; any entry inside one is a leaked SPA dep.
+  for scope in @codemirror @lezer; do
+    if [ -d "node_modules/$scope" ] && [ -n "$(ls -A "node_modules/$scope")" ]; then
+      echo "image check failed: node_modules/$scope is not empty: [$(ls -A "node_modules/$scope" | tr "\n" " ")]" >&2
+      bad=1
+    fi
+  done
+  check "test ! -L node_modules/@ibai/cli"
+  check "test -z \"\$(find node_modules -xtype l)\""
+  check "test -z \"\$(find /app /home/app -name .env)\""
+  exit $bad
 ' || fail "the image contains source, dev dependencies, a dangling link or a .env"
-echo "ok - no src/, typescript, vite, react or .env in the image; no dangling links"
+echo "ok - no src/, typescript, vite, react, codemirror or .env in the image; no dangling links"
 
 echo "Docker smoke test passed."
