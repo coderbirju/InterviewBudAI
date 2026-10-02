@@ -277,7 +277,7 @@ fetched at runtime (§6.4).
   change from outside (loading a note, a save) replaces the doc only when it
   differs, so typing never resets the cursor.
 - **Graceful fallback:** while the chunk loads, and if `import()` rejects, the
-  view constructor throws, or there is no nonce in production, Notes renders
+  view constructor throws, or the nonce is missing or invalid (any build), Notes renders
   today's `<textarea id="note-content">` with the same value, toolbar and
   handlers. It logs a `console.warn` and shows no error banner.
 - **Lazy swap preserves state:** when the editor replaces the textarea, it
@@ -342,7 +342,7 @@ come first.
 
 | PR | Scope |
 |---|---|
-| **PR A — remove Reference** | Storage: delete `reference-section.ts` and its exports, the reader keeps the whole body, drop `IntuitionNote.referenceApproach`, tests that a marker file reads back with only the marker line removed (heading and text kept as content), that the next save writes it without the marker, and that a marker-free note round-trips byte-for-byte. API: notes GET/POST and the check route ignore the field, drop the marker rule and `truncated.reference`. UI: Notes, IntuitionCheck, CsvImport, `lib/api`, `lib/intuitionCheck`. CSV: remove the role. Prompts and budgets (D1 table). Tests. CHANGELOG `### Breaking changes`. |
+| **PR A — remove Reference** | Storage: delete `reference-section.ts` and its exports, the reader drops only the marker line (text kept), drop `IntuitionNote.referenceApproach`, tests that a marker file reads back with only the marker line removed (heading and text kept as content), that the next save writes it without the marker, and that a marker-free note round-trips byte-for-byte. API: notes GET/POST and the check route ignore the field, drop the marker rule and `truncated.reference`. UI: Notes, IntuitionCheck, CsvImport, `lib/api`, `lib/intuitionCheck`. CSV: remove the role. Prompts and budgets (D1 table). Tests. CHANGELOG `### Breaking changes`. |
 | **PR B — CodeMirror editor** | Deps (D2 pins, ADR 0006 table row), the lazy `NoteEditor` wrapper, the Markdown wrapper, theme, toolbar and copy, the Notes integration with the textarea fallback, the `spa.ts` nonce plus `Cache-Control`, the `index.html` meta placeholder, tests, CHANGELOG `### Added`. |
 
 PR B builds on PR A (both touch `Notes.tsx`). Merge PR A first.
