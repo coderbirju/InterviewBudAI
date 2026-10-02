@@ -46,6 +46,20 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **"Check my intuition" coach — server** (ADR 0013 D1–D3, PR 2).
+  `POST /api/notes/:id/check` sends the Notes editor's CURRENT text (unsaved
+  edits included) to your model, which says whether you are on track and asks
+  1–3 questions — never the answer, code, or a technique your note does not
+  name, and never anything from your Reference approach. The feedback is
+  never saved. Only the structured outcome (assessment, ready-to-code, slip
+  code, status) goes to a **new file, `practice-signals.json`**, in your data
+  folder (newest 500 checks + the set of problems checked; no text). Older
+  builds ignore it — additive, no format change, nothing to do.
+  `GET /api/practice` reports practice trends from that file only; quiz
+  analytics are untouched. `POST /api/practice/reset` (`{ "confirm":
+  "reset-practice" }`) saves a backup of the data folder first, then deletes
+  only that file. One check at a time, ≥ 3 s apart.
+
 - **Reference approach on notes** (ADR 0013 D4, PR 1). Each note can hold an
   optional, private **Your reference approach** — your own write-up of how you
   solved it — in a collapsed disclosure on the Notes page. It is stored in the

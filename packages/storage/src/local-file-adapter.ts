@@ -14,6 +14,7 @@
  *   ${basePath}/quiz-sessions/active.json    -> { sessionId } active pointer (ADR 0007)
  *   ${basePath}/competency-signals.json      -> CompetencySignals (ADR 0007)
  *   ${basePath}/problems/${id}.json          -> CustomProblem (ADR 0010)
+ *   ${basePath}/practice-signals.json        -> PracticeSignals (ADR 0013 D3)
  */
 
 import {
@@ -54,6 +55,8 @@ import type {
   PatternSignal,
   TopicStrength,
   CustomProblem,
+  PracticeEvent,
+  PracticeSignals,
 } from './index.js';
 import { resolveNoteStatus, isNoteStatus } from './index.js';
 import {
@@ -67,6 +70,12 @@ import {
   splitReferenceSection,
 } from './reference-section.js';
 import type { CustomTopicMapper } from './custom-problems.js';
+import {
+  PRACTICE_SIGNALS_FILE,
+  appendPracticeEventFile,
+  readPracticeSignalsFile,
+  resetPracticeSignalsFile,
+} from './practice-signals.js';
 
 // ---------------------------------------------------------------------------
 // Type Guards (validate untrusted JSON)
@@ -821,6 +830,31 @@ export class LocalFileStorageAdapter implements StorageAdapter {
 
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, JSON.stringify(signals, null, 2) + '\n', 'utf-8');
+  }
+
+  // -------------------------------------------------------------------------
+  // Practice Signal Methods (ADR 0013 D3)
+  // -------------------------------------------------------------------------
+
+  private practicePath(): string {
+    return safeJoin(this.basePath, PRACTICE_SIGNALS_FILE);
+  }
+
+  /** Tolerant read: missing, unreadable or corrupt ⇒ `null` (never throws). */
+  async readPracticeSignals(): Promise<PracticeSignals | null> {
+    return readPracticeSignalsFile(this.practicePath());
+  }
+
+  /** Queued read-modify-write; `first` is decided from `seen`. */
+  async appendPracticeEvent(event: PracticeEvent): Promise<PracticeSignals> {
+    return appendPracticeEventFile(this.practicePath(), event);
+  }
+
+  /** Queued delete of `practice-signals.json` only. */
+  async resetPracticeSignals(
+    beforeDelete?: () => Promise<void>,
+  ): Promise<void> {
+    return resetPracticeSignalsFile(this.practicePath(), beforeDelete);
   }
 
   // -------------------------------------------------------------------------
