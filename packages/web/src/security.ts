@@ -181,18 +181,40 @@ export function tokensEqual(
  * script or style (the Vite build emits only external `/assets/*` files; React
  * `style` props go through the CSSOM, which CSP does not block).
  */
-export const SPA_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join('; ');
+export const SPA_CSP = spaCsp("style-src 'self'");
+
+/**
+ * {@link SPA_CSP} for an `index.html` response (ADR 0014 D2): identical except
+ * `style-src` also allows the per-response style nonce, so the lazy note
+ * editor (CodeMirror's `style-mod`) can mount its `<style nonce>` element.
+ * `script-src` stays `'self'` only; there is no `'unsafe-inline'`.
+ */
+export function spaCspWithStyleNonce(nonce: string): string {
+  return spaCsp(`style-src 'self' 'nonce-${nonce}'`);
+}
+
+function spaCsp(styleSrc: string): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    styleSrc,
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
+/**
+ * A fresh 128-bit style nonce: 16 random bytes, base64 (24 chars, `==` end).
+ * The client accepts only exactly this shape (ADR 0014 D2).
+ */
+export function newStyleNonce(): string {
+  return crypto.randomBytes(16).toString('base64');
+}
 
 /**
  * CSP for the small server-rendered pages (`/setup`, 404, "UI not built"):
