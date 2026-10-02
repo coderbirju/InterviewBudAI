@@ -556,6 +556,30 @@ describe('api notes POST', () => {
     expect(file).not.toContain('ibai:reference-approach');
   });
 
+  it('a marker line in content is dropped outside fences on save; reply, reload and file agree (ADR 0014 D1)', async () => {
+    const handler = makeHandler(makeDeps());
+    const M = '<!-- ibai:reference-approach -->';
+    const content = `Idea.\n${M}\nMore.\n\`\`\`\n${M}\n\`\`\``;
+    const expected = `Idea.\nMore.\n\`\`\`\n${M}\n\`\`\``;
+    const res = await handler({
+      method: 'POST',
+      url: `/api/notes/${SECOND_ID}`,
+      body: JSON.stringify({ content }),
+    });
+    expect(res.status).toBe(200);
+    expect((JSON.parse(res.body) as ApiNoteResponse).content).toBe(expected);
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
+    ) as ApiNoteResponse;
+    expect(got.content).toBe(expected);
+    const file = fs.readFileSync(
+      path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
+      'utf-8',
+    );
+    expect(file.endsWith(`${expected}\n`)).toBe(true);
+    expect(file.split(M)).toHaveLength(2);
+  });
+
   it('GET shows a legacy Reference section as note text, without the marker (ADR 0014 D1)', async () => {
     fs.mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
     fs.writeFileSync(
