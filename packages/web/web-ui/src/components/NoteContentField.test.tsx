@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import {
   act,
   fireEvent,
@@ -79,7 +80,7 @@ async function editorMounted(): Promise<EditorView> {
   return viewOf();
 }
 
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<Parameters<typeof console.warn>, void>;
 
 beforeEach(() => {
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

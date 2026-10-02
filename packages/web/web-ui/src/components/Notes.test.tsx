@@ -250,7 +250,7 @@ describe('Notes editor', () => {
       mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
       mockedApi.saveNote.mockImplementation(async (_id, body) => ({
         ...SAVED_NOTE,
-        content: body.content,
+        content: body.content ?? '',
       }));
 
       render(<Notes problemId="two-sum" />);
