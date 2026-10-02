@@ -523,4 +523,108 @@ describe('LocalFileStorageAdapter - IntuitionNote methods', () => {
       expect(result!.spaceComplexity).toBeUndefined();
     });
   });
+
+  describe('legacy Reference approach section (ADR 0014 D1)', () => {
+    const MARKER = '<!-- ibai:reference-approach -->';
+    const FRONT =
+      '---\nid: lc-1\nlastUpdated: 2026-09-30T10:00:00.000Z\nstatus: done\n---\n\n';
+
+    async function writeRaw(text: string): Promise<string> {
+      await mkdir(join(tempDir, 'notes'), { recursive: true });
+      const path = join(tempDir, 'notes', 'lc-1.md');
+      await writeFile(path, text, 'utf-8');
+      return path;
+    }
+
+    /** read -> write the note back unchanged -> the file bytes. */
+    async function resave(path: string): Promise<string> {
+      const note = await adapter.readIntuitionNote('lc-1');
+      await adapter.writeIntuitionNote(note!);
+      return readFile(path, 'utf-8');
+    }
+
+    it('reads a marker note as plain text: only the marker line is dropped', async () => {
+      await writeRaw(
+        `${FRONT}My hash map idea.\n\n${MARKER}\n## Reference approach\n\nOne pass, store complements.\n`,
+      );
+      const note = await adapter.readIntuitionNote('lc-1');
+      expect(note!.content).toBe(
+        'My hash map idea.\n\n## Reference approach\n\nOne pass, store complements.',
+      );
+      expect(note!.content).not.toContain(MARKER);
+      expect(note).not.toHaveProperty('referenceApproach');
+      expect(note!.status).toBe('done');
+    });
+
+    it('the next save writes the text without the marker', async () => {
+      const path = await writeRaw(
+        `${FRONT}Mine.\n\n${MARKER}\n## Reference approach\n\nRef text.\n`,
+      );
+      const saved = await resave(path);
+      expect(saved).not.toContain(MARKER);
+      expect(saved).toContain('Mine.\n\n## Reference approach\n\nRef text.\n');
+      // And it is stable from then on (byte-identical).
+      expect(await resave(path)).toBe(saved);
+    });
+
+    it('drops a CRLF / trailing-whitespace marker line too', async () => {
+      await writeRaw(
+        `${FRONT}Line one.\r\n${MARKER} \t\r\n## Reference approach\r\nRef.\r\n`,
+      );
+      const note = await adapter.readIntuitionNote('lc-1');
+      expect(note!.content).toBe(
+        'Line one.\r\n## Reference approach\r\nRef.\r',
+      );
+    });
+
+    it('drops a marker line in the middle of the body', async () => {
+      await writeRaw(`${FRONT}Top.\n${MARKER}\nMiddle.\n\nBottom.\n`);
+      expect((await adapter.readIntuitionNote('lc-1'))!.content).toBe(
+        'Top.\nMiddle.\n\nBottom.',
+      );
+    });
+
+    it('keeps a marker line inside a fenced code block (user content)', async () => {
+      const content =
+        `Idea.\n\n\`\`\`python\n# ${MARKER}\n${MARKER}\n\`\`\`\n\n` +
+        `~~~~\n${MARKER}\n~~~\nstill fenced\n~~~~\n` +
+        `${MARKER}\nafter the fences`;
+      const path = await writeRaw(`${FRONT}${content}\n`);
+      const read = (await adapter.readIntuitionNote('lc-1'))!.content;
+      // The two fenced markers are kept; only the one after the fences goes.
+      expect(read).toBe(content.replace(`${MARKER}\nafter`, 'after'));
+      expect(read.split(MARKER)).toHaveLength(4);
+      // Stable on the next save: fenced markers stay, byte-identical.
+      const saved = await resave(path);
+      expect(await resave(path)).toBe(saved);
+      expect(saved).toContain(`\`\`\`python\n# ${MARKER}\n${MARKER}\n\`\`\``);
+    });
+
+    it('an unclosed fence keeps every marker line after it', async () => {
+      const content = `Text.\n\`\`\`go\n${MARKER}\nfunc f() {}`;
+      await writeRaw(`${FRONT}${content}\n`);
+      expect((await adapter.readIntuitionNote('lc-1'))!.content).toBe(content);
+    });
+
+    it('keeps the marker text when it is not alone on its line', async () => {
+      const content = `See ${MARKER} inline.\n  ${MARKER}`;
+      const path = await writeRaw(`${FRONT}${content}\n`);
+      expect((await adapter.readIntuitionNote('lc-1'))!.content).toBe(content);
+      expect(await resave(path)).toContain(content);
+    });
+
+    it('a note without the marker round-trips byte-identical', async () => {
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-1',
+        content:
+          'Body.\r\n\n## Reference approach\n\nNo marker here, so this is just text.\n  ',
+        lastUpdated: '2026-09-30T10:00:00.000Z',
+        status: 'to_revisit',
+        timeComplexity: 'O(n)',
+      });
+      const path = join(tempDir, 'notes', 'lc-1.md');
+      const before = await readFile(path, 'utf-8');
+      expect(await resave(path)).toBe(before);
+    });
+  });
 });

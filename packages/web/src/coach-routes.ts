@@ -18,11 +18,7 @@ import type {
   PracticeSignals,
   StorageAdapter,
 } from '@ibai/storage';
-import {
-  containsReferenceMarker,
-  isNoteStatus,
-  splitReferenceSection,
-} from '@ibai/storage';
+import { isNoteStatus } from '@ibai/storage';
 import { canonicalTopicId } from '@ibai/curriculum';
 import type { CurriculumSource } from '@ibai/curriculum';
 import type { LlmProvider, PromptMessage } from '@ibai/providers';
@@ -165,23 +161,10 @@ function parseObject(body: string | undefined): Record<string, unknown> | null {
     : null;
 }
 
-/**
- * Remove every reference-marker section from the request's content with the
- * ONE shared split (ADR 0013 D2/D4). Prompt-side only: nothing is written.
- */
-export function stripMarkerSections(content: string): string {
-  let out = content;
-  while (containsReferenceMarker(out)) {
-    out = splitReferenceSection(out).content;
-  }
-  return out;
-}
-
 interface CheckInput {
   readonly content: string;
   readonly timeComplexity?: string;
   readonly spaceComplexity?: string;
-  readonly referenceApproach?: string;
   readonly status: NoteStatus;
 }
 
@@ -193,12 +176,7 @@ function parseCheckBody(
   const invalid = (error: string) =>
     ({ ok: false, res: json(400, { error, code: 'invalid_body' }) }) as const;
   if (input === null) return invalid('invalid JSON body');
-  for (const key of [
-    'content',
-    'timeComplexity',
-    'spaceComplexity',
-    'referenceApproach',
-  ] as const) {
+  for (const key of ['content', 'timeComplexity', 'spaceComplexity'] as const) {
     const v = input[key];
     if (v === undefined) continue;
     if (typeof v !== 'string') return invalid(`${key} must be a string`);
@@ -209,8 +187,9 @@ function parseCheckBody(
   if (input.status !== undefined && !isNoteStatus(input.status)) {
     return invalid('invalid status');
   }
-  const content =
-    typeof input.content === 'string' ? stripMarkerSections(input.content) : '';
+  // ADR 0014 D1: `content` is checked as sent; a `referenceApproach` field
+  // (of any type) from an older client is ignored.
+  const content = typeof input.content === 'string' ? input.content : '';
   if (content.trim().length === 0) {
     return {
       ok: false,
@@ -224,14 +203,12 @@ function parseCheckBody(
     typeof v === 'string' && v.trim().length > 0 ? v : undefined;
   const time = opt(input.timeComplexity);
   const space = opt(input.spaceComplexity);
-  const reference = opt(input.referenceApproach);
   return {
     ok: true,
     input: {
       content,
       ...(time !== undefined && { timeComplexity: time }),
       ...(space !== undefined && { spaceComplexity: space }),
-      ...(reference !== undefined && { referenceApproach: reference }),
       status: isNoteStatus(input.status) ? input.status : 'none',
     },
   };
@@ -351,9 +328,6 @@ async function handleCheck(
       note: ctx.content,
       title: problem.title,
       topics: problem.topics,
-      ...(ctx.referenceApproach !== undefined && {
-        referenceApproach: ctx.referenceApproach,
-      }),
     });
   } catch (error) {
     if (error instanceof CoachReplyError) {
@@ -416,7 +390,6 @@ async function handleCheck(
 function pick(ctx: CheckInput): {
   timeComplexity?: string;
   spaceComplexity?: string;
-  referenceApproach?: string;
 } {
   return {
     ...(ctx.timeComplexity !== undefined && {
@@ -424,9 +397,6 @@ function pick(ctx: CheckInput): {
     }),
     ...(ctx.spaceComplexity !== undefined && {
       spaceComplexity: ctx.spaceComplexity,
-    }),
-    ...(ctx.referenceApproach !== undefined && {
-      referenceApproach: ctx.referenceApproach,
     }),
   };
 }

@@ -119,7 +119,6 @@ describe('coach end to end: real handler + real UI client/panel', () => {
         timeComplexity: 'O(n^2)',
         spaceComplexity: '',
         status: 'none',
-        referenceApproach: 'Hash map of complements.',
       }),
     );
     const btn = await screen.findByRole('button', {
@@ -135,8 +134,10 @@ describe('coach end to end: real handler + real UI client/panel', () => {
     ).toBeTruthy();
     expect(screen.getByText('The pairing idea is clear.')).toBeTruthy();
     expect(screen.getByText('First check')).toBeTruthy();
-    // The panel's request carried the reference to the model (grounding).
-    expect(prompts.join('\n')).toContain('Hash map of complements.');
+    // The panel's request carried the editor text, and no Reference block
+    // (ADR 0014 D1).
+    expect(prompts.join('\n')).toContain('Two loops over all pairs.');
+    expect(prompts.join('\n')).not.toContain('Reference');
 
     const first = await fetchPractice();
     expect(first.state).toBe('ready');
