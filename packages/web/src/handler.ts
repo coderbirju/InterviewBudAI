@@ -23,6 +23,7 @@ import {
 import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { createKnownProblemIdCheck } from './problems.js';
 import { isApiRoute, handleApiRoute } from './api.js';
+import { createCoachLimiter } from './coach-routes.js';
 import { createProviderTester } from './settings.js';
 import {
   checkSameOrigin,
@@ -311,6 +312,11 @@ export function createCoachHandler(
     }),
   };
 
+  // "Check my intuition" (ADR 0013 D2): one in-process rate limit per handler.
+  const coachLimiter = createCoachLimiter(
+    deps.clock !== undefined ? { clock: deps.clock } : {},
+  );
+
   const route = async (req: HandlerRequest): Promise<HandlerResponse> => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
@@ -358,6 +364,7 @@ export function createCoachHandler(
           provider: deps.provider,
           providerLabel: deps.providerLabel,
           settings,
+          coachLimiter,
         },
         req.body,
       );
