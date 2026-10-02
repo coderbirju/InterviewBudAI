@@ -149,10 +149,12 @@ echo "ok - no .env in the image"
   test ! -e node_modules/react &&
   test ! -e node_modules/react-dom &&
   test ! -e node_modules/lucide-react &&
+  test ! -e node_modules/@codemirror &&
+  test ! -e node_modules/@lezer &&
   test ! -L node_modules/@ibai/cli &&
   test -z "$(find node_modules -xtype l)" &&
   test -z "$(find /app /home/app -name .env)"
 ' || fail "the image contains source, dev dependencies, a dangling link or a .env"
-echo "ok - no src/, typescript, vite, react or .env in the image; no dangling links"
+echo "ok - no src/, typescript, vite, react, codemirror or .env in the image; no dangling links"
 
 echo "Docker smoke test passed."
