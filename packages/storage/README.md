@@ -20,6 +20,7 @@ ${basePath}/
   quiz-sessions/active.json       -> active-session pointer (ADR 0007)
   competency-signals.json         -> CompetencySignals (ADR 0007)
   problems/${id}.json             -> CustomProblem (ADR 0010)
+  practice-signals.json           -> PracticeSignals (ADR 0013 D3)
 ```
 
 ## Custom problems (ADR 0010)
@@ -110,6 +111,68 @@ status ⇒ `completed: false`. On read it is tolerant:
 
 Content is user-owned and lives only in the runtime data directory (never
 committed to the repo).
+
+### Reference approach section (ADR 0013 D4)
+
+`IntuitionNote.referenceApproach?` — the user's OWN write-up of how they solved
+the problem (optional, private; grounding for the quiz grader, never shipped)
+— is stored as a marked trailing section of the body, not in frontmatter:
+
+```markdown
+…the user's note…
+
+<!-- ibai:reference-approach -->
+## Reference approach
+
+…the user's reference text…
+```
+
+- **One split/join**: `splitReferenceSection` / `joinReferenceSection`
+  (exported) are the only code that knows this layout; the adapter's read and
+  write use them, and any future Markdown importer must too.
+- **Read**: the LAST line equal to the marker after trimming a trailing `\r`
+  and spaces/tabs (CRLF-tolerant) splits the body; after it, one leading
+  `## Reference approach` heading and surrounding blank lines are dropped.
+  `content` never includes the section. No marker ⇒ `referenceApproach` is
+  `undefined` and the body reads unchanged (every older note).
+- **Write**: the section is written only when the trimmed reference is
+  non-empty (an empty marker is also written when `content` itself holds a
+  marker line, so that content still round-trips). A marker line inside the
+  reference is a `RangeError` (callers validate first).
+- **Older builds** show the section, marker included, as part of the body
+  text and save it back verbatim — nothing is lost. Additive: no
+  `formatVersion` bump.
+- **Writers must carry it over**: any code that rebuilds an `IntuitionNote`
+  must copy `existing.referenceApproach` (prefer `{ ...existing, … }`), or the
+  next write drops it.
+
+## Practice signals (ADR 0013 D3)
+
+`practice-signals.json` records the STRUCTURED outcome of each "Check my
+intuition" run — `{ problemId, topics, assessment, readyToCode, miss?,
+status, first, at }` — and never any text (no note, reference, question,
+feedback or complexity). Shape `{ version: 1, updatedAt, events, seen }`:
+
+- `events`: the newest **500** (oldest dropped); `seen`: every problem ever
+  checked, capped at **5 000** — at the cap the least recently checked
+  problem is dropped (a re-check moves it to the end), so only that problem
+  could count as "first" again. `first` is decided by the adapter from
+  `seen`, inside the write queue.
+- Optional adapter methods (ADR 0002 pattern): `readPracticeSignals()`
+  (missing/corrupt ⇒ `null`, never throws), `appendPracticeEvent(e)` and
+  `resetPracticeSignals(beforeDelete?)` — these two share ONE per-process
+  write queue per file (also across adapter instances), writes are temp file
+  + rename. `beforeDelete` (the caller's backup) runs inside the queue before
+  the delete, so an append is either in the backup or after the reset; if it
+  throws, nothing is deleted.
+- Untrusted on read: bad events are skipped, unknown or `on_track` miss codes
+  dropped. A file that is not JSON or not `{ version: 1, events: [], seen:
+  [] }` reads as empty and is renamed to
+  `practice-signals.json.corrupt-<YYYYMMDDTHHMMSSZ>` (kept) on the next
+  append. A reset deletes only `practice-signals.json` — after it every
+  problem's next check is a first check again.
+- Additive (ADR 0009 D4): older builds ignore the file; no `formatVersion`
+  bump. ADR 0009 D3 backups copy the whole folder, so they include it.
 
 ## Quiz Master storage (ADR 0007)
 
