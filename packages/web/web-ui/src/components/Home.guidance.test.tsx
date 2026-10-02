@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Home } from './Home';
 import App from '../App';
 import { navigate, notesHref, rememberHomeSearch } from '../lib/router';
+import type { FullNote } from '../lib/api';
 
 /**
  * Home guidance card wiring (w2a) with `fetch` mocked at the wire: the card
@@ -63,6 +64,20 @@ const GUIDANCE = {
 type Reply = { status: number; body: unknown };
 type Handler = (init?: RequestInit) => Reply | Promise<Reply>;
 
+/** A valid `FullNote` (GET/POST /api/notes/:id) for problem `lc-1`. */
+function fullNote(overrides: Partial<FullNote> = {}): FullNote {
+  return {
+    problemId: 'lc-1',
+    content: '',
+    status: 'none',
+    completed: false,
+    timeComplexity: null,
+    spaceComplexity: null,
+    lastUpdated: null,
+    ...overrides,
+  };
+}
+
 let routes: Record<string, Handler>;
 let fetchMock: ReturnType<
   typeof vi.fn<[RequestInfo | URL, RequestInit?], Promise<Response>>
@@ -96,11 +111,8 @@ beforeEach(() => {
     '/api/guidance': ok(GUIDANCE),
     '/api/notes/lc-1': (init) =>
       init?.method === 'POST'
-        ? {
-            status: 200,
-            body: { problemId: 'lc-1', status: 'done', completed: true },
-          }
-        : { status: 200, body: { exists: false } },
+        ? { status: 200, body: fullNote({ status: 'done', completed: true }) }
+        : { status: 200, body: fullNote() },
   };
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const handler = routes[String(input)];
