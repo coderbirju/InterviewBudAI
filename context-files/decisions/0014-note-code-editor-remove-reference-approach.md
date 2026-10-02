@@ -93,30 +93,42 @@ stale-preview path.
   system prompt nor any user message contains `Reference`, and the budget
   tests above pass.
 
-**Data lifecycle (ADR 0009 D4): the bytes on disk stay.** There is no
-migration and no `formatVersion` bump.
+**Data lifecycle (ADR 0009 D4): no text is lost.** There is no migration
+and no `formatVersion` bump. The founder wants Reference support gone, so the
+marker comment would only be noise in the editor.
 
-- **Reader:** a note that already has a `<!-- ibai:reference-approach -->`
-  section is read as **ordinary note text**. `content` is the whole body:
-  the marker comment, the `## Reference approach` heading and the text all
-  show at the end of the note, exactly as builds before #87 showed them.
-  Nothing is hidden or lost.
-- **Writer:** the body is written as given. The next save writes the section
-  back as body text, byte-for-byte unless the user edits it.
+- **Reader:** in a note that already has a Reference section, the reader
+  **drops only the marker line** (`<!-- ibai:reference-approach -->`, matched
+  as before: trailing `\r`/spaces/tabs ignored). It keeps every following
+  line, including the `## Reference approach` heading and the text, as plain
+  note `content` at the end of the note. That is a single inline line filter
+  in the adapter's `readIntuitionNote`. Nothing else in the body changes.
+- **Writer:** the body is written as given. The next save therefore writes
+  the note **without the marker line**.
+- **Byte round-trip is intentionally not preserved, for marker-bearing notes
+  only.** A file is rewritten only when the user saves it, and then the
+  marker line is gone. Every other note round-trips byte-for-byte, as today.
+  The founder's data (`~/Desktop/testBuai`) has no marker-bearing notes, so
+  in practice this affects only notes made with a #87+ build.
 - **Consequence:** the quiz grader and the coach now read that text as part
   of the note. That is acceptable under §6.2, because it is the user's own
   text and it is now visible in the editor.
-- **Downgrade:** a build from #87 up to PR A would read the section as a Reference again.
-  Nothing is lost either way.
+- **Downgrade:** a build from #87 up to PR A reads an unsaved marker-bearing
+  file as a Reference again. After a save from the new build the marker is
+  gone, so the old build shows the text as body. Nothing is lost either way.
 - **`reference-section.ts` is deleted**, along with its exports from
-  `@ibai/storage` and its tests. Rejected: keeping it as a no-op, because
-  nothing may parse the marker any more and dead format code invites reuse.
+  `@ibai/storage` and its tests. The reader's marker-line filter is a private
+  helper in the adapter (no split, no reference field). Rejected: keeping
+  the module as a no-op, because dead format code invites reuse. Rejected:
+  keeping the marker visible, because it is noise once the feature is gone.
 - **CHANGELOG `### Breaking changes`** (user-visible behaviour change; the
   format itself is unchanged): "**The Reference approach field is removed**
-  (ADR 0014). Nothing is deleted. A note that had one now shows it at the end
-  of the note, below a `<!-- ibai:reference-approach -->` line and a
-  `## Reference approach` heading. You can keep it there or delete those
-  lines. The quiz and the intuition check now read it as part of your note.
+  (ADR 0014). No text is deleted. A note that had one now shows it at the end
+  of the note, under a `## Reference approach` heading. You can keep it there
+  or delete it. The hidden `<!-- ibai:reference-approach -->` marker line is
+  dropped, so the next save rewrites that note file without it. Notes without
+  a Reference are unchanged. The quiz and the intuition check now read the
+  text as part of your note.
   CSV columns named Reference approach, Solution approach or Reference now
   import as a normal `## <Header>` section."
 
@@ -138,8 +150,11 @@ deps, MIT, from `npm view` on 2026-10-01):
 
 The transitive packages are pinned by the lockfile: `@codemirror/autocomplete`,
 `@lezer/common`, `@lezer/lr`, `@lezer/python`, `@lezer/go`, `style-mod`,
-`crelt` and `w3c-keyname`. All are MIT and maintained by the CodeMirror
-project. They are widely used (§7.1): `@codemirror/view` has about 17 M
+`crelt`, `w3c-keyname` and `@marijn/find-cluster-break` (1.0.4). All are MIT
+and maintained by the CodeMirror author. `@codemirror/autocomplete` **is
+bundled** even though we do not enable the autocomplete UI, because
+lang-python and lang-go import it for their completion sources and
+snippets. Its size is included in the measured ~149 KB. They are widely used (§7.1): `@codemirror/view` has about 17 M
 weekly downloads, and `@lezer/markdown` and `@codemirror/lang-go` have about
 4–6 M each.
 
@@ -170,28 +185,47 @@ fetched at runtime (§6.4).
   `<head>`. That is blocked by the SPA CSP from #58 (`style-src 'self'`).
   Inline `style` changes are made through the CSSOM (`el.style.cssText`),
   which CSP does not block, so only the `<style>` element needs a nonce.
-- **Server (`spa.ts`):** each `index.html` response gets a fresh 128-bit
-  random nonce (`crypto.randomBytes(16)`, base64). The header becomes
-  `SPA_CSP` with `style-src 'self' 'nonce-<n>'`. The HTML placeholder
-  `<meta name="ibai-style-nonce" nonce="__IBAI_STYLE_NONCE__">` is replaced
-  with the nonce. `index.html` is sent with `Cache-Control: no-store`.
+- **Server (`spa.ts`): EVERY `index.html` response** gets the treatment.
+  That means `/`, `/index.html`, and the SPA fallback for client-side
+  routes. Note that `spa.ts` serves `/` through the generic file branch
+  (`/` → `/index.html`), not through `serveIndexHtml`. PR B MUST route every
+  path that resolves to `index.html` through one function that does all of
+  the following:
+  - generates a fresh 128-bit random nonce (`crypto.randomBytes(16)`,
+    base64, 24 chars);
+  - replaces the HTML placeholder
+    `<meta name="ibai-style-nonce" nonce="__IBAI_STYLE_NONCE__">` with it;
+  - sets the header to `SPA_CSP` with `style-src 'self' 'nonce-<n>'`;
+  - sets `Cache-Control: no-store`.
   `script-src` is unchanged (`'self'` only, no nonce). JSON and asset
   responses keep the plain `SPA_CSP`.
 - **Client:** the editor reads the nonce from the meta element's `nonce` IDL
   property, falling back to `getAttribute('nonce')` (browsers hide the
-  attribute from CSS selectors). It passes `EditorView.cspNonce.of(n)` in the
-  **initial** state, because styles are mounted when the view is built.
-- **Fallback:** in a production build, if there is no nonce the editor is not
-  started and the textarea is used.
+  attribute from CSS selectors). It **accepts it only if it matches
+  `^[A-Za-z0-9+/]{22}==$`**, the exact shape of 16 random bytes in base64.
+  The unreplaced placeholder, an empty value, or anything else is rejected.
+  It passes `EditorView.cspNonce.of(n)` in the **initial** state, because
+  styles are mounted when the view is built.
+- **Fallback:** if the nonce is missing or invalid, the editor is not started
+  and the textarea is used. This applies in every build; the Vite dev server
+  serves the placeholder, so dev also uses the textarea unless the dev
+  server is given a nonce.
 - **Rejected:**
   - `style-src 'unsafe-inline'`, which weakens the whole app.
   - Hashes, which break when any theme rule or CodeMirror version changes.
   - A Shadow DOM root (which would use the `adoptedStyleSheets` path), because
     labels and `aria-labelledby` cannot cross the shadow boundary and it
     makes testing harder.
-- **Tests:** the nonce is in both the header and the HTML and they match; it
-  differs per request; `script-src` is unchanged; JSON responses have no
-  nonce.
+- **Tests (`spa.test.ts` / `handler.test.ts`):** for **`/`, `/index.html`
+  and a deep client route** (for example `/problems/lc-1/notes`):
+  - the nonce in the header and in the HTML match;
+  - it matches the regex above;
+  - it differs per request;
+  - `Cache-Control: no-store` is set;
+  - `script-src` is unchanged.
+  JSON and `/assets/*` responses have no nonce. Client unit test: a valid
+  nonce is accepted, and the placeholder, `''` and a malformed value fall
+  back to the textarea.
 
 **Behaviour:**
 
@@ -236,7 +270,8 @@ fetched at runtime (§6.4).
   applies, and the prompt caps (note head 2 500) are unchanged.
 - **A11y:** `contentAttributes` set `aria-labelledby` (the "Intuition &
   approach" label, which gets an id) and `aria-describedby` (the help text).
-  Clicking the label focuses the editor. CodeMirror provides
+  Clicking the label calls `view.focus()` (a `<label for>` cannot target a
+  contenteditable). CodeMirror provides
   `role="textbox"` and `aria-multiline`.
 - **Controlled value:** an update listener calls `onChange(doc)`. A `value`
   change from outside (loading a note, a save) replaces the doc only when it
@@ -244,21 +279,30 @@ fetched at runtime (§6.4).
 - **Graceful fallback:** while the chunk loads, and if `import()` rejects, the
   view constructor throws, or there is no nonce in production, Notes renders
   today's `<textarea id="note-content">` with the same value, toolbar and
-  handlers. It logs a `console.warn` and shows no error banner. Text typed
-  before the editor loads carries over.
+  handlers. It logs a `console.warn` and shows no error banner.
+- **Lazy swap preserves state:** when the editor replaces the textarea, it
+  starts with the textarea's current value. If the textarea had focus, the
+  editor takes focus, and the textarea's `selectionStart`/`selectionEnd`
+  become the editor's selection (`EditorSelection.range`, clamped to the doc
+  length). Typing is never lost and the cursor does not jump.
 
 **Tests:**
 
 - **Pure, no DOM** (`EditorState` and `StateCommand`s):
   - fence language resolution (python/py/go/golang/rust → plain);
-  - the nested syntax tree has Python nodes (`FunctionDefinition`) and Go
+  - **nested parse (required, guards the custom Markdown wrapper):** the
+    nested syntax tree has Python nodes (`FunctionDefinition`) and Go
     nodes (`FunctionDecl`) inside their fences;
   - Enter after `def f():` inside a Python fence indents;
   - `fencedBlockEdit` cases (empty doc, mid-line, selection wrap);
   - nonce extraction.
 - **Component** (jsdom, with `Range.prototype.getClientRects` and
   `getBoundingClientRect` polyfilled in the UI test setup):
-  - the editor mounts with the label wiring;
+  - the editor mounts with the label wiring, and clicking the label focuses
+    it (`view.hasFocus`);
+  - lazy swap: with the textarea focused and its cursor mid-text, resolving
+    the loader gives an editor that has focus, the same value and the same
+    selection;
   - `view.dispatch` calls `onChange`;
   - the toolbar inserts;
   - Copy works with a mocked `navigator.clipboard`, including the failure
@@ -298,7 +342,7 @@ come first.
 
 | PR | Scope |
 |---|---|
-| **PR A — remove Reference** | Storage: delete `reference-section.ts` and its exports, the reader keeps the whole body, drop `IntuitionNote.referenceApproach`, a test that a marker file reads back verbatim and round-trips byte-for-byte. API: notes GET/POST and the check route ignore the field, drop the marker rule and `truncated.reference`. UI: Notes, IntuitionCheck, CsvImport, `lib/api`, `lib/intuitionCheck`. CSV: remove the role. Prompts and budgets (D1 table). Tests. CHANGELOG `### Breaking changes`. |
+| **PR A — remove Reference** | Storage: delete `reference-section.ts` and its exports, the reader keeps the whole body, drop `IntuitionNote.referenceApproach`, tests that a marker file reads back with only the marker line removed (heading and text kept as content), that the next save writes it without the marker, and that a marker-free note round-trips byte-for-byte. API: notes GET/POST and the check route ignore the field, drop the marker rule and `truncated.reference`. UI: Notes, IntuitionCheck, CsvImport, `lib/api`, `lib/intuitionCheck`. CSV: remove the role. Prompts and budgets (D1 table). Tests. CHANGELOG `### Breaking changes`. |
 | **PR B — CodeMirror editor** | Deps (D2 pins, ADR 0006 table row), the lazy `NoteEditor` wrapper, the Markdown wrapper, theme, toolbar and copy, the Notes integration with the textarea fallback, the `spa.ts` nonce plus `Cache-Control`, the `index.html` meta placeholder, tests, CHANGELOG `### Added`. |
 
 PR B builds on PR A (both touch `Notes.tsx`). Merge PR A first.
@@ -310,8 +354,9 @@ PR B builds on PR A (both touch `Notes.tsx`). Merge PR A first.
 - **Positive:** both prompts are smaller. Quiz worst is 1 980 (was 2 165) and
   coach worst is 1 371 (was 1 737), which gives more context headroom on
   small local models.
-- **Tradeoff:** a note that had a Reference shows the marker and heading as
-  body text until the user tidies it.
+- **Tradeoff:** a note that had a Reference shows its heading and text as
+  body text until the user tidies it, and its first save drops the marker
+  line (the only case without a byte round-trip).
 - **Tradeoff:** the SPA CSP gains a per-response style nonce, and
   `index.html` can no longer be cached.
 - **Tradeoff:** the Notes page loads a ~149 KB gzip chunk. Other pages do not.
