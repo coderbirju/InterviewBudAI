@@ -67,6 +67,14 @@ Exact pinned versions (charter §7.1 — pinned exact, widely used):
 | @types/react-dom | 18.3.7 | dev |
 | eslint-plugin-react | 7.37.5 | dev |
 | eslint-plugin-react-hooks | 4.6.2 | dev |
+| @codemirror/state | 6.7.6 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @codemirror/view | 6.43.13 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @codemirror/commands | 6.11.1 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @codemirror/language | 6.12.4 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @codemirror/lang-python | 6.2.1 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @codemirror/lang-go | 6.0.1 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @lezer/markdown | 1.7.2 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
+| @lezer/highlight | 1.2.5 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
 
 **Rejected alternatives:** Tailwind 4.x (CSS-first config, less established, no
 classic `theme.extend`) and Vite 8 / React 19 (newest majors, less
