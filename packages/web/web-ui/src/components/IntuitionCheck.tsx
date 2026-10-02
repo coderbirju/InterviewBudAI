@@ -57,7 +57,6 @@ export interface IntuitionCheckProps {
   readonly content: string;
   readonly timeComplexity: string;
   readonly spaceComplexity: string;
-  readonly referenceApproach?: string;
   readonly status: NoteStatus;
 }
 
@@ -82,19 +81,11 @@ function snapshotOf(props: IntuitionCheckProps): string {
     props.content,
     props.timeComplexity,
     props.spaceComplexity,
-    props.referenceApproach ?? '',
   ]);
 }
 
 export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
-  const {
-    problemId,
-    content,
-    timeComplexity,
-    spaceComplexity,
-    referenceApproach,
-    status,
-  } = props;
+  const { problemId, content, timeComplexity, spaceComplexity, status } = props;
 
   // null = unknown (settings not loaded / failed): the server decides.
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
@@ -189,7 +180,6 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
         content,
         timeComplexity,
         spaceComplexity,
-        ...(referenceApproach !== undefined && { referenceApproach }),
         status,
       });
       if (id !== requestId.current) return;
@@ -237,7 +227,6 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
     content,
     timeComplexity,
     spaceComplexity,
-    referenceApproach,
     status,
     currentSnapshot,
   ]);
@@ -337,8 +326,6 @@ function CheckPanel({
   const fallback = result.questions.length === 0 && note === '';
   const truncations = [
     result.truncated.note && 'Only the start of your note was checked.',
-    result.truncated.reference &&
-      'Only the start of your reference approach was used.',
     result.truncated.statement &&
       'Only the start of the problem statement was used.',
   ].filter((t): t is string => typeof t === 'string');

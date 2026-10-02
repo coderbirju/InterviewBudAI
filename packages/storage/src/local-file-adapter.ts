@@ -74,6 +74,52 @@ import {
 } from './practice-signals.js';
 
 // ---------------------------------------------------------------------------
+// Legacy Reference approach marker (ADR 0013 D4, retired by ADR 0014 D1)
+// ---------------------------------------------------------------------------
+
+/** The marker line that builds #87 up to ADR 0014 wrote before a reference. */
+const LEGACY_REFERENCE_MARKER = '<!-- ibai:reference-approach -->';
+
+/** A Markdown fence line: up to 3 spaces, then 3+ backticks or tildes. */
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Drop every line that is exactly the legacy marker (a trailing `\r` and
+ * spaces/tabs ignored, so CRLF files match too), wherever it sits in the
+ * body, but ONLY outside fenced code blocks: inside a ``` / ~~~ fence the
+ * line is the user's own code or text and is kept. Everything else,
+ * including the `## Reference approach` heading and its text, stays as note
+ * content; the next save writes it back without the marker. A body without
+ * the marker is returned unchanged (byte-identical).
+ */
+function dropLegacyReferenceMarker(body: string): string {
+  if (!body.includes(LEGACY_REFERENCE_MARKER)) return body;
+  let fence: string | null = null; // the open fence's run, e.g. '```'
+  const kept: string[] = [];
+  for (const line of body.split('\n')) {
+    const trimmed = line.replace(/[ \t\r]+$/, '');
+    const m = FENCE_LINE.exec(trimmed);
+    if (fence === null) {
+      if (m) {
+        // A backtick fence's info string may not hold a backtick.
+        if (!(m[1]![0] === '`' && m[2]!.includes('`'))) fence = m[1]!;
+      } else if (trimmed === LEGACY_REFERENCE_MARKER) {
+        continue;
+      }
+    } else if (
+      m &&
+      m[1]![0] === fence[0] &&
+      m[1]!.length >= fence.length &&
+      m[2]!.trim() === ''
+    ) {
+      fence = null;
+    }
+    kept.push(line);
+  }
+  return kept.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Type Guards (validate untrusted JSON)
 // ---------------------------------------------------------------------------
 
@@ -1053,6 +1099,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     if (body.endsWith('\n')) {
       body = body.slice(0, -1);
     }
+
+    // ADR 0014 D1: a note saved by a build with the retired Reference
+    // approach field reads as ordinary note text, minus its marker line.
+    body = dropLegacyReferenceMarker(body);
 
     // Resolve effective status with back-compat: an explicit parsed status
     // wins; otherwise a legacy completed:true resolves to 'done'. Only include

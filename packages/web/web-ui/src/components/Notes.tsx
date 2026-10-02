@@ -608,7 +608,6 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
             timeComplexity={timeComplexity}
             spaceComplexity={spaceComplexity}
             status={status}
-            referenceApproach={referenceApproach}
           />
 
           {save.kind === 'saved' && (

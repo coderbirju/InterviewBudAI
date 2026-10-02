@@ -12,7 +12,6 @@ import {
   LocalFileStorageAdapter,
   PRACTICE_EVENTS_MAX,
   PRACTICE_SIGNALS_FILE,
-  REFERENCE_MARKER,
 } from '@ibai/storage';
 import type { IsoTimestamp, StorageAdapter } from '@ibai/storage';
 import type {
@@ -122,6 +121,7 @@ describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
       {
         content: 'UNSAVED-EDIT: nested loops over pairs',
         timeComplexity: 'O(n^2)',
+        // ADR 0014 D1: an older client's field is ignored, never sent.
         referenceApproach: 'SECRET-REFERENCE text',
         status: 'to_revisit',
       },
@@ -136,13 +136,17 @@ describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
       miss: 'complexity',
       missLabel: 'Complexity analysis off',
       firstCheck: true,
-      truncated: { note: false, reference: false, statement: false },
+      truncated: { note: false, statement: false },
       checkedAt: NOW.toISOString(),
       recorded: true,
     });
     // The editor text went to the model (never a saved note: there is none).
     const sent = provider.requests[0]!.messages[1]!.content;
     expect(sent).toContain('UNSAVED-EDIT');
+    for (const m of provider.requests[0]!.messages) {
+      expect(m.content).not.toContain('SECRET-REFERENCE');
+      expect(m.content).not.toContain('Reference');
+    }
     expect(provider.requests[0]!.options).toMatchObject({
       responseFormat: 'json',
       maxTokens: 256,
@@ -169,7 +173,6 @@ describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
       problemId: PROBLEM.id,
       content: 'SAVED-CONTENT',
       lastUpdated: NOW.toISOString() as IsoTimestamp,
-      referenceApproach: 'SAVED-REFERENCE',
     });
     const provider = new FakeProvider();
     await check({ content: 'editor text' }, deps({ provider }));
@@ -177,8 +180,6 @@ describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
       '\n',
     );
     expect(sent).not.toContain('SAVED-CONTENT');
-    expect(sent).not.toContain('SAVED-REFERENCE');
-    expect(sent).not.toContain('Reference (theirs');
   });
 
   it('second check of a problem is not first; on_track drops miss + label', async () => {
@@ -191,31 +192,44 @@ describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
     expect(second.body.readyToCode).toBe(true);
   });
 
-  it('strips a marker section from content (prompt only); empty after strip → empty_note', async () => {
+  it('checks content as sent, a legacy marker section included (ADR 0014 D1)', async () => {
+    const marker = '<!-- ibai:reference-approach -->';
     const provider = new FakeProvider();
-    await check(
-      {
-        content: `my idea\n\n${REFERENCE_MARKER}\n## Reference approach\n\nHIDDEN`,
-      },
-      deps({ provider }),
-    );
+    const content = `my idea\n\n${marker}\n## Reference approach\n\nMY OLD TEXT`;
+    const res = await check({ content }, deps({ provider }));
+    expect(res.status).toBe(200);
     const sent = provider.requests[0]!.messages[1]!.content;
-    expect(sent).toContain('my idea');
-    expect(sent).not.toContain('HIDDEN');
-    expect(sent).not.toContain(REFERENCE_MARKER);
-    const empty = await check({ content: `  \n${REFERENCE_MARKER}\nonly ref` });
-    expect(empty.status).toBe(400);
-    expect(empty.body.code).toBe('empty_note');
+    expect(sent).toContain(content);
+    const only = await check({ content: `  \n${marker}\nonly ref` });
+    expect(only.status).toBe(200);
+  });
+
+  it('ignores referenceApproach of any type (ADR 0014 D1)', async () => {
+    for (const referenceApproach of [
+      [],
+      7,
+      null,
+      { a: 1 },
+      'r'.repeat(60_000),
+    ]) {
+      const provider = new FakeProvider();
+      const res = await check(
+        { content: 'a', referenceApproach },
+        deps({ provider }),
+      );
+      expect(res.status, JSON.stringify(referenceApproach).slice(0, 20)).toBe(
+        200,
+      );
+      expect(res.body.truncated).toEqual({ note: false, statement: false });
+    }
   });
 
   it('flags truncation', async () => {
     const { body } = await check({
       content: 'n'.repeat(3000),
-      referenceApproach: 'r'.repeat(1300),
     });
     expect(body.truncated).toEqual({
       note: true,
-      reference: true,
       statement: false,
     });
   });
@@ -226,7 +240,6 @@ describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
       [{ content: '   ' }, 'empty_note'],
       [{ content: 7 }, 'invalid_body'],
       [{ content: 'a', timeComplexity: 1 }, 'invalid_body'],
-      [{ content: 'a', referenceApproach: [] }, 'invalid_body'],
       [{ content: 'a', status: 'great' }, 'invalid_body'],
       [{ content: 'x'.repeat(50_001) }, 'invalid_body'],
       [{ content: 'a', spaceComplexity: 's'.repeat(50_001) }, 'invalid_body'],

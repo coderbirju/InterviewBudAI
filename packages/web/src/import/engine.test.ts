@@ -144,6 +144,19 @@ describe('Notion mapping', () => {
     );
   });
 
+  it('Reference / Solution approach columns are ordinary ## sections (ADR 0014 D1)', () => {
+    const res = mapCsv(
+      'Problem,Intuition,Reference approach,Solution approach,Reference\n' +
+        'X,intu,ref one,sol two,ref three\n',
+    );
+    const row = res.rows[0]!;
+    expect(row.content).toBe(
+      'intu\n\n## Reference approach\n\nref one\n\n## Solution approach\n\nsol two\n\n## Reference\n\nref three',
+    );
+    expect(row).not.toHaveProperty('referenceApproach');
+    expect(row).not.toHaveProperty('referenceColumn');
+  });
+
   it('Intuition wins over Property (Property becomes a section)', () => {
     const res = mapCsv('Problem,Property,Intuition\nX,prop,intu\n');
     expect(res.rows[0]?.body).toBe('intu');

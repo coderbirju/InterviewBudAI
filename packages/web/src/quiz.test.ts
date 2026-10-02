@@ -301,13 +301,26 @@ describe('prompt budgets for small context windows (ADR 0012 D2)', () => {
   });
 
   it('the fixed prompt is ≤ 280 tokens', () => {
-    expect(estimatePromptTokens(FIXED_FIXTURE())).toBeLessThanOrEqual(280);
+    const tokens = estimatePromptTokens(FIXED_FIXTURE());
+    console.info(`quiz fixed fixture: ${tokens} tokens`);
+    expect(tokens).toBeLessThanOrEqual(280);
+  });
+
+  it('no Reference block or rule in any message (ADR 0014 D1)', () => {
+    for (const m of [
+      ...FIXED_FIXTURE(),
+      ...withVerdictRetryReminder(WORST_FIXTURE()),
+    ]) {
+      expect(m.content).not.toContain('Reference');
+    }
+    expect(L).not.toHaveProperty('referenceMax');
   });
 
   it('the worst case, retry included, is ≤ 2000 tokens (the budget)', () => {
     const tokens = estimatePromptTokens(
       withVerdictRetryReminder(WORST_FIXTURE()),
     );
+    console.info(`quiz worst fixture: ${tokens} tokens`);
     expect(tokens).toBeLessThanOrEqual(QUIZ_PROMPT_TOKEN_BUDGET);
     expect(
       QUIZ_PROMPT_TOKEN_BUDGET + QUIZ_VERDICT_MAX_TOKENS,
@@ -319,6 +332,7 @@ describe('prompt budgets for small context windows (ADR 0012 D2)', () => {
       (sum, m) => sum + Math.ceil(m.content.length / 3) + 4,
       0,
     );
+    console.info(`quiz worst fixture at chars/3: ${pessimistic} tokens`);
     expect(pessimistic + QUIZ_VERDICT_MAX_TOKENS).toBeLessThan(3840);
   });
 

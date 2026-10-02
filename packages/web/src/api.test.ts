@@ -523,6 +523,55 @@ describe('api notes POST', () => {
     expect(onDisk?.status).toBe('to_revisit');
   });
 
+  it('ignores referenceApproach of any type and never stores it (ADR 0014 D1)', async () => {
+    const handler = makeHandler(makeDeps());
+    for (const referenceApproach of [
+      'SECRET-REF',
+      ['x'],
+      7,
+      null,
+      '<!-- ibai:reference-approach -->',
+      'r'.repeat(60_000),
+    ]) {
+      const res = await handler({
+        method: 'POST',
+        url: `/api/notes/${SECOND_ID}`,
+        body: JSON.stringify({ content: 'mine', referenceApproach }),
+      });
+      expect(res.status).toBe(200);
+      const saved = JSON.parse(res.body) as Record<string, unknown>;
+      expect(saved).not.toHaveProperty('referenceApproach');
+      expect(saved.content).toBe('mine');
+    }
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
+    ) as Record<string, unknown>;
+    expect(got).not.toHaveProperty('referenceApproach');
+    expect(got.content).toBe('mine');
+    const file = fs.readFileSync(
+      path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
+      'utf-8',
+    );
+    expect(file).not.toContain('SECRET-REF');
+    expect(file).not.toContain('ibai:reference-approach');
+  });
+
+  it('GET shows a legacy Reference section as note text, without the marker (ADR 0014 D1)', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'notes', `${FIRST_ID}.md`),
+      '---\nid: x\nlastUpdated: 2026-09-30T10:00:00.000Z\n---\n\n' +
+        'My idea.\n\n<!-- ibai:reference-approach -->\n## Reference approach\n\nOld ref.\n',
+      'utf-8',
+    );
+    const handler = makeHandler(makeDeps());
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: `/api/notes/${FIRST_ID}` })).body,
+    ) as Record<string, unknown>;
+    expect(got.content).toBe('My idea.\n\n## Reference approach\n\nOld ref.');
+    expect(got).not.toHaveProperty('referenceApproach');
+  });
+
   it('complexity values with quotes/backslashes round-trip through POST → GET, stable across saves', async () => {
     const handler = makeHandler(makeDeps());
     const time = 'O(n) "amortized" \\log n: #1 \'x\' Θ ';
