@@ -147,8 +147,16 @@ echo "ok - no .env in the image"
   bad=0
   check() { if ! eval "$1"; then echo "image check failed: $1" >&2; bad=1; fi; }
   check "test -z \"\$(find packages -maxdepth 2 -name src)\""
-  for dep in typescript vite react react-dom lucide-react @codemirror @lezer; do
+  # Scoped deps are checked by package dir: npm may leave an empty scope dir.
+  for dep in typescript vite react react-dom lucide-react \
+    @codemirror/state @codemirror/view @codemirror/language \
+    @lezer/common @lezer/markdown @lezer/highlight; do
     check "test ! -e node_modules/$dep"
+  done
+  for scope in @codemirror @lezer; do
+    if [ -d "node_modules/$scope" ]; then
+      echo "note: node_modules/$scope: [$(ls -A "node_modules/$scope" | tr "\n" " ")]" >&2
+    fi
   done
   check "test ! -L node_modules/@ibai/cli"
   check "test -z \"\$(find node_modules -xtype l)\""
