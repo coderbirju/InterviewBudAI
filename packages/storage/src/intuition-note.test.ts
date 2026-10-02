@@ -613,6 +613,16 @@ describe('LocalFileStorageAdapter - IntuitionNote methods', () => {
       expect(await resave(path)).toContain(content);
     });
 
+    it('write drops a marker line outside fences, keeps one inside', async () => {
+      await adapter.writeIntuitionNote({
+        problemId: 'lc-1',
+        content: `A.\r\n${MARKER}\t\r\nB.\n~~~\n${MARKER}\n~~~`,
+        lastUpdated: '2026-09-30T10:00:00.000Z',
+      });
+      const file = await readFile(join(tempDir, 'notes', 'lc-1.md'), 'utf-8');
+      expect(file.endsWith(`A.\r\nB.\n~~~\n${MARKER}\n~~~\n`)).toBe(true);
+    });
+
     it('a note without the marker round-trips byte-identical', async () => {
       await adapter.writeIntuitionNote({
         problemId: 'lc-1',

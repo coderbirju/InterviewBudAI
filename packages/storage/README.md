@@ -117,8 +117,9 @@ optional Reference approach after a `<!-- ibai:reference-approach -->` line.
 That field is gone: on read, the adapter drops only that marker line (a
 trailing `\r` and spaces/tabs ignored) and keeps the `## Reference approach`
 heading and its text as ordinary `content`. A marker-looking line inside a
-fenced code block (```` ``` ```` or `~~~`) is user content and is kept. The
-writer writes `content` as given, so the next save has no marker. Notes
+fenced code block (```` ``` ```` or `~~~`, an unclosed fence running to the
+end) is user content and is kept. The writer applies the same filter, so a
+saved file never holds the marker outside a fence. Notes
 without the marker read and round-trip byte-for-byte. No `formatVersion`
 bump.
 

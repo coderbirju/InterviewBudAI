@@ -1162,7 +1162,10 @@ export async function handleApiRoute(
       };
 
       await storage.writeIntuitionNote(note);
-      return json(200, toNoteResponse(problemId, note));
+      // Reply with what was persisted (ADR 0014 D1: the writer drops a legacy
+      // marker line outside fences), so the reply matches a reload.
+      const persisted = (await storage.readIntuitionNote?.(problemId)) ?? note;
+      return json(200, toNoteResponse(problemId, persisted));
     }
 
     // ----- /api/quiz/* (Quiz Master engine, ADR 0007 Q2) -----

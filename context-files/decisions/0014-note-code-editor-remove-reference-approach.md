@@ -105,6 +105,10 @@ marker comment would only be noise in the editor.
   in the adapter's `readIntuitionNote`. Nothing else in the body changes.
 - **Writer:** the body is written as given. The next save therefore writes
   the note **without the marker line**.
+- **Amendment (PR #90 review):** marker lines inside fenced code (```` ``` ````
+  / `~~~`, including an unclosed fence running to the end of the note) are
+  user content and are kept; everywhere else the marker line is dropped on
+  read **and** on write, so the file, a reload and the API reply agree.
 - **Byte round-trip is intentionally not preserved, for marker-bearing notes
   only.** A file is rewritten only when the user saves it, and then the
   marker line is gone. Every other note round-trips byte-for-byte, as today.
