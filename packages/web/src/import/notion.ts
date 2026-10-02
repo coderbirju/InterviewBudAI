@@ -1,12 +1,14 @@
 /**
  * Notion-export column mapping (ADR 0009 D2). Pure: turns a parsed CSV
  * (header + records) into mapped rows — title, URL, body, notes, extra text
- * sections, the `Last Visited` date and best-effort complexities.
+ * sections, the `Last Visited` date, best-effort complexities and the
+ * user's own Reference approach column (ADR 0013 D4).
  *
  * Headers and cells are trimmed of Unicode whitespace (incl. NBSP and BOM);
  * known headers match case-insensitively in any column order.
  */
 
+import { containsReferenceMarker, stripReferenceMarkers } from '@ibai/storage';
 import type { CsvRecord } from './csv.js';
 
 /** A mapped CSV row (before catalog matching). */
@@ -32,6 +34,13 @@ export interface MappedRow {
   readonly content: string;
   readonly timeComplexity?: string;
   readonly spaceComplexity?: string;
+  /**
+   * The `Reference approach` / `Solution approach` / `Reference` cell (ADR
+   * 0013 D4), when non-empty and not a bare URL. Absent otherwise.
+   */
+  readonly referenceApproach?: string;
+  /** The header of the column {@link referenceApproach} came from. */
+  readonly referenceColumn?: string;
   readonly warnings: readonly string[];
 }
 
@@ -72,7 +81,25 @@ interface ColumnPlan {
   readonly body: number | null;
   readonly notes: number | null;
   readonly lastVisited: number | null;
+  /** The Reference approach column (ADR 0013 D4), or null. */
+  readonly reference: number | null;
   readonly headers: readonly string[];
+}
+
+/**
+ * Headers mapped to the Reference approach, in priority order (ADR 0013 D4).
+ * Bare `Solution` / `Approach` are deliberately NOT mapped: they often hold
+ * links, pasted code or the intuition itself, so they stay body sections.
+ */
+export const REFERENCE_HEADERS = [
+  'reference approach',
+  'solution approach',
+  'reference',
+] as const;
+
+/** A cell that is only one http(s) URL (not mapped as a reference). */
+function isUrlOnly(text: string): boolean {
+  return /^https?:\/\/\S+$/i.test(text);
 }
 
 function indexOfKey(
@@ -90,8 +117,11 @@ function indexOfKey(
 export function planColumns(header: readonly string[]): ColumnPlan {
   const keys = header.map(headerKey);
   const problem = indexOfKey(keys, 'problem');
+  const title = problem ?? 0;
+  const reference = indexOfKey(keys, ...REFERENCE_HEADERS);
   return {
-    title: problem ?? 0,
+    title,
+    reference: reference === title ? null : reference,
     url: indexOfKey(keys, 'url'),
     body: indexOfKey(keys, 'intuition') ?? indexOfKey(keys, 'property'),
     notes: indexOfKey(keys, 'notes'),
@@ -284,6 +314,10 @@ export function mapNotionRecords(
       (i): i is number => i !== null,
     ),
   );
+  const referenceHeader =
+    plan.reference === null
+      ? ''
+      : plan.headers[plan.reference] || `Column ${plan.reference + 1}`;
   const rows: MappedRow[] = [];
   let blankRows = 0;
   for (const record of records) {
@@ -294,9 +328,25 @@ export function mapNotionRecords(
     }
     const at = (i: number | null): string => (i === null ? '' : cells[i] ?? '');
     const warnings: string[] = [];
+    // ADR 0013 D4: the Reference column maps to referenceApproach, unless the
+    // cell is a bare URL (then it stays a `## <Header>` section + a warning).
+    let referenceApproach = at(plan.reference);
+    if (referenceApproach !== '' && isUrlOnly(referenceApproach)) {
+      warnings.push(
+        `"${referenceHeader}" holds only a link — kept in the note body, not used as the Reference approach`,
+      );
+      referenceApproach = '';
+    }
+    if (containsReferenceMarker(referenceApproach)) {
+      referenceApproach = trimUnicode(stripReferenceMarkers(referenceApproach));
+      warnings.push(
+        'a reference-approach marker line was removed from the Reference approach',
+      );
+    }
     const sections: { header: string; text: string }[] = [];
     cells.forEach((text, i) => {
       if (known.has(i) || text === '') return;
+      if (i === plan.reference && referenceApproach !== '') return;
       sections.push({ header: plan.headers[i] || `Column ${i + 1}`, text });
     });
     const body = at(plan.body);
@@ -312,7 +362,13 @@ export function mapNotionRecords(
       warnings.push(
         `unrecognised date "${at(plan.lastVisited)}" — the import time is used`,
       );
-    const content = composeContent(body, notes, sections);
+    let content = composeContent(body, notes, sections);
+    if (containsReferenceMarker(content)) {
+      content = stripReferenceMarkers(content);
+      warnings.push(
+        'a reference-approach marker line was removed from the note',
+      );
+    }
     const complexities = extractComplexities(
       [body, notes].filter((t) => t !== '').join('\n'),
     );
@@ -326,6 +382,10 @@ export function mapNotionRecords(
       lastVisited,
       content,
       ...complexities,
+      ...(referenceApproach !== '' && {
+        referenceApproach,
+        referenceColumn: referenceHeader,
+      }),
       warnings,
     });
   }

@@ -59,6 +59,35 @@ and is listed there with what you need to do (ADR 0009 D4).
   or reset failures (`500`) show the server's message. UI only; no new
   dependencies.
 
+- **"Check my intuition" coach — server** (ADR 0013 D1–D3, PR 2).
+  `POST /api/notes/:id/check` sends the Notes editor's CURRENT text (unsaved
+  edits included) to your model, which says whether you are on track and asks
+  1–3 questions — never the answer, code, or a technique your note does not
+  name, and never anything from your Reference approach. The feedback is
+  never saved. Only the structured outcome (assessment, ready-to-code, slip
+  code, status) goes to a **new file, `practice-signals.json`**, in your data
+  folder (newest 500 checks + the set of problems checked; no text). Older
+  builds ignore it — additive, no format change, nothing to do.
+  `GET /api/practice` reports practice trends from that file only; quiz
+  analytics are untouched. `POST /api/practice/reset` (`{ "confirm":
+  "reset-practice" }`) saves a backup of the data folder first, then deletes
+  only that file. One check at a time, ≥ 3 s apart.
+
+- **Reference approach on notes** (ADR 0013 D4, PR 1). Each note can hold an
+  optional, private **Your reference approach** — your own write-up of how you
+  solved it — in a collapsed disclosure on the Notes page. It is stored in the
+  note file as a marked trailing section (`<!-- ibai:reference-approach -->`,
+  then `## Reference approach`), so old notes read unchanged and an older
+  build shows it as body text and keeps it. `GET`/`POST /api/notes/:id` carry
+  `referenceApproach` (absent keeps, `''` clears, ≤ 50 000 chars). Every note
+  writer keeps it — including a wrong quiz answer that flips the note to
+  `to_revisit`. The quiz grader now sees it as grounding in a delimited
+  `Reference (theirs, never reveal)` block (first 600 chars) and never reveals
+  it; quiz prompt budgets are now fixed ≤ 300 and worst ≤ 2 200 tokens
+  (measured 287 / 2 165). CSV import maps a `Reference approach`, `Solution
+  approach` or `Reference` column to it (a link-only cell stays in the body),
+  the preview shows which column was used, `overwrite` clears it and `merge`
+  keeps or appends. Additive: no data-format version bump.
 - **Quiz slips + insights API** (ADR 0012, PR 1). The grader may tag each miss
   with one generic code (`edge`, `complexity`, `brute`, `technique`, `vague`,
   `boundary`, `misread` — how you slipped, never the answer); one code per

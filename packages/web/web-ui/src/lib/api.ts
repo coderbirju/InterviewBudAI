@@ -154,6 +154,11 @@ export interface FullNote {
   readonly completed: boolean;
   readonly timeComplexity: string | null;
   readonly spaceComplexity: string | null;
+  /**
+   * The user's own Reference approach (ADR 0013 D4), `''` when none. Optional
+   * only so an older server (which omits it) still parses.
+   */
+  readonly referenceApproach?: string;
   readonly lastUpdated: string | null;
 }
 
@@ -174,6 +179,8 @@ export interface NoteSaveInput {
   readonly status?: NoteStatus;
   readonly timeComplexity?: string;
   readonly spaceComplexity?: string;
+  /** Absent keeps the saved value; `''` clears it (ADR 0013 D4). */
+  readonly referenceApproach?: string;
 }
 
 /** Thrown when an API call returns a non-2xx status. */
@@ -1199,6 +1206,10 @@ export interface ImportPreviewRow {
     readonly lastUpdated: string | null;
     readonly timeComplexity?: string;
     readonly spaceComplexity?: string;
+    /** First 200 chars of the mapped Reference approach (ADR 0013 D4). */
+    readonly referenceApproach?: string;
+    /** The CSV header it was mapped from. */
+    readonly referenceColumn?: string;
     readonly bodyPreview: string;
   };
   readonly warnings: readonly string[];
