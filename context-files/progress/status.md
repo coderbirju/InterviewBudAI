@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-10-01. PRs #1–#83 are merged or closed (source: `gh pr list`). ADR 0012 has shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-01. PRs #1–#88 are merged or closed (source: `gh pr list`). ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -43,6 +43,13 @@ _Last updated: 2026-10-01. PRs #1–#83 are merged or closed (source: `gh pr lis
 - ✅ #78 Docker Compose + Docker Model Runner
 - ✅ #79 Quiz robustness on small models (JSON mode, one retry, "model not ready" state)
 
+**Intuition check (ADR 0013)**
+- ✅ #84 ADR 0013
+- ✅ #87 Reference approach + quiz grounding (removed again by ADR 0014)
+- ✅ #88 Coach server: check route, practice storage and routes
+- ✅ #86 Notes "Check my intuition" UI
+- ✅ #85 Analytics Practice section + reset
+
 **Analytics v2 (ADR 0012)**
 - ✅ #81 ADR 0012
 - ✅ #82 Analytics UI (donut, locked/unlocked, topic tiles)
@@ -65,11 +72,11 @@ _Last updated: 2026-10-01. PRs #1–#83 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 ADR 0013: "Check my intuition" coach, practice trends, Reference approach (`architect/adr-0013-intuition-check`).
+- 🟡 ADR 0014: note code editor (CodeMirror 6) and removal of the Reference approach (`architect/adr-0014-editor-remove-reference`).
 
 ## Next up
-1. **Intuition check (ADR 0013).** PR 1: the Reference approach (storage section, editor, CSV column, quiz grounding). PR 2: the coach engine, `POST /api/notes/:id/check`, practice storage, `GET /api/practice` and reset. PR 3: the Notes UI. PR 4: the Analytics Practice section and the reset UI. PR 3 and PR 4 run in parallel against the ADR shapes.
-2. **"Reference approach" note field vs shipping solutions.** Decided in ADR 0013 D4: it is user-authored and never shipped.
+1. **ADR 0014 PR A: remove the Reference approach** (storage reader, API, UI, CSV, prompts and budgets, tests, CHANGELOG breaking note).
+2. **ADR 0014 PR B: CodeMirror note editor** (pinned deps, lazy editor with a textarea fallback, Python/Go fences, toolbar, CSP style nonce, tests). Merge after PR A.
 3. **Docs pass.** On hold until the founder says go.
 4. **Small follow-ups:**
    - Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
@@ -80,6 +87,7 @@ _Last updated: 2026-10-01. PRs #1–#83 are merged or closed (source: `gh pr lis
 - System Design: whether it is in scope, and in what shape.
 - Backups: git-backed or export.
 - Coaching beyond the quiz and the Notes intuition check (ADR 0013): a free-form coach or plan in the web.
+- In-app problem display, signature prefill and copy-to-LeetCode (ADR 0014 D4): showing LeetCode statements means shipping copyrighted text or a runtime fetch from leetcode.com (§6.4, ToS), so it needs its own ADR. Custom problems can come first.
 - Quiz difficulty knob and per-topic quizzes.
 - Release zip and Docker image publishing (ADR 0009 D5 PR D is deferred; the founder pushes tags).
 - ⛔ Branch protection: GitHub returns 403 on this free private repo. The options are to go public, upgrade to Pro, or rely on the charter alone. See `.github/BRANCH_PROTECTION.md`.
