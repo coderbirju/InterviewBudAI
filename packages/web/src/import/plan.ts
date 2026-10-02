@@ -197,7 +197,6 @@ export function analyzeImport(
       normTitle,
       squash(c.mapped.body),
       squash(c.mapped.notes),
-      squash(c.mapped.referenceApproach ?? ''),
       c.mapped.lastVisited,
     ]);
     const at = byFingerprint.get(fp);
@@ -247,10 +246,6 @@ export interface PreviewRow {
     readonly lastUpdated: string | null;
     readonly timeComplexity?: string;
     readonly spaceComplexity?: string;
-    /** First {@link BODY_PREVIEW_LENGTH} chars of the Reference approach (ADR 0013 D4). */
-    readonly referenceApproach?: string;
-    /** The CSV header the Reference approach was mapped from. */
-    readonly referenceColumn?: string;
     readonly bodyPreview: string;
   };
   readonly warnings: readonly string[];
@@ -306,7 +301,8 @@ export function computePreviewHash(
   existing: ReadonlySet<string>,
 ): string {
   const payload = JSON.stringify({
-    v: 3,
+    // v4 (ADR 0014 D1): the reference role is gone; a v3 preview asks to re-preview.
+    v: 4,
     dataDir,
     defaultStatus,
     files: analysis.files.map((f) => [f.name, f.text]),
@@ -324,8 +320,6 @@ export function computePreviewHash(
           c.mapped.lastVisited,
           c.mapped.timeComplexity ?? null,
           c.mapped.spaceComplexity ?? null,
-          c.mapped.referenceApproach ?? null,
-          c.mapped.referenceColumn ?? null,
           existing.has(id),
         ];
       }),
@@ -341,8 +335,6 @@ export function computePreviewHash(
         c.mapped.lastVisited,
         c.mapped.timeComplexity ?? null,
         c.mapped.spaceComplexity ?? null,
-        c.mapped.referenceApproach ?? null,
-        c.mapped.referenceColumn ?? null,
       ]),
   });
   return createHash('sha256').update(payload, 'utf8').digest('hex');
@@ -397,13 +389,6 @@ export function buildPreview(
         }),
         ...(c.mapped.spaceComplexity !== undefined && {
           spaceComplexity: c.mapped.spaceComplexity,
-        }),
-        ...(c.mapped.referenceApproach !== undefined && {
-          referenceApproach: c.mapped.referenceApproach.slice(
-            0,
-            BODY_PREVIEW_LENGTH,
-          ),
-          referenceColumn: c.mapped.referenceColumn,
         }),
         bodyPreview: c.mapped.content.slice(0, BODY_PREVIEW_LENGTH),
       },
@@ -679,7 +664,7 @@ export function hasImportedBlock(content: string, block: string): boolean {
 
 /**
  * True when writing `next` over `existing` changes nothing the user sees —
- * same body, status, complexities and Reference approach — so a re-merge is an idempotent skip
+ * same body, status and complexities — so a re-merge is an idempotent skip
  * (reported as `skipped`, reason `unchanged`; the file, including
  * `lastUpdated`, is not rewritten).
  */
@@ -691,8 +676,7 @@ export function mergeChangesNothing(
     existing.content === next.content &&
     resolveNoteStatus(existing) === resolveNoteStatus(next) &&
     (existing.timeComplexity ?? '') === (next.timeComplexity ?? '') &&
-    (existing.spaceComplexity ?? '') === (next.spaceComplexity ?? '') &&
-    (existing.referenceApproach ?? '') === (next.referenceApproach ?? '')
+    (existing.spaceComplexity ?? '') === (next.spaceComplexity ?? '')
   );
 }
 
@@ -722,10 +706,6 @@ export function buildImportedNote(
           : `${existing.content}\n\n## Imported ${day}\n\n${row.content}`;
     const timeComplexity = existing.timeComplexity || row.timeComplexity;
     const spaceComplexity = existing.spaceComplexity || row.spaceComplexity;
-    const referenceApproach = mergeReference(
-      existing.referenceApproach,
-      row.referenceApproach,
-    );
     return {
       problemId: op.problemId,
       content,
@@ -735,11 +715,8 @@ export function buildImportedNote(
       completed: status === 'done',
       ...(timeComplexity ? { timeComplexity } : {}),
       ...(spaceComplexity ? { spaceComplexity } : {}),
-      ...(referenceApproach !== undefined && { referenceApproach }),
     };
   }
-  // create / overwrite: the row's reference, or none — so overwrite CLEARS a
-  // saved reference, just as it replaces the body (ADR 0013 D4).
   const status = op.status ?? defaultStatus;
   return {
     problemId: op.problemId,
@@ -754,25 +731,5 @@ export function buildImportedNote(
     ...(row.spaceComplexity !== undefined && {
       spaceComplexity: row.spaceComplexity,
     }),
-    ...(row.referenceApproach !== undefined && {
-      referenceApproach: row.referenceApproach,
-    }),
   };
-}
-
-/**
- * Merge rule for the Reference approach (ADR 0013 D4): no row reference →
- * keep; no existing → take the row's; equal, or already contained → keep;
- * else append `\n\n` + the row's. Merge never loses either side. Pure.
- */
-export function mergeReference(
-  existing: string | undefined,
-  incoming: string | undefined,
-): string | undefined {
-  const ex =
-    existing !== undefined && existing.trim() !== '' ? existing : undefined;
-  if (incoming === undefined || incoming.trim() === '') return ex;
-  if (ex === undefined) return incoming;
-  if (ex === incoming || ex.includes(incoming)) return ex;
-  return `${ex}\n\n${incoming}`;
 }

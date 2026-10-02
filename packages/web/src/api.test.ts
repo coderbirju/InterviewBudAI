@@ -523,6 +523,79 @@ describe('api notes POST', () => {
     expect(onDisk?.status).toBe('to_revisit');
   });
 
+  it('ignores referenceApproach of any type and never stores it (ADR 0014 D1)', async () => {
+    const handler = makeHandler(makeDeps());
+    for (const referenceApproach of [
+      'SECRET-REF',
+      ['x'],
+      7,
+      null,
+      '<!-- ibai:reference-approach -->',
+      'r'.repeat(60_000),
+    ]) {
+      const res = await handler({
+        method: 'POST',
+        url: `/api/notes/${SECOND_ID}`,
+        body: JSON.stringify({ content: 'mine', referenceApproach }),
+      });
+      expect(res.status).toBe(200);
+      const saved = JSON.parse(res.body) as Record<string, unknown>;
+      expect(saved).not.toHaveProperty('referenceApproach');
+      expect(saved.content).toBe('mine');
+    }
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
+    ) as Record<string, unknown>;
+    expect(got).not.toHaveProperty('referenceApproach');
+    expect(got.content).toBe('mine');
+    const file = fs.readFileSync(
+      path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
+      'utf-8',
+    );
+    expect(file).not.toContain('SECRET-REF');
+    expect(file).not.toContain('ibai:reference-approach');
+  });
+
+  it('a marker line in content is dropped outside fences on save; reply, reload and file agree (ADR 0014 D1)', async () => {
+    const handler = makeHandler(makeDeps());
+    const M = '<!-- ibai:reference-approach -->';
+    const content = `Idea.\n${M}\nMore.\n\`\`\`\n${M}\n\`\`\``;
+    const expected = `Idea.\nMore.\n\`\`\`\n${M}\n\`\`\``;
+    const res = await handler({
+      method: 'POST',
+      url: `/api/notes/${SECOND_ID}`,
+      body: JSON.stringify({ content }),
+    });
+    expect(res.status).toBe(200);
+    expect((JSON.parse(res.body) as ApiNoteResponse).content).toBe(expected);
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
+    ) as ApiNoteResponse;
+    expect(got.content).toBe(expected);
+    const file = fs.readFileSync(
+      path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
+      'utf-8',
+    );
+    expect(file.endsWith(`${expected}\n`)).toBe(true);
+    expect(file.split(M)).toHaveLength(2);
+  });
+
+  it('GET shows a legacy Reference section as note text, without the marker (ADR 0014 D1)', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'notes', `${FIRST_ID}.md`),
+      '---\nid: x\nlastUpdated: 2026-09-30T10:00:00.000Z\n---\n\n' +
+        'My idea.\n\n<!-- ibai:reference-approach -->\n## Reference approach\n\nOld ref.\n',
+      'utf-8',
+    );
+    const handler = makeHandler(makeDeps());
+    const got = JSON.parse(
+      (await handler({ method: 'GET', url: `/api/notes/${FIRST_ID}` })).body,
+    ) as Record<string, unknown>;
+    expect(got.content).toBe('My idea.\n\n## Reference approach\n\nOld ref.');
+    expect(got).not.toHaveProperty('referenceApproach');
+  });
+
   it('complexity values with quotes/backslashes round-trip through POST → GET, stable across saves', async () => {
     const handler = makeHandler(makeDeps());
     const time = 'O(n) "amortized" \\log n: #1 \'x\' Θ ';
@@ -554,99 +627,6 @@ describe('api notes POST', () => {
         }),
       });
     }
-  });
-
-  describe('referenceApproach (ADR 0013 D4)', () => {
-    const MARKER = '<!-- ibai:reference-approach -->';
-    const post = (handler: ReturnType<typeof makeHandler>, body: unknown) =>
-      handler({
-        method: 'POST',
-        url: `/api/notes/${SECOND_ID}`,
-        body: JSON.stringify(body),
-      });
-    const get = async (handler: ReturnType<typeof makeHandler>) =>
-      JSON.parse(
-        (await handler({ method: 'GET', url: `/api/notes/${SECOND_ID}` })).body,
-      ) as ApiNoteResponse;
-
-    it("GET carries '' when none; POST saves it; absent keeps; '' clears", async () => {
-      const handler = makeHandler(makeDeps());
-      expect((await get(handler)).referenceApproach).toBe('');
-      const saved = JSON.parse(
-        (await post(handler, { content: 'n', referenceApproach: 'my ref' }))
-          .body,
-      ) as ApiNoteResponse;
-      expect(saved.referenceApproach).toBe('my ref');
-      expect((await get(handler)).referenceApproach).toBe('my ref');
-      // Absent → keep (status-only save).
-      await post(handler, { status: 'done' });
-      const kept = await get(handler);
-      expect(kept.referenceApproach).toBe('my ref');
-      expect(kept.content).toBe('n');
-      // '' (or blank) → clear.
-      await post(handler, { referenceApproach: '  ' });
-      expect((await get(handler)).referenceApproach).toBe('');
-      const disk = await new LocalFileStorageAdapter(tmpDir).readIntuitionNote(
-        SECOND_ID,
-      );
-      expect(disk?.referenceApproach).toBeUndefined();
-    });
-
-    it('a marker line in content is stored verbatim; the saved reference is kept', async () => {
-      const handler = makeHandler(makeDeps());
-      await post(handler, { content: 'n', referenceApproach: 'saved ref' });
-      for (const content of [
-        `my note\n\n${MARKER}\n## Reference approach\n\npasted`,
-        `x\n${MARKER}`,
-      ]) {
-        const res = await post(handler, { content });
-        expect(res.status).toBe(200);
-        const got = await get(handler);
-        expect(got.content).toBe(content);
-        expect(got.referenceApproach).toBe('saved ref');
-      }
-    });
-
-    it('a hand-edited two-marker note can still be saved from the editor (no 400 loop) and round-trips', async () => {
-      fs.mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
-      fs.writeFileSync(
-        path.join(tmpDir, 'notes', `${SECOND_ID}.md`),
-        `---\nid: ${SECOND_ID}\nlastUpdated: 2026-01-01T00:00:00.000Z\n---\na\n${MARKER}\nb\n\n${MARKER}\nref\n`,
-      );
-      const handler = makeHandler(makeDeps());
-      const loaded = await get(handler);
-      expect(loaded.content).toBe(`a\n${MARKER}\nb`);
-      expect(loaded.referenceApproach).toBe('ref');
-      // The editor re-sends every field it loaded.
-      for (let i = 0; i < 2; i++) {
-        const res = await post(handler, {
-          content: loaded.content,
-          referenceApproach: loaded.referenceApproach,
-          status: loaded.status,
-        });
-        expect(res.status).toBe(200);
-        const again = await get(handler);
-        expect(again.content).toBe(loaded.content);
-        expect(again.referenceApproach).toBe('ref');
-      }
-    });
-
-    it('bad type / over cap / marker in the reference → 400, nothing written', async () => {
-      const handler = makeHandler(makeDeps());
-      const cases: [unknown, string][] = [
-        [{ referenceApproach: 5 }, 'invalid_body'],
-        [{ referenceApproach: 'x'.repeat(50_001) }, 'invalid_body'],
-        [{ referenceApproach: `a\n${MARKER}\nb` }, 'marker_in_text'],
-      ];
-      for (const [body, code] of cases) {
-        const res = await post(handler, body);
-        expect(res.status).toBe(400);
-        expect((JSON.parse(res.body) as { code: string }).code).toBe(code);
-      }
-      expect(
-        await new LocalFileStorageAdapter(tmpDir).readIntuitionNote(SECOND_ID),
-      ).toBeNull();
-    });
   });
 
   it('a multi-line complexity → 400 JSON, nothing written', async () => {

@@ -361,48 +361,6 @@ describe('POST /api/quiz/answer', () => {
     expect(signals.patterns[0]?.id).toBe(`miss:${firstId}`);
   });
 
-  it('ADR 0013 D4: an incorrect verdict flips to to_revisit and KEEPS the Reference approach; the prompt holds it once', async () => {
-    const adapter = new LocalFileStorageAdapter(tmpDir);
-    const reference = 'My own write-up: scan once, remember complements.';
-    for (const id of DONE_IDS) {
-      await adapter.writeIntuitionNote({
-        problemId: id,
-        content: `note for ${id}`,
-        lastUpdated: new Date().toISOString() as IsoTimestamp,
-        status: 'done',
-        completed: true,
-        timeComplexity: 'O(n)',
-        referenceApproach: reference,
-      });
-    }
-    const prompts: string[] = [];
-    const provider: LlmProvider = {
-      async complete(request: CompletionRequest): Promise<CompletionResponse> {
-        prompts.push(request.messages.map((m) => m.content).join('\n'));
-        return { content: '{"verdict":"incorrect","feedback":"off"}' };
-      },
-    };
-    const firstId = await start(provider);
-    const res = await handleApiRoute(
-      'POST',
-      '/api/quiz/answer',
-      makeQuizDeps(provider),
-      JSON.stringify({ answer: 'no idea' }),
-    );
-    expect(res.status).toBe(200);
-    const note = await adapter.readIntuitionNote(firstId);
-    expect(note?.status).toBe('to_revisit');
-    expect(note?.content).toBe(`note for ${firstId}`);
-    expect(note?.timeComplexity).toBe('O(n)');
-    expect(note?.referenceApproach).toBe(reference);
-    expect(prompts).toHaveLength(1);
-    expect(prompts[0]!.split(reference)).toHaveLength(2);
-    expect(prompts[0]).toContain(
-      `Note:\n"""\nnote for ${firstId}\n"""\nReference (theirs, never reveal):\n"""\n${reference}\n"""`,
-    );
-    expect(prompts[0]).not.toContain('ibai:reference-approach');
-  });
-
   it('provider malformed verdict → fail-closed 502, NO writes', async () => {
     await seedDone(DONE_IDS);
     const provider = new FakeQuizProvider({
