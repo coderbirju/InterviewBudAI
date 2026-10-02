@@ -112,6 +112,16 @@ status ⇒ `completed: false`. On read it is tolerant:
 Content is user-owned and lives only in the runtime data directory (never
 committed to the repo).
 
+**Legacy Reference sections (ADR 0014 D1).** Builds from #87 stored an
+optional Reference approach after a `<!-- ibai:reference-approach -->` line.
+That field is gone: on read, the adapter drops only that marker line (a
+trailing `\r` and spaces/tabs ignored) and keeps the `## Reference approach`
+heading and its text as ordinary `content`. A marker-looking line inside a
+fenced code block (```` ``` ```` or `~~~`) is user content and is kept. The
+writer writes `content` as given, so the next save has no marker. Notes
+without the marker read and round-trip byte-for-byte. No `formatVersion`
+bump.
+
 ## Practice signals (ADR 0013 D3)
 
 `practice-signals.json` records the STRUCTURED outcome of each "Check my
