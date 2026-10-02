@@ -112,40 +112,6 @@ status ⇒ `completed: false`. On read it is tolerant:
 Content is user-owned and lives only in the runtime data directory (never
 committed to the repo).
 
-### Reference approach section (ADR 0013 D4)
-
-`IntuitionNote.referenceApproach?` — the user's OWN write-up of how they solved
-the problem (optional, private; grounding for the quiz grader, never shipped)
-— is stored as a marked trailing section of the body, not in frontmatter:
-
-```markdown
-…the user's note…
-
-<!-- ibai:reference-approach -->
-## Reference approach
-
-…the user's reference text…
-```
-
-- **One split/join**: `splitReferenceSection` / `joinReferenceSection`
-  (exported) are the only code that knows this layout; the adapter's read and
-  write use them, and any future Markdown importer must too.
-- **Read**: the LAST line equal to the marker after trimming a trailing `\r`
-  and spaces/tabs (CRLF-tolerant) splits the body; after it, one leading
-  `## Reference approach` heading and surrounding blank lines are dropped.
-  `content` never includes the section. No marker ⇒ `referenceApproach` is
-  `undefined` and the body reads unchanged (every older note).
-- **Write**: the section is written only when the trimmed reference is
-  non-empty (an empty marker is also written when `content` itself holds a
-  marker line, so that content still round-trips). A marker line inside the
-  reference is a `RangeError` (callers validate first).
-- **Older builds** show the section, marker included, as part of the body
-  text and save it back verbatim — nothing is lost. Additive: no
-  `formatVersion` bump.
-- **Writers must carry it over**: any code that rebuilds an `IntuitionNote`
-  must copy `existing.referenceApproach` (prefer `{ ...existing, … }`), or the
-  next write drops it.
-
 ## Practice signals (ADR 0013 D3)
 
 `practice-signals.json` records the STRUCTURED outcome of each "Check my

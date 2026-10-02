@@ -856,17 +856,6 @@ function PreviewTableRow({
         <p className="text-xs text-slate-500">
           {row.file}, line {row.line}
         </p>
-        {row.fields.referenceApproach !== undefined && (
-          <p
-            data-testid={`import-reference-${row.key}`}
-            className="mt-1 break-words text-xs text-slate-400"
-          >
-            <span className="font-semibold text-slate-300">
-              Reference approach (from “{row.fields.referenceColumn ?? ''}”):
-            </span>{' '}
-            {row.fields.referenceApproach}
-          </p>
-        )}
         {row.warnings.map((w, i) => (
           <p key={i} className="mt-1 text-xs text-status-revisit">
             {w}

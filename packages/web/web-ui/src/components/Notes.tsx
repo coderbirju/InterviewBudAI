@@ -3,8 +3,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
-  ChevronDown,
-  ChevronRight,
   Database,
   ExternalLink,
   Loader2,
@@ -116,9 +114,6 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
   const [content, setContent] = useState('');
   const [timeComplexity, setTimeComplexity] = useState('');
   const [spaceComplexity, setSpaceComplexity] = useState('');
-  // ADR 0013 D4: the user's own Reference approach (collapsed by default).
-  const [referenceApproach, setReferenceApproach] = useState('');
-  const [referenceOpen, setReferenceOpen] = useState(false);
 
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -150,8 +145,6 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
         setContent(note.content ?? '');
         setTimeComplexity(note.timeComplexity ?? '');
         setSpaceComplexity(note.spaceComplexity ?? '');
-        setReferenceApproach(note.referenceApproach ?? '');
-        setReferenceOpen(false);
         setLoad({ kind: 'ready', note });
 
         // Best-effort title/url lookup from the catalog. A catalog failure must
@@ -190,14 +183,12 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
         status,
         timeComplexity,
         spaceComplexity,
-        referenceApproach,
       });
       // Reconcile local state with what the server persisted.
       setStatus(persisted.status);
       setContent(persisted.content ?? '');
       setTimeComplexity(persisted.timeComplexity ?? '');
       setSpaceComplexity(persisted.spaceComplexity ?? '');
-      setReferenceApproach(persisted.referenceApproach ?? '');
       setLoad({ kind: 'ready', note: persisted });
       setSave({ kind: 'saved' });
     } catch (err) {
@@ -207,14 +198,7 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
           : 'Could not save your note. Please try again.';
       setSave({ kind: 'error', message });
     }
-  }, [
-    problemId,
-    content,
-    status,
-    timeComplexity,
-    spaceComplexity,
-    referenceApproach,
-  ]);
+  }, [problemId, content, status, timeComplexity, spaceComplexity]);
 
   // Any edit clears a prior "Saved" confirmation so it never looks stale.
   const clearSaved = useCallback(() => {
@@ -600,54 +584,6 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
               className="mt-2 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
           </div>
-        </div>
-
-        {/* Reference approach (ADR 0013 D4): collapsed by default, private. */}
-        <div>
-          <button
-            type="button"
-            aria-expanded={referenceOpen}
-            aria-controls="reference-approach-panel"
-            onClick={() => setReferenceOpen((open) => !open)}
-            className="inline-flex items-center gap-1 text-sm font-semibold text-slate-300 transition-colors duration-200 hover:text-emerald-300"
-          >
-            {referenceOpen ? (
-              <ChevronDown className="h-4 w-4" aria-hidden />
-            ) : (
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            )}
-            Your reference approach (optional, private)
-            {!referenceOpen && referenceApproach.trim() !== '' && (
-              <span className="ml-1 text-xs font-normal text-slate-500">
-                (saved)
-              </span>
-            )}
-          </button>
-          {referenceOpen && (
-            <div id="reference-approach-panel" className="mt-2">
-              <p
-                id="reference-approach-help"
-                className="text-xs text-slate-400"
-              >
-                Your own write-up of how you solved it. Used only to ground the
-                quiz and the intuition check; never shown in either.
-              </p>
-              <label htmlFor="reference-approach" className="sr-only">
-                Your reference approach
-              </label>
-              <textarea
-                id="reference-approach"
-                aria-describedby="reference-approach-help"
-                value={referenceApproach}
-                onChange={(e) => {
-                  setReferenceApproach(e.target.value);
-                  clearSaved();
-                }}
-                rows={6}
-                className="mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-          )}
         </div>
 
         {/* Save + confirmation / error */}
