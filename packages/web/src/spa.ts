@@ -25,9 +25,7 @@ import {
 
 /** Resolve the built-bundle directory: packages/web/dist-ui.
  *  This module compiles to packages/web/dist/spa.js, so dist-ui is one level up. */
-export const BUNDLE_DIR = fileURLToPath(
-  new URL('../dist-ui', import.meta.url),
-);
+export const BUNDLE_DIR = fileURLToPath(new URL('../dist-ui', import.meta.url));
 
 /**
  * The placeholder in `web-ui/index.html`
@@ -102,10 +100,7 @@ function notBuiltResponse(): HandlerResponse {
  * against path traversal. Returns an absolute path inside BUNDLE_DIR, or null
  * if the resolved path escapes the bundle. `/` maps to index.html.
  */
-function resolveBundleFile(
-  pathname: string,
-  bundleDir: string,
-): string | null {
+function resolveBundleFile(pathname: string, bundleDir: string): string | null {
   let rel = pathname;
   if (rel === '' || rel === '/') {
     rel = '/index.html';

@@ -53,11 +53,31 @@ export const noteEditorTheme = EditorView.theme(
 );
 
 export const noteHighlightStyle = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: '#c4b5fd' }, // violet-300
+  {
+    tag: [
+      t.keyword,
+      t.controlKeyword,
+      t.definitionKeyword,
+      t.moduleKeyword,
+      t.operatorKeyword,
+    ],
+    color: '#c4b5fd',
+  }, // violet-300
   { tag: [t.string, t.special(t.string)], color: '#6ee7b7' }, // emerald-300
   { tag: [t.number, t.bool, t.null], color: '#fcd34d' }, // amber-300
-  { tag: [t.comment, t.lineComment, t.blockComment], color: slate500, fontStyle: 'italic' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.function(t.definition(t.variableName))], color: '#7dd3fc' }, // sky-300
+  {
+    tag: [t.comment, t.lineComment, t.blockComment],
+    color: slate500,
+    fontStyle: 'italic',
+  },
+  {
+    tag: [
+      t.function(t.variableName),
+      t.function(t.propertyName),
+      t.function(t.definition(t.variableName)),
+    ],
+    color: '#7dd3fc',
+  }, // sky-300
   { tag: t.heading, color: slate100, fontWeight: 'bold' },
   { tag: t.emphasis, fontStyle: 'italic' },
   { tag: t.strong, fontWeight: 'bold' },

@@ -32,14 +32,16 @@ export function fencedBlockEdit(
   const trail = after === '' || after.startsWith('\n') ? '' : '\n';
   const open = '```' + lang + '\n';
   const body =
-    selected === '' ? '\n' : selected.endsWith('\n') ? selected : selected + '\n';
+    selected === ''
+      ? '\n'
+      : selected.endsWith('\n')
+        ? selected
+        : selected + '\n';
   const block = open + body + '```';
 
   const blockStart = before.length + lead.length;
   const cursor =
-    blockStart +
-    open.length +
-    (selected === '' ? 0 : body.length - 1); // end of the wrapped text
+    blockStart + open.length + (selected === '' ? 0 : body.length - 1); // end of the wrapped text
   return { text: before + lead + block + trail + after, cursor };
 }
 
@@ -57,7 +59,8 @@ export function minimalChange(
   let s = 0;
   while (
     s < max - p &&
-    prev.charCodeAt(prev.length - 1 - s) === next.charCodeAt(next.length - 1 - s)
+    prev.charCodeAt(prev.length - 1 - s) ===
+      next.charCodeAt(next.length - 1 - s)
   ) {
     s++;
   }

@@ -33,7 +33,11 @@ function nodeNames(state: EditorState, from: number, to: number): string[] {
   const tree = fullTree(state);
   const names = new Set<string>();
   for (let pos = from; pos < to; pos++) {
-    for (let n: SyntaxNode | null = tree.resolveInner(pos, 1); n; n = n.parent) {
+    for (
+      let n: SyntaxNode | null = tree.resolveInner(pos, 1);
+      n;
+      n = n.parent
+    ) {
       names.add(n.name);
     }
   }
