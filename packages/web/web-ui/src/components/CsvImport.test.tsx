@@ -254,6 +254,36 @@ describe('CsvImport', () => {
     );
   });
 
+  it('shows the mapped Reference approach and its column (ADR 0013 D4), as text', async () => {
+    const user = userEvent.setup();
+    const first = PREVIEW.rows[0]!;
+    mockedApi.previewCsvImport.mockResolvedValue({
+      ...PREVIEW,
+      rows: [
+        {
+          ...first,
+          fields: {
+            ...first.fields,
+            referenceApproach: `${XSS} two passes`,
+            referenceColumn: 'Solution approach',
+          },
+        },
+        ...PREVIEW.rows.slice(1),
+      ],
+    });
+    const { container } = render(<CsvImport folderExists />);
+    await pickAndPreview(user);
+    const ref = screen.getByTestId(`import-reference-${first.key}`);
+    expect(ref).toHaveTextContent(
+      `Reference approach (from “Solution approach”): ${XSS} two passes`,
+    );
+    expect(container.querySelector('img')).toBeNull();
+    // Rows without a mapped reference show nothing extra.
+    expect(
+      screen.queryByTestId(`import-reference-${PREVIEW.rows[1]!.key}`),
+    ).toBeNull();
+  });
+
   it('rejects too many files and oversized totals before sending anything', async () => {
     const user = userEvent.setup();
     render(<CsvImport folderExists />);

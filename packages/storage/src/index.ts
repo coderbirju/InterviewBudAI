@@ -174,6 +174,18 @@ export interface IntuitionNote {
   readonly timeComplexity?: string;
   /** Space complexity of the solution, e.g. 'O(1)', 'O(n)'. */
   readonly spaceComplexity?: string;
+  /**
+   * The user's OWN reference approach for this problem (ADR 0013 D4),
+   * optional and private. Used only to ground the quiz grader and the
+   * intuition check; never shown in either, never shipped (§6.2).
+   *
+   * @remarks
+   * Stored as a marked trailing section of the body (see
+   * `splitReferenceSection`), so `content` never includes it. `undefined`
+   * when absent (every pre-ADR-0013 note). Every writer MUST carry it over
+   * from the existing note (prefer `{ ...existing, … }`), or it is lost.
+   */
+  readonly referenceApproach?: string;
 }
 
 /**
@@ -443,6 +455,55 @@ export interface MissTally {
 }
 
 // ---------------------------------------------------------------------------
+// Practice Signal Types (ADR 0013 D3 — "Check my intuition" trends)
+// ---------------------------------------------------------------------------
+
+/** The coach's assessment of an intuition note (ADR 0013 D1). */
+export type CoachAssessment = 'on_track' | 'partial' | 'off_track';
+
+/**
+ * One intuition check's STRUCTURED outcome (ADR 0013 D3). Never holds text:
+ * no note, reference, question, feedback or complexity is stored.
+ */
+export interface PracticeEvent {
+  readonly problemId: string;
+  /** Canonical topic ids at check time (≤ 5). */
+  readonly topics: readonly TopicId[];
+  readonly assessment: CoachAssessment;
+  readonly readyToCode: boolean;
+  /** ADR 0012 D1 code; only on `partial` / `off_track`. */
+  readonly miss?: MissCode;
+  /** The editor's status at check time. */
+  readonly status: NoteStatus;
+  /** First check ever for this problem (since the last reset). */
+  readonly first: boolean;
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * `practice-signals.json` (ADR 0013 D3): a bounded event log (≤ 500, oldest
+ * first) plus the all-time set of checked problems (≤ 5 000). Additive under
+ * ADR 0009 D4: a new file older builds ignore. Separate from
+ * {@link CompetencySignals}: quiz analytics never read it.
+ */
+export interface PracticeSignals {
+  readonly version: 1;
+  readonly updatedAt: IsoTimestamp;
+  readonly events: readonly PracticeEvent[];
+  readonly seen: readonly string[];
+}
+
+/** Event-log cap (ADR 0013 D3): the oldest events are dropped beyond it. */
+export const PRACTICE_EVENTS_MAX = 500;
+
+/**
+ * `seen` cap (ADR 0013 D3). At the cap the LEAST RECENTLY checked problem is
+ * dropped (a re-check moves a problem to the end), so only a problem not
+ * checked across 5 000 newer problems can count as "first" again.
+ */
+export const PRACTICE_SEEN_MAX = 5000;
+
+// ---------------------------------------------------------------------------
 // Custom Problem Types (ADR 0010 — user-added problems)
 // ---------------------------------------------------------------------------
 
@@ -689,7 +750,42 @@ export interface StorageAdapter {
    * amendment). Used when a custom problem is deleted together with its note.
    */
   deleteIntuitionNote?(problemId: string): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Practice Signal Methods (ADR 0013 D3 — optional, additive)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read the practice log. `null` when there is none — or when the file is
+   * unreadable or has the wrong shape (it is treated as empty and renamed
+   * aside on the next append). Malformed events are skipped. Never throws.
+   */
+  readPracticeSignals?(): Promise<PracticeSignals | null>;
+
+  /**
+   * Append one event (read-modify-write, temp file + rename). The adapter
+   * decides `first` itself from its `seen` set, inside the write queue, so
+   * the stored and returned value is always consistent with the log. The log
+   * keeps the newest {@link PRACTICE_EVENTS_MAX} events. A corrupt file is
+   * renamed to `practice-signals.json.corrupt-<ts>` (kept) and a fresh log is
+   * started. Throws `RangeError` for an invalid event.
+   */
+  appendPracticeEvent?(event: PracticeEvent): Promise<PracticeSignals>;
+
+  /**
+   * Delete the practice log (events AND `seen`). Missing ⇒ no-op. Shares the
+   * append's write queue, so a reset and an append never interleave. Touches
+   * only `practice-signals.json` (never the `.corrupt-*` files).
+   *
+   * `beforeDelete` (the caller's ADR 0009 D3 backup) MUST run first, INSIDE
+   * the same queue: an append is then either in the backup or lands after
+   * the reset, never lost in between. If it throws, nothing is deleted and
+   * its error propagates.
+   */
+  resetPracticeSignals?(beforeDelete?: () => Promise<void>): Promise<void>;
 }
 
 export * from './custom-problems.js';
+export * from './reference-section.js';
+export * from './practice-signals.js';
 export * from './local-file-adapter.js';

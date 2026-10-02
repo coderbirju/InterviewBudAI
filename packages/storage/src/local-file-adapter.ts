@@ -14,6 +14,7 @@
  *   ${basePath}/quiz-sessions/active.json    -> { sessionId } active pointer (ADR 0007)
  *   ${basePath}/competency-signals.json      -> CompetencySignals (ADR 0007)
  *   ${basePath}/problems/${id}.json          -> CustomProblem (ADR 0010)
+ *   ${basePath}/practice-signals.json        -> PracticeSignals (ADR 0013 D3)
  */
 
 import {
@@ -54,6 +55,8 @@ import type {
   PatternSignal,
   TopicStrength,
   CustomProblem,
+  PracticeEvent,
+  PracticeSignals,
 } from './index.js';
 import { resolveNoteStatus, isNoteStatus } from './index.js';
 import {
@@ -62,7 +65,17 @@ import {
   sanitizeTopicMisses,
 } from './competency.js';
 import { isCustomProblemId, parseCustomProblem } from './custom-problems.js';
+import {
+  joinReferenceSection,
+  splitReferenceSection,
+} from './reference-section.js';
 import type { CustomTopicMapper } from './custom-problems.js';
+import {
+  PRACTICE_SIGNALS_FILE,
+  appendPracticeEventFile,
+  readPracticeSignalsFile,
+  resetPracticeSignalsFile,
+} from './practice-signals.js';
 
 // ---------------------------------------------------------------------------
 // Type Guards (validate untrusted JSON)
@@ -561,8 +574,13 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     }
     frontmatter += '\n---\n';
 
-    // Combine frontmatter + body + trailing newline
-    const fileContent = frontmatter + note.content + '\n';
+    // Combine frontmatter + body (+ the ADR 0013 D4 Reference approach
+    // section, via the one shared join) + trailing newline. Throws a
+    // RangeError before any write if the reference holds a marker line.
+    const fileContent =
+      frontmatter +
+      joinReferenceSection(note.content, note.referenceApproach) +
+      '\n';
 
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, fileContent, 'utf-8');
@@ -815,6 +833,31 @@ export class LocalFileStorageAdapter implements StorageAdapter {
   }
 
   // -------------------------------------------------------------------------
+  // Practice Signal Methods (ADR 0013 D3)
+  // -------------------------------------------------------------------------
+
+  private practicePath(): string {
+    return safeJoin(this.basePath, PRACTICE_SIGNALS_FILE);
+  }
+
+  /** Tolerant read: missing, unreadable or corrupt ⇒ `null` (never throws). */
+  async readPracticeSignals(): Promise<PracticeSignals | null> {
+    return readPracticeSignalsFile(this.practicePath());
+  }
+
+  /** Queued read-modify-write; `first` is decided from `seen`. */
+  async appendPracticeEvent(event: PracticeEvent): Promise<PracticeSignals> {
+    return appendPracticeEventFile(this.practicePath(), event);
+  }
+
+  /** Queued delete of `practice-signals.json` only. */
+  async resetPracticeSignals(
+    beforeDelete?: () => Promise<void>,
+  ): Promise<void> {
+    return resetPracticeSignalsFile(this.practicePath(), beforeDelete);
+  }
+
+  // -------------------------------------------------------------------------
   // Custom Problem Methods (ADR 0010 D1–D3)
   // -------------------------------------------------------------------------
 
@@ -1029,10 +1072,14 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       completed: parsedCompleted,
     });
 
+    // ADR 0013 D4: split off the Reference approach section (the one shared
+    // split; no marker ⇒ the body is unchanged and there is no reference).
+    const split = splitReferenceSection(body);
+
     // Build result with all fields, only including optional fields when defined
     const result: IntuitionNote = {
       problemId: requestedId,
-      content: body,
+      content: split.content,
       lastUpdated: parsedLastUpdated,
       ...(parsedAttempts !== undefined && { attempts: parsedAttempts }),
       ...(parsedCompleted !== undefined && { completed: parsedCompleted }),
@@ -1042,6 +1089,9 @@ export class LocalFileStorageAdapter implements StorageAdapter {
       }),
       ...(parsedSpaceComplexity !== undefined && {
         spaceComplexity: parsedSpaceComplexity,
+      }),
+      ...(split.referenceApproach !== undefined && {
+        referenceApproach: split.referenceApproach,
       }),
     };
 
