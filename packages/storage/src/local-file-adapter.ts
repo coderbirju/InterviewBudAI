@@ -89,8 +89,8 @@ const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
  * body, but ONLY outside fenced code blocks: inside a ``` / ~~~ fence the
  * line is the user's own code or text and is kept. Everything else,
  * including the `## Reference approach` heading and its text, stays as note
- * content; the next save writes it back without the marker. A body without
- * the marker is returned unchanged (byte-identical).
+ * content. Applied on read AND write, so the file, a reload and the API reply
+ * agree. A body without the marker is returned unchanged (byte-identical).
  */
 function dropLegacyReferenceMarker(body: string): string {
   if (!body.includes(LEGACY_REFERENCE_MARKER)) return body;
@@ -616,8 +616,10 @@ export class LocalFileStorageAdapter implements StorageAdapter {
     }
     frontmatter += '\n---\n';
 
-    // Combine frontmatter + body + trailing newline
-    const fileContent = frontmatter + note.content + '\n';
+    // Combine frontmatter + body + trailing newline. ADR 0014 D1: the legacy
+    // marker line never lives outside a fence, on write as on read.
+    const fileContent =
+      frontmatter + dropLegacyReferenceMarker(note.content) + '\n';
 
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, fileContent, 'utf-8');
