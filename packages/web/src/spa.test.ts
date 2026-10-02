@@ -2,11 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   isSpaRequest,
   bundleExists,
   handleSpaRequest,
   STYLE_NONCE_PLACEHOLDER,
+  BUNDLE_DIR,
 } from './spa.js';
 import { SPA_CSP } from './security.js';
 import { createCoachHandler } from './handler.js';
@@ -176,4 +178,38 @@ describe('index.html style nonce (ADR 0014 D2)', () => {
     const res = handleSpaRequest('/index.html', bundleDir);
     expect(nonceOf(res).html).toMatch(NONCE_RE);
   });
+});
+
+/**
+ * The server only substitutes the nonce placeholder; it never adds the meta
+ * tag. So the source template, and the built bundle when present, must carry
+ * exactly one `ibai-style-nonce` meta with the placeholder.
+ */
+describe('index.html style-nonce placeholder (ADR 0014 D2)', () => {
+  const META_RE = new RegExp(
+    `<meta name="ibai-style-nonce" nonce="${STYLE_NONCE_PLACEHOLDER}"\\s*/?>`,
+    'g',
+  );
+  const countIn = (file: string) => {
+    const html = fs.readFileSync(file, 'utf8');
+    return {
+      meta: html.match(META_RE)?.length ?? 0,
+      name: html.split('ibai-style-nonce').length - 1,
+      placeholder: html.split(STYLE_NONCE_PLACEHOLDER).length - 1,
+    };
+  };
+  const ONCE = { meta: 1, name: 1, placeholder: 1 };
+
+  it('web-ui/index.html has the meta placeholder exactly once', () => {
+    const src = fileURLToPath(new URL('../web-ui/index.html', import.meta.url));
+    expect(countIn(src)).toEqual(ONCE);
+  });
+
+  const builtIndex = path.join(BUNDLE_DIR, 'index.html');
+  it.skipIf(!fs.existsSync(builtIndex))(
+    'built dist-ui/index.html has the meta placeholder exactly once',
+    () => {
+      expect(countIn(builtIndex)).toEqual(ONCE);
+    },
+  );
 });

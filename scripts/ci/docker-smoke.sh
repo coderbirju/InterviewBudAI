@@ -150,12 +150,15 @@ echo "ok - no .env in the image"
   # Scoped deps are checked by package dir: npm may leave an empty scope dir.
   for dep in typescript vite react react-dom lucide-react \
     @codemirror/state @codemirror/view @codemirror/language \
-    @lezer/common @lezer/markdown @lezer/highlight; do
+    @lezer/common @lezer/markdown @lezer/highlight \
+    style-mod crelt w3c-keyname @marijn/find-cluster-break; do
     check "test ! -e node_modules/$dep"
   done
+  # An empty scope dir is fine; any entry inside one is a leaked SPA dep.
   for scope in @codemirror @lezer; do
-    if [ -d "node_modules/$scope" ]; then
-      echo "note: node_modules/$scope: [$(ls -A "node_modules/$scope" | tr "\n" " ")]" >&2
+    if [ -d "node_modules/$scope" ] && [ -n "$(ls -A "node_modules/$scope")" ]; then
+      echo "image check failed: node_modules/$scope is not empty: [$(ls -A "node_modules/$scope" | tr "\n" " ")]" >&2
+      bad=1
     fi
   done
   check "test ! -L node_modules/@ibai/cli"
