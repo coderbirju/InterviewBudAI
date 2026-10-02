@@ -1,7 +1,18 @@
-import { describe, it, expect } from 'vitest';
-import { isSpaRequest, bundleExists, handleSpaRequest } from './spa.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  isSpaRequest,
+  bundleExists,
+  handleSpaRequest,
+  STYLE_NONCE_PLACEHOLDER,
+  BUNDLE_DIR,
+} from './spa.js';
+import { SPA_CSP } from './security.js';
 import { createCoachHandler } from './handler.js';
-import type { HandlerRequest } from './handler.js';
+import type { HandlerRequest, HandlerResponse } from './handler.js';
 import type { StorageAdapter } from '@ibai/storage';
 
 /**
@@ -84,4 +95,121 @@ describe('SPA via handler', () => {
     expect(res.status).toBe(200);
     expect(res.contentType).toContain('text/html');
   });
+});
+
+/**
+ * ADR 0014 D2: every index.html response (`/`, `/index.html`, the SPA
+ * fallback) carries a fresh style nonce in the meta tag AND the CSP, plus
+ * `Cache-Control: no-store`. Runs against a temp bundle so it never depends on
+ * whether `dist-ui` was built.
+ */
+describe('index.html style nonce (ADR 0014 D2)', () => {
+  const NONCE_RE = /^[A-Za-z0-9+/]{22}==$/;
+  let bundleDir: string;
+  let handler: (req: HandlerRequest) => Promise<HandlerResponse>;
+
+  beforeAll(() => {
+    bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibai-spa-nonce-'));
+    fs.writeFileSync(
+      path.join(bundleDir, 'index.html'),
+      `<!doctype html><html><head><meta name="ibai-style-nonce" nonce="${STYLE_NONCE_PLACEHOLDER}" />` +
+        '<script type="module" src="/assets/index-x.js"></script></head><body></body></html>',
+    );
+    fs.mkdirSync(path.join(bundleDir, 'assets'));
+    fs.writeFileSync(path.join(bundleDir, 'assets', 'index-x.js'), '1;');
+    const inner = createCoachHandler({
+      storage: stubStorage,
+      dataDir: '/nonexistent/ibai-spa-test',
+      homeDir: '/nonexistent/ibai-spa-home',
+      port: 4173,
+      spaBundleDir: bundleDir,
+    });
+    handler = (req) =>
+      inner({ ...req, headers: { host: 'localhost:4173', ...req.headers } });
+  });
+
+  afterAll(() => {
+    fs.rmSync(bundleDir, { recursive: true, force: true });
+  });
+
+  function nonceOf(res: HandlerResponse): { html: string; csp: string } {
+    const html = /<meta name="ibai-style-nonce" nonce="([^"]*)"/.exec(
+      res.body,
+    )?.[1];
+    const csp = /style-src 'self' 'nonce-([^']*)'/.exec(
+      res.headers?.['Content-Security-Policy'] ?? '',
+    )?.[1];
+    return { html: html ?? '', csp: csp ?? '' };
+  }
+
+  for (const url of ['/', '/index.html', '/problems/lc-1/notes']) {
+    it(`${url}: matching, well-formed, per-response nonce; no-store; script-src unchanged`, async () => {
+      const a = await handler({ method: 'GET', url });
+      const b = await handler({ method: 'GET', url });
+      expect(a.status).toBe(200);
+      expect(a.body).not.toContain(STYLE_NONCE_PLACEHOLDER);
+      const na = nonceOf(a);
+      expect(na.html).toMatch(NONCE_RE);
+      expect(na.csp).toBe(na.html);
+      expect(nonceOf(b).html).toMatch(NONCE_RE);
+      expect(nonceOf(b).html).not.toBe(na.html);
+      expect(a.headers?.['Cache-Control']).toBe('no-store');
+      const csp = a.headers?.['Content-Security-Policy'] ?? '';
+      // Only style-src differs from the plain SPA CSP.
+      expect(csp.replace(` 'nonce-${na.html}'`, '')).toBe(SPA_CSP);
+      expect(csp).toContain("script-src 'self';");
+      expect(csp).not.toContain('unsafe-inline');
+      // The other #58 security headers are still applied.
+      expect(a.headers?.['X-Frame-Options']).toBe('DENY');
+      expect(a.headers?.['X-Content-Type-Options']).toBe('nosniff');
+    });
+  }
+
+  it('assets and JSON keep the plain SPA CSP with no nonce', async () => {
+    const asset = await handler({ method: 'GET', url: '/assets/index-x.js' });
+    expect(asset.status).toBe(200);
+    expect(asset.headers?.['Content-Security-Policy']).toBe(SPA_CSP);
+    expect(asset.headers?.['Cache-Control']).toBeUndefined();
+    const api = await handler({ method: 'GET', url: '/api/config' });
+    expect(api.headers?.['Content-Security-Policy']).toBe(SPA_CSP);
+  });
+
+  it('handleSpaRequest (direct) also nonces /index.html', () => {
+    const res = handleSpaRequest('/index.html', bundleDir);
+    expect(nonceOf(res).html).toMatch(NONCE_RE);
+  });
+});
+
+/**
+ * The server only substitutes the nonce placeholder; it never adds the meta
+ * tag. So the source template, and the built bundle when present, must carry
+ * exactly one `ibai-style-nonce` meta with the placeholder.
+ */
+describe('index.html style-nonce placeholder (ADR 0014 D2)', () => {
+  const META_RE = new RegExp(
+    `<meta name="ibai-style-nonce" nonce="${STYLE_NONCE_PLACEHOLDER}"\\s*/?>`,
+    'g',
+  );
+  const countIn = (file: string) => {
+    const html = fs.readFileSync(file, 'utf8');
+    return {
+      meta: html.match(META_RE)?.length ?? 0,
+      name: html.split('ibai-style-nonce').length - 1,
+      placeholder: html.split(STYLE_NONCE_PLACEHOLDER).length - 1,
+    };
+  };
+  const ONCE = { meta: 1, name: 1, placeholder: 1 };
+
+  it('web-ui/index.html has the meta placeholder exactly once', () => {
+    const src = fileURLToPath(new URL('../web-ui/index.html', import.meta.url));
+    expect(countIn(src)).toEqual(ONCE);
+  });
+
+  const builtIndex = path.join(BUNDLE_DIR, 'index.html');
+  it.skipIf(!fs.existsSync(builtIndex))(
+    'built dist-ui/index.html has the meta placeholder exactly once',
+    () => {
+      expect(countIn(builtIndex)).toEqual(ONCE);
+    },
+  );
 });

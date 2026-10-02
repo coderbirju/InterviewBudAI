@@ -30,6 +30,7 @@ import { lastHomeHref, navigate } from '../lib/router';
 import { CustomBadge } from './CustomBadge';
 import { IntuitionCheck } from './IntuitionCheck';
 import { Modal } from './Modal';
+import { NoteContentField } from './NoteContentField';
 import { ProblemForm } from './ProblemForm';
 import type { TopicOption } from './ProblemForm';
 import { StatusControl } from './StatusControl';
@@ -523,26 +524,14 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
           </div>
         </div>
 
-        {/* Intuition / free-text content */}
-        <div>
-          <label
-            htmlFor="note-content"
-            className="block text-sm font-semibold text-slate-300"
-          >
-            Intuition &amp; approach
-          </label>
-          <textarea
-            id="note-content"
-            value={content}
-            onChange={(e) => {
-              setContent(e.target.value);
-              clearSaved();
-            }}
-            rows={10}
-            placeholder="Jot down your intuition, the key insight, edge cases, and how you'd approach it next time…"
-            className="mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
+        {/* Intuition / free-text content: CodeMirror or the textarea (ADR 0014 D2). */}
+        <NoteContentField
+          value={content}
+          onChange={(next) => {
+            setContent(next);
+            clearSaved();
+          }}
+        />
 
         {/* Complexity */}
         <div className="grid gap-4 sm:grid-cols-2">
