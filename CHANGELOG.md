@@ -47,8 +47,9 @@ and is listed there with what you need to do (ADR 0009 D4).
   A note that had one now shows it at the end of the note, under a
   `## Reference approach` heading. You can keep it there or delete it. The
   hidden `<!-- ibai:reference-approach -->` marker line is dropped, so the
-  next save rewrites that note file without it (a marker-looking line inside
-  a ```` ``` ```` / `~~~` code block is your own text and is kept). Notes
+  next save rewrites that note file without it; a marker line you save is
+  dropped the same way (a marker-looking line inside a ```` ``` ```` / `~~~`
+  code block, including an unclosed one, is your own text and is kept). Notes
   without a Reference are unchanged, byte for byte. The quiz and the
   intuition check now read the text as part of your note. CSV columns named
   Reference approach, Solution approach or Reference now import as a normal
