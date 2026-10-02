@@ -30,7 +30,7 @@ function reply(over: Partial<IntuitionCheckResult> = {}): IntuitionCheckResult {
     miss: 'complexity',
     missLabel: 'Complexity analysis off',
     firstCheck: true,
-    truncated: { note: false, reference: false, statement: false },
+    truncated: { note: false, statement: false },
     checkedAt: '2026-10-01T12:00:00.000Z',
     recorded: true,
     ...over,
@@ -258,7 +258,12 @@ describe('IntuitionCheck', () => {
         200,
         reply({
           questions: ['Q one?', 'Q two?', 'Q three?', 'Q four?'],
-          truncated: { note: true, reference: true, statement: false },
+          // An older server's `reference` flag is ignored (ADR 0014 D1).
+          truncated: {
+            note: true,
+            reference: true,
+            statement: false,
+          } as IntuitionCheckResult['truncated'],
         }),
       );
     render(<Harness />);
@@ -277,9 +282,7 @@ describe('IntuitionCheck', () => {
     expect(
       screen.getByText('Only the start of your note was checked.'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText('Only the start of your reference approach was used.'),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/reference approach/i)).toBeNull();
     expect(screen.queryByText(/problem statement/)).toBeNull();
   });
 
@@ -602,25 +605,6 @@ describe('IntuitionCheck', () => {
     expect(panel).toHaveAttribute('data-stale', 'false');
   });
 
-  it('sends referenceApproach and includes it in the stale snapshot', async () => {
-    const user = userEvent.setup();
-    const props = { ...BASE, referenceApproach: 'Hash map of seen values.' };
-    const { rerender } = render(<IntuitionCheck {...props} />);
-    await settle();
-    await user.click(checkButton());
-    const panel = await screen.findByRole('region', {
-      name: 'Intuition check',
-    });
-    expect(checkCalls()[0]!.body).toEqual({
-      content: 'x',
-      referenceApproach: 'Hash map of seen values.',
-      status: 'none',
-    });
-    expect(panel).toHaveAttribute('data-stale', 'false');
-    rerender(<IntuitionCheck {...props} referenceApproach="Sort first." />);
-    expect(panel).toHaveAttribute('data-stale', 'true');
-  });
-
   it('clears the cooldown timer when unmounted mid rate-limit', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -727,12 +711,12 @@ describe('Notes page mounts the coach', () => {
     ).toBe(false);
   });
 
-  it('sends the saved Reference approach and stales the result when it is edited', async () => {
+  it('has no Reference field and never sends a legacy referenceApproach (ADR 0014 D1)', async () => {
     const user = userEvent.setup();
     const saved = {
       problemId: 'two-sum',
       content: 'Saved text.',
-      referenceApproach: 'Hash map of complements.',
+      referenceApproach: 'From an older server.',
       status: 'done',
       completed: true,
       lastUpdated: '2026-09-24T00:00:00.000Z',
@@ -747,55 +731,14 @@ describe('Notes page mounts the coach', () => {
     });
     render(<Notes problemId="two-sum" />);
     await screen.findByLabelText(/intuition & approach/i);
-    await user.click(
-      screen.getByRole('button', { name: 'Check my intuition' }),
-    );
-    const panel = await screen.findByRole('region', {
-      name: 'Intuition check',
-    });
-    expect(checkCalls()[0]!.body).toEqual({
-      content: 'Saved text.',
-      referenceApproach: 'Hash map of complements.',
-      status: 'done',
-    });
-    expect(panel).toHaveAttribute('data-stale', 'false');
-    await user.click(
-      screen.getByRole('button', { name: /your reference approach/i }),
-    );
-    await user.type(screen.getByLabelText('Your reference approach'), '!');
-    expect(panel).toHaveAttribute('data-stale', 'true');
-    expect(
-      screen.getByRole('button', { name: 'Re-check' }),
-    ).toBeInTheDocument();
-  });
-
-  it('treats a null referenceApproach from the API as empty (not sent)', async () => {
-    const user = userEvent.setup();
-    const saved = {
-      problemId: 'two-sum',
-      content: 'Saved text.',
-      referenceApproach: null,
-      status: 'none',
-      completed: false,
-      lastUpdated: '2026-09-24T00:00:00.000Z',
-    };
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url === '/api/settings') return json(200, settingsBody);
-      if (url === '/api/notes/two-sum' && !init?.method) {
-        return json(200, saved);
-      }
-      if (url.endsWith('/check')) return json(200, reply());
-      return json(404, { error: 'nope' });
-    });
-    render(<Notes problemId="two-sum" />);
-    await screen.findByLabelText(/intuition & approach/i);
+    expect(screen.queryByText(/reference approach/i)).toBeNull();
     await user.click(
       screen.getByRole('button', { name: 'Check my intuition' }),
     );
     await screen.findByText('Partly there');
     expect(checkCalls()[0]!.body).toEqual({
       content: 'Saved text.',
-      status: 'none',
+      status: 'done',
     });
   });
 });

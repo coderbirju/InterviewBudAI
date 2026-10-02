@@ -43,6 +43,19 @@ and is listed there with what you need to do (ADR 0009 D4).
   `IBAI_HOST_DATA_DIR=<that path>` in `.env` and restart. Inside Docker, `/data`
   shows "Pinned by Docker (`IBAI_HOST_DATA_DIR=…`)" and does not offer
   switching.
+- **The Reference approach field is removed** (ADR 0014). No text is deleted.
+  A note that had one now shows it at the end of the note, under a
+  `## Reference approach` heading. You can keep it there or delete it. The
+  hidden `<!-- ibai:reference-approach -->` marker line is dropped, so the
+  next save rewrites that note file without it; a marker line you save is
+  dropped the same way (a marker-looking line inside a ```` ``` ```` / `~~~`
+  code block, including an unclosed one, is your own text and is kept). Notes
+  without a Reference are unchanged, byte for byte. The quiz and the
+  intuition check now read the text as part of your note. CSV columns named
+  Reference approach, Solution approach or Reference now import as a normal
+  `## <Header>` section; a CSV preview made before this change asks you to
+  preview again. An older client that still sends `referenceApproach` is not
+  rejected: the field is ignored.
 
 ### Added
 
@@ -82,7 +95,8 @@ and is listed there with what you need to do (ADR 0009 D4).
   "reset-practice" }`) saves a backup of the data folder first, then deletes
   only that file. One check at a time, ≥ 3 s apart.
 
-- **Reference approach on notes** (ADR 0013 D4, PR 1). Each note can hold an
+- **Reference approach on notes** (ADR 0013 D4, PR 1; removed again by
+  ADR 0014, see Breaking changes). Each note could hold an
   optional, private **Your reference approach** — your own write-up of how you
   solved it — in a collapsed disclosure on the Notes page. It is stored in the
   note file as a marked trailing section (`<!-- ibai:reference-approach -->`,
@@ -314,6 +328,14 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Removed
 
+- The Reference approach (ADR 0014 D1): the Notes field, `referenceApproach`
+  in `GET`/`POST /api/notes/:id` and in `POST /api/notes/:id/check`, the
+  `marker_in_text` error, `truncated.reference`, the CSV reference role,
+  `@ibai/storage`'s `reference-section` helpers and
+  `IntuitionNote.referenceApproach`. Prompt budgets go back to quiz fixed
+  ≤ 280 / worst ≤ 2 000 (measured 277 / 1 980) and coach fixed ≤ 250 /
+  worst ≤ 1 500 (measured 236 / 1 371); the coach's Reference rule and
+  Reference-overlap guard are gone, every other rule and guard stays.
 - The unused `POST /api/chat` endpoint and its client helpers (#59, #60).
 - Docs: ADR 0004 (built-in demo provider, superseded by ADR 0005 D6) deleted
   with founder approval; ADR numbers are not reused (see git history).

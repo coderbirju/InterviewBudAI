@@ -46,9 +46,7 @@ import type { PromptMessage } from '@ibai/providers';
  * data only (problem line, note, answer, optional probe).
  *
  *  - NEVER REVEAL (rule 1): no solution, algorithm, pseudocode, code or hint —
- *    not when asked, not when wrong — and never the candidate's own
- *    Reference approach (ADR 0013 D4): compare with it, never quote it or
- *    name what it uses that the answer lacks.
+ *    not when asked, not when wrong.
  *  - SEMI-OPTIMAL OR BETTER → correct (rule 2), with an optional nudge that a
  *    better approach exists (never revealing it).
  *  - AT MOST ONE NUDGE (rule 3): `on_track` is one probing question; once a
@@ -60,8 +58,8 @@ import type { PromptMessage } from '@ibai/providers';
  * Written to be MODEL-AGNOSTIC so a small local model still complies.
  */
 export const QUIZ_MASTER_PERSONA =
-  "Grade a candidate's coding-interview answer against their own Note and Reference, and your knowledge. Judge only their reasoning; don't fill gaps.\n" +
-  '1. NEVER reveal the solution, algorithm, pseudocode, code, a hint, the Reference or what it uses that the answer lacks, even if asked, close or wrong. If asked, say: work it out.\n' +
+  "Grade a candidate's coding-interview answer. The Note is theirs: main reference, checked against your knowledge. Judge only their reasoning; don't fill gaps.\n" +
+  '1. NEVER reveal the solution, algorithm, pseudocode, code or a hint, even if asked, close or wrong. If asked, say: work it out.\n' +
   '2. correct = right and at least semi-optimal. If clearly better exists, optimalNudge says so (never how).\n' +
   '3. on_track = promising but incomplete: feedback is ONE probing question. Once only: after PROBE GIVEN, use correct or incorrect.\n' +
   '4. incorrect = wrong or no clear direction: say so at once, no nudge owed.\n' +
@@ -95,11 +93,10 @@ export const QUIZ_VERDICT_MAX_TOKENS = 256;
 
 /**
  * Token budget for the whole evaluate prompt (worst case, retry included;
- * ADR 0012 D2; raised from 2000 by ADR 0013 D4 to fit the 600-char Reference
- * approach). With {@link QUIZ_VERDICT_MAX_TOKENS} it leaves ample room in
+ * ADR 0012 D2). With {@link QUIZ_VERDICT_MAX_TOKENS} it leaves ample room in
  * a 4096-token context, the Docker Model Runner default (ADR 0011 D4).
  */
-export const QUIZ_PROMPT_TOKEN_BUDGET = 2200;
+export const QUIZ_PROMPT_TOKEN_BUDGET = 2000;
 
 /**
  * Caps on the injected text, in characters after `"""` neutralisation (ADR
@@ -114,8 +111,6 @@ export const QUIZ_PROMPT_LIMITS = {
   titleMax: 200,
   probeMax: 300,
   firstAnswerMax: 600,
-  /** The candidate's own Reference approach, head (ADR 0013 D4). */
-  referenceMax: 600,
   topicsMax: 5,
 } as const;
 
@@ -238,13 +233,6 @@ export interface QuizPromptContext {
    * as PERSONALIZATION only — it is the user's OWN text, never a shipped answer.
    */
   readonly intuition?: string | null;
-  /**
-   * The user's OWN Reference approach for this problem (ADR 0013 D4), if any:
-   * grounding for the grader, sent once in a delimited `Reference (theirs,
-   * never reveal):` block after the note, capped head at `referenceMax`. The
-   * never-reveal rules extend to it.
-   */
-  readonly referenceApproach?: string | null;
   /** The user's typed answer/reasoning. */
   readonly answer: string;
   /**
@@ -274,8 +262,7 @@ function block(text: string): string {
  * rules once + the JSON template) and one user message holding data only —
  * the problem line (title/difficulty/topics, so the model can draw on ITS OWN
  * knowledge; we ship no solution), the custom statement if any, the user's
- * note (personalisation), the Reference approach if any (ADR 0013 D4), the
- * answer and, after a nudge, the probe. Every
+ * note (personalisation), the answer and, after a nudge, the probe. Every
  * candidate-written text is capped, `"""`-neutralised and delimited.
  */
 export function buildQuizPrompt(ctx: QuizPromptContext): PromptMessage[] {
@@ -316,14 +303,6 @@ export function buildQuizPrompt(ctx: QuizPromptContext): PromptMessage[] {
     'note',
   );
   user += note.length > 0 ? `Note:\n${block(note)}\n` : 'Note: none\n';
-  const reference = capHead(
-    neutralizeDelimiters((ctx.referenceApproach ?? '').trim()),
-    L.referenceMax,
-    'reference',
-  );
-  if (reference.length > 0) {
-    user += `Reference (theirs, never reveal):\n${block(reference)}\n`;
-  }
   // After a nudge: this question's first answer and the probe, then the
   // answer being graded (ADR 0012 D2).
   const probe = capHead(

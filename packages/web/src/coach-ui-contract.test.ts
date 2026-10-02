@@ -111,7 +111,6 @@ describe('server ↔ UI client contract (ADR 0013 D2/D3)', () => {
     for (const r of replies) {
       const res = await post(deps({ provider: provider(JSON.stringify(r)) }), {
         content: 'n'.repeat(3000),
-        referenceApproach: 'mine',
       });
       expect(res.status).toBe(200);
       const raw = JSON.parse(res.body) as Record<string, unknown>;

@@ -23,14 +23,12 @@ export interface IntuitionCheckInput {
   readonly content: string;
   readonly timeComplexity?: string;
   readonly spaceComplexity?: string;
-  readonly referenceApproach?: string;
   readonly status?: NoteStatus;
 }
 
 /** Which inputs the server cut to fit the prompt budget. */
 export interface IntuitionCheckTruncated {
   readonly note: boolean;
-  readonly reference: boolean;
   readonly statement: boolean;
 }
 
@@ -101,10 +99,8 @@ export function buildCheckBody(
   const body: Record<string, string> = { content: input.content };
   const time = optionalText(input.timeComplexity);
   const space = optionalText(input.spaceComplexity);
-  const reference = optionalText(input.referenceApproach);
   if (time !== undefined) body.timeComplexity = time;
   if (space !== undefined) body.spaceComplexity = space;
-  if (reference !== undefined) body.referenceApproach = reference;
   if (input.status !== undefined) body.status = input.status;
   return body;
 }
@@ -148,7 +144,6 @@ export function normalizeCheckResult(
     firstCheck: data.firstCheck === true,
     truncated: {
       note: truncatedRaw.note === true,
-      reference: truncatedRaw.reference === true,
       statement: truncatedRaw.statement === true,
     },
     checkedAt: typeof data.checkedAt === 'string' ? data.checkedAt : '',
