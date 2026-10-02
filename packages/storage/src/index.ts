@@ -174,18 +174,6 @@ export interface IntuitionNote {
   readonly timeComplexity?: string;
   /** Space complexity of the solution, e.g. 'O(1)', 'O(n)'. */
   readonly spaceComplexity?: string;
-  /**
-   * The user's OWN reference approach for this problem (ADR 0013 D4),
-   * optional and private. Used only to ground the quiz grader and the
-   * intuition check; never shown in either, never shipped (§6.2).
-   *
-   * @remarks
-   * Stored as a marked trailing section of the body (see
-   * `splitReferenceSection`), so `content` never includes it. `undefined`
-   * when absent (every pre-ADR-0013 note). Every writer MUST carry it over
-   * from the existing note (prefer `{ ...existing, … }`), or it is lost.
-   */
-  readonly referenceApproach?: string;
 }
 
 /**
@@ -786,6 +774,5 @@ export interface StorageAdapter {
 }
 
 export * from './custom-problems.js';
-export * from './reference-section.js';
 export * from './practice-signals.js';
 export * from './local-file-adapter.js';
