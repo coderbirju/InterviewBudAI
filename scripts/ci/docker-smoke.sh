@@ -141,19 +141,19 @@ echo "ok - no .env in the image"
 
 # 7. Built output and production deps only: no source, no dev tooling, no
 #    SPA build-time deps, no dangling workspace links.
+#    Each failing check is printed, so a red run names its cause.
 "${compose[@]}" exec -T app sh -c '
-  cd /app &&
-  test -z "$(find packages -maxdepth 2 -name src)" &&
-  test ! -e node_modules/typescript &&
-  test ! -e node_modules/vite &&
-  test ! -e node_modules/react &&
-  test ! -e node_modules/react-dom &&
-  test ! -e node_modules/lucide-react &&
-  test ! -e node_modules/@codemirror &&
-  test ! -e node_modules/@lezer &&
-  test ! -L node_modules/@ibai/cli &&
-  test -z "$(find node_modules -xtype l)" &&
-  test -z "$(find /app /home/app -name .env)"
+  cd /app || exit 1
+  bad=0
+  check() { if ! eval "$1"; then echo "image check failed: $1" >&2; bad=1; fi; }
+  check "test -z \"\$(find packages -maxdepth 2 -name src)\""
+  for dep in typescript vite react react-dom lucide-react @codemirror @lezer; do
+    check "test ! -e node_modules/$dep"
+  done
+  check "test ! -L node_modules/@ibai/cli"
+  check "test -z \"\$(find node_modules -xtype l)\""
+  check "test -z \"\$(find /app /home/app -name .env)\""
+  exit $bad
 ' || fail "the image contains source, dev dependencies, a dangling link or a .env"
 echo "ok - no src/, typescript, vite, react, codemirror or .env in the image; no dangling links"
 
