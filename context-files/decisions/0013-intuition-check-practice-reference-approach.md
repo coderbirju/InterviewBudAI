@@ -1,6 +1,6 @@
 # ADR 0013 — "Check my intuition" coach, practice trends, and the user-authored Reference approach
 
-- **Status:** Accepted
+- **Status:** Accepted; D4 and the Reference parts of D1, D2 and D5 superseded by ADR 0014 (2026-10-01)
 - **Date:** 2026-10-01
 - **Deciders:** Founder, Architect
 - **Amends:** ADR 0005 (`IntuitionNote` gains an optional field), ADR 0007 D2
