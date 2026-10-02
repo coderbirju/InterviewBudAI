@@ -111,6 +111,8 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
   readonly fetchImpl?: typeof fetch;
   /** ms clock for the test-provider rate limit + latency (default Date.now). */
   readonly clock?: () => number;
+  /** Built SPA directory (tests inject a temp dir). Default: `dist-ui`. */
+  readonly spaBundleDir?: string;
 }
 
 /**
@@ -428,7 +430,7 @@ export function createCoachHandler(
           body: JSON.stringify({ error: 'Method not allowed' }),
         };
       }
-      return handleSpaRequest(pathname);
+      return handleSpaRequest(pathname, deps.spaBundleDir);
     }
 
     // Unreachable in practice (isSpaRequest is true for all non-api/non-setup

@@ -8,6 +8,12 @@
       Vite injects only the local, same-origin bundled JS/CSS at build time.
       Tailwind is compiled to a static CSS file; lucide-react is bundled into JS.
     -->
+    <!--
+      ADR 0014 D2: the server replaces this placeholder with a fresh per-response
+      style nonce (also in the CSP's style-src) so the note editor can mount its
+      <style>. The client accepts only a real 16-byte base64 nonce.
+    -->
+    <meta name="ibai-style-nonce" nonce="__IBAI_STYLE_NONCE__" />
     <title>InterviewBudAI</title>
   </head>
   <body>
