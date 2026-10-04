@@ -58,6 +58,11 @@ export interface IntuitionCheckProps {
   readonly timeComplexity: string;
   readonly spaceComplexity: string;
   readonly status: NoteStatus;
+  /**
+   * The editor still holds the untouched starter template (ADR 0015 D3):
+   * nothing to check yet, so the button is disabled like an empty note.
+   */
+  readonly untouchedTemplate?: boolean;
 }
 
 type CheckState =
@@ -141,7 +146,7 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
     return () => clearInterval(timer);
   }, [cooldownUntil]);
 
-  const noteEmpty = content.trim() === '';
+  const noteEmpty = content.trim() === '' || props.untouchedTemplate === true;
   const cooldownMs = Math.max(0, cooldownUntil - now);
   const coolingDown = cooldownMs > 0;
   const loading = state.kind === 'loading';
@@ -167,7 +172,7 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
 
   const onCheck = useCallback(async (): Promise<void> => {
     if (inFlight.current) return;
-    if (content.trim() === '') {
+    if (noteEmpty) {
       setState({ kind: 'error', message: EMPTY_NOTE_HINT });
       return;
     }
@@ -229,6 +234,7 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
     spaceComplexity,
     status,
     currentSnapshot,
+    noteEmpty,
   ]);
 
   const label = loading

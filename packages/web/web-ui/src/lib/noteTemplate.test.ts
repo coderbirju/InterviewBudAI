@@ -117,6 +117,43 @@ describe('buildTemplate — Python', () => {
     );
   });
 
+  it('a def inside a triple-quoted string is not the signature; the string is unchanged', () => {
+    const wrapped = [
+      '"""',
+      '# Definition for a Node.',
+      'class Node:',
+      '    def __init__(self, val = 0, neighbors = None):',
+      '        self.val = val',
+      '        self.neighbors = neighbors if neighbors is not None else []',
+      '"""',
+      '',
+      'from typing import Optional',
+      'class Solution:',
+      "    def copyGraph(self, node: Optional['Node']) -> Optional['Node']:",
+      '        ',
+    ];
+    const snippet = wrapped.join('\n');
+    const out = buildTemplate(snippet, 'python').split('\n');
+    expect(out.slice(0, 11)).toEqual(wrapped.slice(0, 11));
+    expect(out.slice(11)).toEqual([
+      '        # Intuition:',
+      '        #',
+      '        # Approach:',
+      '        #',
+      '        # Complexity: time O(?), space O(?)',
+      '        pass',
+    ]);
+    expect(signatureKey(snippet, 'python')).toBe(
+      "def copyGraph(self, node: Optional['Node']) -> Optional['Node']:",
+    );
+    // An empty def inside the string gets no pass either.
+    const emptyInString =
+      "'''\nclass Node:\n    def f(self):\n        \n'''\nclass Solution:\n    def g(self):\n        ";
+    const lines = buildTemplate(emptyInString, 'python').split('\n');
+    expect(lines.slice(0, 5)).toEqual(emptyInString.split('\n').slice(0, 5));
+    expect(lines.filter((l) => l.trim() === 'pass')).toHaveLength(1);
+  });
+
   it('separators stay outside bodies: a method with code keeps its blank line before the next def', () => {
     const snippet = [
       'class Box:',

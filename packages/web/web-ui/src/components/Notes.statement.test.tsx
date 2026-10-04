@@ -509,6 +509,23 @@ describe('code-first template', () => {
     noNoteWrites();
   });
 
+  it('Save on an existing note sends the original text, one blank line, then the fenced block', async () => {
+    const user = userEvent.setup();
+    server.noteContent = 'Two pointers from both ends.\n\n';
+    render(<Notes problemId={ID} />);
+    const expected = `Two pointers from both ends.\n\n${fencedStarter(PY_TEMPLATE, 'python')}`;
+    await settledEditor(expected);
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+    await screen.findByText(/^Saved$/);
+    const body = JSON.parse(
+      String(calls('POST', `/api/notes/${ID}`)[0]?.body),
+    ) as { content: string };
+    expect(body.content).toBe(
+      'Two pointers from both ends.\n\n```python\n' + PY_TEMPLATE + '\n```',
+    );
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
   it('a note that already has the signature is left alone', async () => {
     const saved = `Idea\n\n${fencedStarter(PY_TEMPLATE, 'python')}\n`;
     server.noteContent = saved;
@@ -621,8 +638,12 @@ describe('Copy code', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Copy code' }));
     expect(writeText).toHaveBeenLastCalledWith(PY_TEMPLATE);
-    expect(await screen.findByText('Copied')).toBeInTheDocument();
+    // Each button has its own confirmation.
+    expect(await screen.findByText('Code copied')).toBeInTheDocument();
+    expect(screen.queryByText('Copied')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Copy note' }));
+    expect(await screen.findByText('Copied')).toBeInTheDocument();
+    expect(screen.queryByText('Code copied')).toBeNull();
     expect(writeText).toHaveBeenLastCalledWith(
       `Idea first.\n\n${fencedStarter(PY_TEMPLATE, 'python')}`,
     );
@@ -630,18 +651,35 @@ describe('Copy code', () => {
 });
 
 describe('coach', () => {
-  it('"Check my intuition" still checks the current editor text', async () => {
+  it('is disabled while the editor holds the untouched template, then checks the current editor text', async () => {
     const user = userEvent.setup();
     render(<Notes problemId={ID} />);
-    await settledEditor(PY_TEMPLATE);
-    await user.click(
-      screen.getByRole('button', { name: 'Check my intuition' }),
-    );
+    const ed = await settledEditor(PY_TEMPLATE);
+    const button = await screen.findByRole('button', {
+      name: 'Check my intuition',
+    });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(screen.getByText('Write your intuition first.')).toBeInTheDocument();
+
+    await user.type(ed, '\n# two pointers');
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
     await screen.findByText('On track');
     const body = JSON.parse(String(calls('POST', '/check')[0]?.body)) as {
       content: string;
     };
-    expect(body.content).toBe(PY_TEMPLATE);
+    expect(body.content).toBe(PY_TEMPLATE + '\n# two pointers');
     noNoteWrites();
+  });
+
+  it('an appended block does not disable the coach (the note has the user text)', async () => {
+    server.noteContent = 'My idea.';
+    render(<Notes problemId={ID} />);
+    await settledEditor(`My idea.\n\n${fencedStarter(PY_TEMPLATE, 'python')}`);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Check my intuition' }),
+      ).toBeEnabled(),
+    );
   });
 });
