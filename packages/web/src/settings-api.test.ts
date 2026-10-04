@@ -220,6 +220,7 @@ describe('GET /api/settings', () => {
       'IBAI_OLLAMA_URL',
       'IBAI_DATA_DIR',
       'IBAI_WEB_PORT',
+      'IBAI_LEETCODE_FETCH',
       'IBAI_HOST_DATA_DIR',
     ]);
     const set = Object.fromEntries(body.envHelp.map((e) => [e.var, e.set]));
@@ -236,6 +237,7 @@ describe('GET /api/settings', () => {
       IBAI_OLLAMA_URL: false,
       IBAI_DATA_DIR: false,
       IBAI_WEB_PORT: true,
+      IBAI_LEETCODE_FETCH: false,
       IBAI_HOST_DATA_DIR: false,
     });
     for (const e of body.envHelp) {

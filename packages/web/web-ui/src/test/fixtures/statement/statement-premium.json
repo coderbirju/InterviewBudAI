@@ -1,0 +1,23 @@
+{
+  "id": "lc-253",
+  "title": "Meeting Rooms II",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/meeting-rooms-ii/",
+  "custom": false,
+  "state": "premium",
+  "source": null,
+  "blocks": null,
+  "text": null,
+  "exampleTestcases": null,
+  "snippets": {
+    "python": null,
+    "go": null
+  },
+  "fetchedAt": "2026-10-04T12:00:00.000Z",
+  "truncated": false,
+  "cached": true,
+  "fetch": {
+    "enabled": true,
+    "pinned": false
+  }
+}
