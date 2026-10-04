@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeStatementHtml } from './statement-sanitize.js';
+import {
+  STATEMENT_MAX_HTML_BYTES,
+  STATEMENT_MAX_OPEN,
+  sanitizeStatementHtml,
+} from './statement-sanitize.js';
 import {
   STATEMENT_MAX_DEPTH,
   STATEMENT_MAX_NODES,
@@ -246,6 +250,53 @@ describe('sanitizeStatementHtml (ADR 0015 D2)', () => {
     const bytes = utf8ByteLength(allText(blocks));
     expect(bytes).toBeLessThanOrEqual(STATEMENT_MAX_TEXT_BYTES);
     expect(bytes).toBeGreaterThan(STATEMENT_MAX_TEXT_BYTES - 2);
+  });
+
+  it('~1 MiB of nested <div> sanitizes in < 2 s, truncated', () => {
+    const html = '<div>'.repeat(Math.floor((1024 * 1024) / 5));
+    const started = Date.now();
+    const { truncated } = clean(html);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(truncated).toBe(true);
+  });
+
+  it('~1 MiB of nested <span>…</span> sanitizes in < 2 s, truncated', () => {
+    const n = 75_000;
+    const html = '<span>'.repeat(n) + 'x' + '</span>'.repeat(n);
+    expect(html.length).toBeGreaterThan(900_000);
+    const started = Date.now();
+    const { blocks, truncated } = clean(html);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(truncated).toBe(true);
+    expect(blocks).toEqual([]);
+  });
+
+  it('open-tag cap: past STATEMENT_MAX_OPEN the tree is cut, text before it kept', () => {
+    const html =
+      '<p>kept</p>' +
+      '<canvas>'.repeat(STATEMENT_MAX_OPEN + 5) +
+      'hidden' +
+      '</canvas>'.repeat(STATEMENT_MAX_OPEN + 5) +
+      '<p>after</p>';
+    const { blocks, truncated } = clean(html);
+    expect(truncated).toBe(true);
+    expect(blocks).toEqual([{ t: 'p', c: [text('kept')] }]);
+    // Below the cap, deep unwrapped nesting is fine and complete.
+    const ok = clean('<span>'.repeat(500) + 'x' + '</span>'.repeat(500));
+    expect(ok).toEqual({ blocks: [text('x')], truncated: false });
+  });
+
+  it('input over 256 KiB is cut before parsing (truncated)', () => {
+    const para = '<p>' + 'a'.repeat(1000) + '</p>';
+    const html = para.repeat(
+      Math.ceil((STATEMENT_MAX_HTML_BYTES * 2) / para.length),
+    );
+    const { blocks, truncated } = clean(html);
+    expect(truncated).toBe(true);
+    expect(utf8ByteLength(allText(blocks))).toBeLessThanOrEqual(
+      STATEMENT_MAX_HTML_BYTES,
+    );
+    expect(blocks.length).toBeLessThan(270);
   });
 
   it('sanitizes a recorded Two Sum fixture (synthetic stand-in, not LeetCode text)', () => {

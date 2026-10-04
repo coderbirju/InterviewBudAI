@@ -555,6 +555,66 @@ describe('POST /api/problems/:id/statement/fetch', () => {
     }
   });
 
+  it('a pull-based endless body is cancelled at the 1 MiB cap (502)', async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    const endless = (): Response =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(chunk);
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const fake = fakeFetch([async () => endless()]);
+    const d = deps(services(fake.fetchImpl));
+    const res = await call(d, 'POST', fetchUrl(FREE.id), {});
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('fetch_failed');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cancelled).toBe(true);
+    // Reading stops just past the cap (plus the stream's small read-ahead).
+    expect(pulls * chunk.byteLength).toBeLessThan(
+      LEETCODE_MAX_RESPONSE_BYTES + 8 * chunk.byteLength,
+    );
+  });
+
+  it('a body that stalls after the headers times out (504)', async () => {
+    const fake = fakeFetch([
+      async (c) => {
+        const signal = c.init.signal!;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"data":'));
+              signal.addEventListener('abort', () =>
+                controller.error(signal.reason),
+              );
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    ]);
+    const d = deps(services(fake.fetchImpl, { timeoutMs: 30 }));
+    const started = Date.now();
+    const res = await call(d, 'POST', fetchUrl(FREE.id), {});
+    expect(res).toEqual({
+      status: 504,
+      body: {
+        error: 'LeetCode did not answer in time.',
+        code: 'fetch_timeout',
+      },
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it('504 fetch_timeout when LeetCode does not answer in time', async () => {
     const fake = fakeFetch([{ hang: true }]);
     const d = deps(services(fake.fetchImpl, { timeoutMs: 20 }));
@@ -1145,6 +1205,32 @@ describe('GET / PUT /api/preferences', () => {
         leetcodeFetch: { enabled: true, pinned: false },
       });
     }
+  });
+
+  it('a file filled by unknown keys: a save keeps only our keys (no 500)', async () => {
+    const file = path.join(tmpDir, PREFERENCES_FILE);
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ junk: 'x'.repeat(64 * 1024 - 20) }),
+    );
+    expect(fs.statSync(file).size).toBeLessThanOrEqual(64 * 1024);
+    const d = deps(services(fakeFetch().fetchImpl));
+    const res = await call(d, 'PUT', '/api/preferences', { language: 'go' });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({
+      language: 'go',
+    });
+  });
+
+  it('a symlinked preferences file is not followed (defaults)', async () => {
+    if (process.platform === 'win32') return;
+    const elsewhere = path.join(tmpDir, 'elsewhere.json');
+    fs.writeFileSync(elsewhere, JSON.stringify({ language: 'go' }));
+    fs.symlinkSync(elsewhere, path.join(tmpDir, PREFERENCES_FILE));
+    const d = deps(services(fakeFetch().fetchImpl));
+    expect((await call(d, 'GET', '/api/preferences')).body).toMatchObject({
+      language: 'python',
+    });
   });
 
   it('no data folder → PUT 400; read-only → 409', async () => {
