@@ -13,6 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { readCappedFile } from './safe-read.js';
 
 export const PREFERENCES_FILE = 'preferences.json';
 export const PREFERENCES_MAX_BYTES = 64 * 1024;
@@ -70,12 +71,6 @@ export interface ApiPreferences {
   };
 }
 
-function errnoCode(err: unknown): string | undefined {
-  return typeof err === 'object' && err !== null
-    ? ((err as { code?: unknown }).code as string | undefined)
-    : undefined;
-}
-
 /**
  * A per-handler preferences store: reads and writes `preferences.json` in
  * the given data folder and warns once per distinct problem.
@@ -112,39 +107,28 @@ export function createPreferencesStore(opts: {
     dataDir: string,
   ): Promise<Record<string, unknown> | null> => {
     const file = path.join(dataDir, PREFERENCES_FILE);
-    let handle: fs.FileHandle | undefined;
-    try {
-      const info = await fs.lstat(file);
-      if (!info.isFile() || info.size > PREFERENCES_MAX_BYTES) {
-        warnOnce(`ignoring ${file} (not a file of at most 64 KiB)`);
-        return null;
-      }
-      handle = await fs.open(file, 'r');
-      const buffer = Buffer.alloc(PREFERENCES_MAX_BYTES + 1);
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      if (bytesRead > PREFERENCES_MAX_BYTES) {
-        warnOnce(`ignoring ${file} (not a file of at most 64 KiB)`);
-        return null;
-      }
-      const parsed: unknown = JSON.parse(
-        buffer.subarray(0, bytesRead).toString('utf8'),
-      );
-      if (
-        typeof parsed !== 'object' ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        warnOnce(`ignoring ${file} (not a JSON object)`);
-        return null;
-      }
-      return parsed as Record<string, unknown>;
-    } catch (err) {
-      if (errnoCode(err) === 'ENOENT') return null;
-      warnOnce(`ignoring ${file} (unreadable or not valid JSON)`);
+    const result = await readCappedFile(file, PREFERENCES_MAX_BYTES);
+    if (result.kind === 'missing') return null;
+    if (result.kind === 'bad') {
+      warnOnce(`ignoring ${file} (not a regular file of at most 64 KiB)`);
       return null;
-    } finally {
-      await handle?.close().catch(() => undefined);
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch {
+      warnOnce(`ignoring ${file} (not valid JSON)`);
+      return null;
+    }
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      warnOnce(`ignoring ${file} (not a JSON object)`);
+      return null;
+    }
+    return parsed as Record<string, unknown>;
   };
 
   const read = async (dataDir: string): Promise<StoredPreferences> => {
@@ -198,12 +182,19 @@ export function createPreferencesStore(opts: {
       if (patch.leetcodeFetch !== undefined) {
         next.leetcodeFetch = patch.leetcodeFetch;
       }
-      const content = JSON.stringify(next, null, 2) + '\n';
+      let content = JSON.stringify(next, null, 2) + '\n';
       if (Buffer.byteLength(content, 'utf8') > PREFERENCES_MAX_BYTES) {
-        // Only possible when unknown keys fill the file: keep ours only.
-        throw Object.assign(new Error('preferences file too large'), {
-          code: 'EFBIG',
-        });
+        // Only possible when unknown keys fill the file: they are dropped and
+        // only our own keys are written (never a file we would not read).
+        const own: Record<string, unknown> = {};
+        if (isCodeLanguage(next.language)) own.language = next.language;
+        if (typeof next.leetcodeFetch === 'boolean') {
+          own.leetcodeFetch = next.leetcodeFetch;
+        }
+        content = JSON.stringify(own, null, 2) + '\n';
+        warnOnce(
+          `${PREFERENCES_FILE} was over 64 KiB; unknown keys were dropped on save`,
+        );
       }
       const file = path.join(dataDir, PREFERENCES_FILE);
       const tmp = `${file}.tmp-${randomBytes(6).toString('hex')}`;

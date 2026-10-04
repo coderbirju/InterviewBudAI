@@ -18,6 +18,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { readCappedFile } from './safe-read.js';
 import { isStatementTree, utf8ByteLength } from './statement-tree.js';
 import type { StatementNode } from './statement-tree.js';
 import { LEETCODE_FIELD_MAX_BYTES, SLUG_PATTERN } from './leetcode.js';
@@ -155,24 +156,15 @@ export async function readProblemCache(
   dataDir: string,
   id: string,
 ): Promise<ProblemCacheEntry | null> {
-  const file = problemCachePath(dataDir, id);
-  let handle: fs.FileHandle | undefined;
+  const read = await readCappedFile(
+    problemCachePath(dataDir, id),
+    CACHE_FILE_MAX_BYTES,
+  );
+  if (read.kind !== 'ok') return null;
   try {
-    const info = await fs.lstat(file);
-    if (!info.isFile() || info.size > CACHE_FILE_MAX_BYTES) return null;
-    handle = await fs.open(file, 'r');
-    // Read one byte past the cap, in case the file grew after the lstat.
-    const buffer = Buffer.alloc(CACHE_FILE_MAX_BYTES + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > CACHE_FILE_MAX_BYTES) return null;
-    const parsed: unknown = JSON.parse(
-      buffer.subarray(0, bytesRead).toString('utf8'),
-    );
-    return parseProblemCacheEntry(parsed, id);
+    return parseProblemCacheEntry(JSON.parse(read.text) as unknown, id);
   } catch {
     return null;
-  } finally {
-    await handle?.close().catch(() => undefined);
   }
 }
 

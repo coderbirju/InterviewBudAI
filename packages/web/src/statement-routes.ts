@@ -360,94 +360,102 @@ export async function handleStatementRoute(
       retryAfterMs: start.retryAfterMs,
     });
   }
-  let result;
+  // The in-flight slot is held until the cache write has finished.
   try {
-    result = await fetchLeetCodeQuestion(slug, {
+    const result = await fetchLeetCodeQuestion(slug, {
       fetchImpl: deps.services.fetchImpl ?? globalThis.fetch,
       version: deps.services.version,
       ...(deps.services.timeoutMs !== undefined && {
         timeoutMs: deps.services.timeoutMs,
       }),
     });
+    if (result.kind === 'timeout') {
+      return json(504, {
+        error: STATEMENT_ERRORS.fetch_timeout,
+        code: 'fetch_timeout',
+      });
+    }
+    if (result.kind === 'failed') {
+      return json(502, {
+        error: STATEMENT_ERRORS.fetch_failed,
+        code: 'fetch_failed',
+      });
+    }
+    let fetched: Omit<ProblemCacheEntry, 'pastedText'>;
+    const fetchedAt = (deps.now ?? (() => new Date()))().toISOString();
+    const common = {
+      schema: 1 as const,
+      id,
+      titleSlug: slug,
+      title: problem.title,
+      fetchedAt,
+    };
+    if (result.kind === 'not_found') {
+      // Cached like premium, so a later GET says `unavailable` (no re-ask).
+      fetched = {
+        ...common,
+        isPaidOnly: false,
+        blocks: null,
+        truncated: false,
+        exampleTestcases: null,
+        snippets: NO_SNIPPETS,
+      };
+    } else if (result.question.isPaidOnly) {
+      fetched = {
+        ...common,
+        isPaidOnly: true,
+        blocks: null,
+        truncated: false,
+        exampleTestcases: null,
+        snippets: NO_SNIPPETS,
+      };
+    } else if (result.question.content === null) {
+      // Not premium yet no content: an unexpected shape.
+      return json(502, {
+        error: STATEMENT_ERRORS.fetch_failed,
+        code: 'fetch_failed',
+      });
+    } else {
+      const sanitized = sanitizeStatementHtml(result.question.content);
+      fetched = {
+        ...common,
+        isPaidOnly: false,
+        blocks: sanitized.blocks,
+        truncated: sanitized.truncated,
+        exampleTestcases: result.question.exampleTestcases,
+        snippets: result.question.snippets,
+      };
+    }
+
+    const saved = await serializedCacheWrite(async () => {
+      // Re-read inside the queue so a paste saved meanwhile is kept.
+      const latest = cacheable
+        ? await readProblemCache(deps.dataDir, id)
+        : null;
+      const entry: ProblemCacheEntry = {
+        ...fetched,
+        pastedText: latest?.pastedText ?? null,
+      };
+      if (!cacheable || (deps.readOnlyFormat?.() ?? null) !== null) {
+        return { entry, cached: false };
+      }
+      const write = await writeProblemCache(deps.dataDir, entry);
+      return { entry, cached: write.ok };
+    });
+
+    if (result.kind === 'not_found') {
+      return json(404, {
+        error: STATEMENT_ERRORS.not_found,
+        code: 'not_found',
+      });
+    }
+    return json(
+      200,
+      catalogStatement(problem, saved.entry, fetch, saved.cached),
+    );
   } finally {
     start.done();
   }
-  if (result.kind === 'timeout') {
-    return json(504, {
-      error: STATEMENT_ERRORS.fetch_timeout,
-      code: 'fetch_timeout',
-    });
-  }
-  if (result.kind === 'failed') {
-    return json(502, {
-      error: STATEMENT_ERRORS.fetch_failed,
-      code: 'fetch_failed',
-    });
-  }
-  let fetched: Omit<ProblemCacheEntry, 'pastedText'>;
-  const fetchedAt = (deps.now ?? (() => new Date()))().toISOString();
-  const common = {
-    schema: 1 as const,
-    id,
-    titleSlug: slug,
-    title: problem.title,
-    fetchedAt,
-  };
-  if (result.kind === 'not_found') {
-    // Cached like premium, so a later GET says `unavailable` (no re-ask).
-    fetched = {
-      ...common,
-      isPaidOnly: false,
-      blocks: null,
-      truncated: false,
-      exampleTestcases: null,
-      snippets: NO_SNIPPETS,
-    };
-  } else if (result.question.isPaidOnly) {
-    fetched = {
-      ...common,
-      isPaidOnly: true,
-      blocks: null,
-      truncated: false,
-      exampleTestcases: null,
-      snippets: NO_SNIPPETS,
-    };
-  } else if (result.question.content === null) {
-    // Not premium yet no content: an unexpected shape.
-    return json(502, {
-      error: STATEMENT_ERRORS.fetch_failed,
-      code: 'fetch_failed',
-    });
-  } else {
-    const sanitized = sanitizeStatementHtml(result.question.content);
-    fetched = {
-      ...common,
-      isPaidOnly: false,
-      blocks: sanitized.blocks,
-      truncated: sanitized.truncated,
-      exampleTestcases: result.question.exampleTestcases,
-      snippets: result.question.snippets,
-    };
-  }
-
-  const saved = await serializedCacheWrite(async () => {
-    // Re-read inside the queue so a paste saved meanwhile is kept.
-    const latest = cacheable ? await readProblemCache(deps.dataDir, id) : null;
-    const entry: ProblemCacheEntry = {
-      ...fetched,
-      pastedText: latest?.pastedText ?? null,
-    };
-    if (!cacheable || (deps.readOnlyFormat?.() ?? null) !== null) {
-      return { entry, cached: false };
-    }
-    const write = await writeProblemCache(deps.dataDir, entry);
-    return { entry, cached: write.ok };
-  });
-
-  if (result.kind === 'not_found') {
-    return json(404, { error: STATEMENT_ERRORS.not_found, code: 'not_found' });
-  }
-  return json(200, catalogStatement(problem, saved.entry, fetch, saved.cached));
 }
 
 async function pasteStatement(
