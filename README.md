@@ -35,6 +35,24 @@ directory at `~/.interviewbudai/data` (owner-only permissions), so the app is
 usable immediately; `/setup` lets you pick a different location. Stop with
 Ctrl+C. The server only listens on 127.0.0.1.
 
+## Install from a release
+
+No clone and no `npm install`: download `interviewbudai-vX.Y.Z.zip` from the
+[Releases](https://github.com/coderbirju/InterviewBudAI/releases) page, unzip
+it, and run (Node.js 20.12+):
+
+```bash
+node interviewbudai-vX.Y.Z/dist/server.js   # serves http://127.0.0.1:4173/
+```
+
+The zip holds one bundled server file (`dist/server.js`), the built web app
+(`dist-ui/`), `.env.example`, this README, the LICENSE and the CHANGELOG. To
+configure a provider, copy `interviewbudai-vX.Y.Z/.env.example` to
+`interviewbudai-vX.Y.Z/.env` (the release reads `.env` from the unzipped
+folder; shell exports still win). Your data stays in `~/.interviewbudai/data`
+(or the folder you choose), outside the zip, so a new release keeps it. Read
+the release's **Breaking changes** before upgrading.
+
 ## Run with local AI (Docker)
 
 One command starts the app **and** a local model — no account, no key
@@ -158,6 +176,65 @@ node packages/cli/dist/cli.js --help  # CLI (frozen; web is the product; after a
 
 Details: [packages/web/README.md](packages/web/README.md),
 [packages/cli/README.md](packages/cli/README.md).
+
+## Releases and usage metrics (maintainers)
+
+### Cutting a release
+
+1. In a release PR, rename `## [Unreleased]` in `CHANGELOG.md` to
+   `## [X.Y.Z] - YYYY-MM-DD` and keep its `### Breaking changes` section
+   (write "None." if empty). Merge it.
+2. The founder tags `main` by hand and pushes the tag (agents never push
+   tags):
+   ```bash
+   git checkout main && git pull
+   git tag vX.Y.Z && git push origin vX.Y.Z
+   ```
+3. `.github/workflows/release.yml` runs `npm ci` and `npm run verify`, checks
+   the CHANGELOG section, builds `interviewbudai-vX.Y.Z.zip` (esbuild bundle +
+   built SPA), smoke-tests it, and creates the GitHub Release with the zip
+   attached. The notes are an Install block followed by the CHANGELOG
+   section. **The run fails, and no release is created, if the tag is not
+   `vX.Y.Z`, if `## [X.Y.Z]` is missing, or if it has no
+   `### Breaking changes` heading.**
+
+### Usage metrics
+
+The app never reports anything (no telemetry). Instead,
+`.github/workflows/metrics.yml` runs every night (03:17 UTC, or by hand from
+the Actions tab) and copies GitHub's own counts to the data-only **`metrics`**
+branch, which is never merged into `main` (ADR 0016):
+
+- [`traffic.csv`](https://github.com/coderbirju/InterviewBudAI/blob/metrics/traffic.csv)
+  — `date,clones,unique_clones,views,unique_views`, one row per UTC day,
+  kept past GitHub's 14-day window.
+- [`downloads.csv`](https://github.com/coderbirju/InterviewBudAI/blob/metrics/downloads.csv)
+  — `date,tag,asset,download_count`, a daily snapshot of each release zip's
+  cumulative download count.
+
+The first run creates the branch. Only aggregate counts are stored (no
+names, IPs or referrers). While the repo is private, clones and views come
+only from people with access, so the numbers mean little until it is public.
+GitHub counts downloads only for uploaded release assets, not for the
+automatic "Source code" archives.
+
+**One-time setup of `METRICS_TOKEN` (founder).** Reading clones and views
+needs a token; the built-in workflow token cannot. Until this is done the
+workflow records downloads only and shows a notice (it does not fail).
+
+1. GitHub → Settings → Developer settings → Personal access tokens →
+   **Fine-grained tokens** → Generate new token.
+2. Resource owner `coderbirju`; Repository access **Only select repositories**
+   → `coderbirju/InterviewBudAI`.
+3. Repository permissions: **Administration: Read-only**. Nothing else
+   (Metadata: Read is added automatically). Pick the longest expiry you
+   accept.
+4. Copy the token. In the repo: Settings → Secrets and variables → Actions →
+   **New repository secret**, name `METRICS_TOKEN`, paste, save.
+5. Optional: Actions → Metrics → Run workflow to check it.
+
+When the token expires (or lacks the permission), the run shows a warning
+and skips traffic; create a new token and update the secret.
 
 ## Contributing
 
