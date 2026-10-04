@@ -9,6 +9,10 @@
  * All requests are relative (same origin) so nothing external/CDN is contacted.
  */
 
+// ADR 0015 D2: the one shared tree module, by relative path (zero imports).
+import { isStatementTree } from '../../../src/statement-tree.js';
+import type { StatementNode } from '../../../src/statement-tree.js';
+
 /** The four-state per-problem note status (mirrors storage `NoteStatus`). */
 export type NoteStatus = 'none' | 'done' | 'to_revisit' | 'did_not_understand';
 
@@ -1463,4 +1467,307 @@ export function deleteProblem(
     `/api/problems/${encodeURIComponent(id)}`,
     options.deleteNote ? { deleteNote: true } : {},
   );
+}
+
+// ---------------------------------------------------------------------------
+// Problem statement + preferences (ADR 0015). Built against the ADR's exact
+// API shapes and fixtures; every reply is shape-checked at this boundary.
+// ---------------------------------------------------------------------------
+
+export type StatementState =
+  | 'ready'
+  | 'not-cached'
+  | 'disabled'
+  | 'premium'
+  | 'unavailable';
+
+export type StatementSource = 'leetcode' | 'pasted' | 'custom';
+
+export type CodeLanguage = 'python' | 'go';
+
+export interface LeetcodeFetchSetting {
+  readonly enabled: boolean;
+  /** Set by `IBAI_LEETCODE_FETCH`: the toggle is read-only. */
+  readonly pinned: boolean;
+}
+
+/** `ApiProblemStatement` (ADR 0015 "API"), checked. */
+export interface ProblemStatement {
+  readonly id: string;
+  readonly title: string;
+  readonly difficulty: WireDifficulty;
+  readonly url: string | null;
+  readonly custom: boolean;
+  readonly state: StatementState;
+  readonly source: StatementSource | null;
+  /** Only when `isStatementTree` passed; an invalid tree becomes null. */
+  readonly blocks: StatementNode[] | null;
+  /** The reply had a `blocks` value that failed `isStatementTree`. */
+  readonly invalidTree: boolean;
+  readonly text: string | null;
+  readonly exampleTestcases: string | null;
+  readonly snippets: {
+    readonly python: string | null;
+    readonly go: string | null;
+  };
+  readonly fetchedAt: string | null;
+  readonly truncated: boolean;
+  readonly cached: boolean;
+  readonly fetch: LeetcodeFetchSetting;
+}
+
+const STATEMENT_STATES: readonly StatementState[] = [
+  'ready',
+  'not-cached',
+  'disabled',
+  'premium',
+  'unavailable',
+];
+const STATEMENT_SOURCES: readonly StatementSource[] = [
+  'leetcode',
+  'pasted',
+  'custom',
+];
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function stringOrNull(v: unknown): string | null {
+  return typeof v === 'string' ? v : null;
+}
+
+function fetchSettingOf(raw: unknown): LeetcodeFetchSetting | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.enabled !== 'boolean' || typeof raw.pinned !== 'boolean') {
+    return null;
+  }
+  return { enabled: raw.enabled, pinned: raw.pinned };
+}
+
+/**
+ * Check an untrusted statement reply. A required field with the wrong type →
+ * null (the caller shows the fallback). The tree is checked with the shared
+ * `isStatementTree()`; a bad tree is dropped and flagged, never rendered.
+ */
+export function normalizeStatement(raw: unknown): ProblemStatement | null {
+  if (!isRecord(raw)) return null;
+  const difficulty =
+    typeof raw.difficulty === 'string' ? raw.difficulty.toLowerCase() : '';
+  const fetchSetting = fetchSettingOf(raw.fetch);
+  if (
+    typeof raw.id !== 'string' ||
+    typeof raw.title !== 'string' ||
+    !['easy', 'medium', 'hard'].includes(difficulty) ||
+    !STATEMENT_STATES.includes(raw.state as StatementState) ||
+    fetchSetting === null
+  ) {
+    return null;
+  }
+  const source = STATEMENT_SOURCES.includes(raw.source as StatementSource)
+    ? (raw.source as StatementSource)
+    : null;
+  const hasBlocks = raw.blocks !== null && raw.blocks !== undefined;
+  const blocks = hasBlocks && isStatementTree(raw.blocks) ? raw.blocks : null;
+  const snippets = isRecord(raw.snippets) ? raw.snippets : {};
+  return {
+    id: raw.id,
+    title: raw.title,
+    difficulty: difficulty as WireDifficulty,
+    url: stringOrNull(raw.url),
+    custom: raw.custom === true,
+    state: raw.state as StatementState,
+    source,
+    blocks,
+    invalidTree: hasBlocks && blocks === null,
+    text: stringOrNull(raw.text),
+    exampleTestcases: stringOrNull(raw.exampleTestcases),
+    snippets: {
+      python: stringOrNull(snippets.python),
+      go: stringOrNull(snippets.go),
+    },
+    fetchedAt: stringOrNull(raw.fetchedAt),
+    truncated: raw.truncated === true,
+    cached: raw.cached === true,
+    fetch: fetchSetting,
+  };
+}
+
+/** The `code` of a `POST …/statement/fetch` error (ADR 0015 "API"). */
+export type StatementFetchErrorCode =
+  | 'fetch_disabled'
+  | 'not_found'
+  | 'rate_limited'
+  | 'fetch_failed'
+  | 'fetch_timeout';
+
+const FETCH_ERROR_CODES: readonly StatementFetchErrorCode[] = [
+  'fetch_disabled',
+  'not_found',
+  'rate_limited',
+  'fetch_failed',
+  'fetch_timeout',
+];
+
+/**
+ * A failed statement request. `fetchCode` is the server's code when it is a
+ * known one; a network error (status 0) or an unknown body leaves it unset.
+ */
+export class StatementApiError extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly fetchCode?: StatementFetchErrorCode,
+    /** 429 only: how long to wait before the one retry. */
+    readonly retryAfterMs?: number,
+  ) {
+    super(message, status, fetchCode ? { code: fetchCode } : {});
+    this.name = 'StatementApiError';
+  }
+}
+
+function jsonHeaders(method: string): Record<string, string> {
+  return method === 'GET'
+    ? { Accept: 'application/json' }
+    : { 'Content-Type': 'application/json', Accept: 'application/json' };
+}
+
+async function readJson(res: Response): Promise<unknown> {
+  try {
+    return (await res.json()) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function errorText(data: unknown, fallback: string): string {
+  return isRecord(data) && typeof data.error === 'string' && data.error.trim()
+    ? data.error
+    : fallback;
+}
+
+async function sendStatementRequest(
+  method: 'GET' | 'POST' | 'PUT',
+  path: string,
+  body?: unknown,
+): Promise<ProblemStatement> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: jsonHeaders(method),
+      ...(method !== 'GET' && { body: JSON.stringify(body ?? {}) }),
+    });
+  } catch {
+    throw new StatementApiError(`${method} ${path} could not be sent`, 0);
+  }
+  const data = await readJson(res);
+  if (!res.ok) {
+    const rec = isRecord(data) ? data : {};
+    const code = FETCH_ERROR_CODES.includes(rec.code as StatementFetchErrorCode)
+      ? (rec.code as StatementFetchErrorCode)
+      : undefined;
+    const retry =
+      typeof rec.retryAfterMs === 'number' &&
+      Number.isFinite(rec.retryAfterMs) &&
+      rec.retryAfterMs >= 0
+        ? rec.retryAfterMs
+        : undefined;
+    throw new StatementApiError(
+      errorText(data, `${method} ${path} failed (${res.status})`),
+      res.status,
+      code,
+      retry,
+    );
+  }
+  const statement = normalizeStatement(data);
+  if (!statement) {
+    throw new StatementApiError(`${method} ${path}: unexpected reply`, 502);
+  }
+  return statement;
+}
+
+function statementPath(problemId: string): string {
+  return `/api/problems/${encodeURIComponent(problemId)}/statement`;
+}
+
+/** GET /api/problems/:id/statement — cache only, never calls LeetCode. */
+export function fetchStatement(problemId: string): Promise<ProblemStatement> {
+  return sendStatementRequest('GET', statementPath(problemId));
+}
+
+/** POST /api/problems/:id/statement/fetch — the one LeetCode request. */
+export function fetchStatementFromLeetcode(
+  problemId: string,
+  options: { readonly refresh?: boolean } = {},
+): Promise<ProblemStatement> {
+  return sendStatementRequest(
+    'POST',
+    `${statementPath(problemId)}/fetch`,
+    options.refresh ? { refresh: true } : {},
+  );
+}
+
+/** PUT /api/problems/:id/statement — save (or, with `''`, clear) a paste. */
+export function pasteStatement(
+  problemId: string,
+  text: string,
+): Promise<ProblemStatement> {
+  return sendStatementRequest('PUT', statementPath(problemId), { text });
+}
+
+/** GET / PUT /api/preferences reply. */
+export interface Preferences {
+  readonly language: CodeLanguage;
+  readonly leetcodeFetch: LeetcodeFetchSetting;
+}
+
+export interface PreferencesPatch {
+  readonly language?: CodeLanguage;
+  readonly leetcodeFetch?: boolean;
+}
+
+/** Shape-check a preferences reply; null when it does not match. */
+export function normalizePreferences(raw: unknown): Preferences | null {
+  if (!isRecord(raw)) return null;
+  const leetcodeFetch = fetchSettingOf(raw.leetcodeFetch);
+  if (
+    (raw.language !== 'python' && raw.language !== 'go') ||
+    leetcodeFetch === null
+  ) {
+    return null;
+  }
+  return { language: raw.language, leetcodeFetch };
+}
+
+async function preferencesRequest(
+  method: 'GET' | 'PUT',
+  body?: PreferencesPatch,
+): Promise<Preferences> {
+  const path = '/api/preferences';
+  const res = await fetch(path, {
+    method,
+    headers: jsonHeaders(method),
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw new ApiError(
+      errorText(data, `${method} ${path} failed (${res.status})`),
+      res.status,
+    );
+  }
+  const prefs = normalizePreferences(data);
+  if (!prefs) throw new ApiError(`${method} ${path}: unexpected reply`, 502);
+  return prefs;
+}
+
+/** GET /api/preferences — code language and the LeetCode fetch setting. */
+export function fetchPreferences(): Promise<Preferences> {
+  return preferencesRequest('GET');
+}
+
+/** PUT /api/preferences — 400 bad value or pinned, 409 read-only folder. */
+export function savePreferences(patch: PreferencesPatch): Promise<Preferences> {
+  return preferencesRequest('PUT', patch);
 }

@@ -1,4 +1,5 @@
 import type { FenceLanguage } from './fencedBlock';
+import type { NoteEditorMode } from '../noteTemplate';
 
 /**
  * The contract between Notes (main chunk) and the lazy `NoteEditor` chunk
@@ -25,6 +26,11 @@ export interface NoteEditorProps {
   readonly labelId: string;
   readonly describedById: string;
   readonly placeholder: string;
+  /**
+   * The language mode (ADR 0015 D3, `noteEditorMode`). Optional: Markdown
+   * when absent. A change reconfigures the view (no rebuild).
+   */
+  readonly mode?: NoteEditorMode;
   /** Take focus on mount (the textarea it replaces had focus). */
   readonly autoFocus: boolean;
   /** The replaced textarea's selection (clamped to the doc). */

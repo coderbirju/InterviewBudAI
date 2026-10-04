@@ -15,6 +15,8 @@ vi.mock('../lib/api', async () => {
     fetchNote: vi.fn(),
     fetchCatalog: vi.fn(),
     saveNote: vi.fn(),
+    fetchStatement: vi.fn(),
+    fetchPreferences: vi.fn(),
   };
 });
 
@@ -56,6 +58,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Reset the URL so router-based navigation assertions start from /app.
   window.history.pushState({}, '', '/app/notes/two-sum');
+  // ADR 0015: these tests cover the editor while the statement is still
+  // loading, so no template is applied (Notes.statement.test.tsx covers it).
+  mockedApi.fetchStatement.mockReturnValue(new Promise(() => {}));
+  mockedApi.fetchPreferences.mockResolvedValue({
+    language: 'python',
+    leetcodeFetch: { enabled: true, pinned: false },
+  });
 });
 
 describe('Notes editor', () => {
