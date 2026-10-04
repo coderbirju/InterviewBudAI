@@ -1,0 +1,23 @@
+{
+  "id": "lc-3",
+  "title": "Longest Substring Without Repeating Characters",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
+  "custom": false,
+  "state": "ready",
+  "source": "pasted",
+  "blocks": null,
+  "text": "My own notes on the problem.\nExample: \"abca\" -> 3",
+  "exampleTestcases": "\"abca\"\n\"bbbb\"",
+  "snippets": {
+    "python": "class Solution:\n    def longestRun(self, s: str) -> int:\n        ",
+    "go": "func longestRun(s string) int {\n    \n}"
+  },
+  "fetchedAt": "2026-10-04T12:00:00.000Z",
+  "truncated": false,
+  "cached": true,
+  "fetch": {
+    "enabled": true,
+    "pinned": false
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "id": "lc-3",
+  "title": "Longest Substring Without Repeating Characters",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
+  "custom": false,
+  "state": "ready",
+  "source": "leetcode",
+  "blocks": [
+    {
+      "t": "p",
+      "c": [
+        {
+          "t": "text",
+          "v": "You get a string "
+        },
+        {
+          "t": "code",
+          "c": [
+            {
+              "t": "text",
+              "v": "s"
+            }
+          ]
+        },
+        {
+          "t": "text",
+          "v": ". Return the length of its longest run of distinct letters."
+        }
+      ]
+    },
+    {
+      "t": "p",
+      "c": [
+        {
+          "t": "strong",
+          "c": [
+            {
+              "t": "text",
+              "v": "Example 1:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "t": "pre",
+      "c": [
+        {
+          "t": "text",
+          "v": "\n"
+        },
+        {
+          "t": "strong",
+          "c": [
+            {
+              "t": "text",
+              "v": "Input:"
+            }
+          ]
+        },
+        {
+          "t": "text",
+          "v": " s = \"abca\"\n"
+        },
+        {
+          "t": "strong",
+          "c": [
+            {
+              "t": "text",
+              "v": "Output:"
+            }
+          ]
+        },
+        {
+          "t": "text",
+          "v": " 3\n"
+        }
+      ]
+    },
+    {
+      "t": "p",
+      "c": [
+        {
+          "t": "strong",
+          "c": [
+            {
+              "t": "text",
+              "v": "Constraints:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "t": "ul",
+      "c": [
+        {
+          "t": "li",
+          "c": [
+            {
+              "t": "code",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "0 <= s.length <= 10"
+                },
+                {
+                  "t": "sup",
+                  "c": [
+                    {
+                      "t": "text",
+                      "v": "4"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "t": "text",
+      "v": "[image: diagram]"
+    }
+  ],
+  "text": null,
+  "exampleTestcases": "\"abca\"\n\"bbbb\"",
+  "snippets": {
+    "python": "class Solution:\n    def longestRun(self, s: str) -> int:\n        ",
+    "go": "func longestRun(s string) int {\n    \n}"
+  },
+  "fetchedAt": "2026-10-04T12:00:00.000Z",
+  "truncated": false,
+  "cached": true,
+  "fetch": {
+    "enabled": true,
+    "pinned": false
+  }
+}

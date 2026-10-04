@@ -1,0 +1,23 @@
+{
+  "id": "lc-3",
+  "title": "Longest Substring Without Repeating Characters",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
+  "custom": false,
+  "state": "not-cached",
+  "source": null,
+  "blocks": null,
+  "text": null,
+  "exampleTestcases": null,
+  "snippets": {
+    "python": null,
+    "go": null
+  },
+  "fetchedAt": null,
+  "truncated": false,
+  "cached": false,
+  "fetch": {
+    "enabled": true,
+    "pinned": false
+  }
+}

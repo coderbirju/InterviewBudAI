@@ -148,6 +148,52 @@ and Settings shows a hint.
 | `IBAI_WEB_PORT` | Web server port | `4173` |
 | `IBAI_BIND_HOST` | Bind address: `127.0.0.1` or `::1`. `0.0.0.0` is accepted only together with `IBAI_CONTAINER=1`; the Docker image sets both. **Never set these outside Docker:** on a normal computer they make the app listen on all network interfaces with **no authentication** (only a startup warning) | `127.0.0.1` |
 | `IBAI_HOST_DATA_DIR` | Docker only: the host folder mounted at `/data` | `IBAI_DATA_DIR`, else `~/.interviewbudai/data` |
+| `IBAI_LEETCODE_FETCH` | Problem statement fetch from LeetCode: `off`/`0`/`false` or `on`/`1`/`true` pins it (see [Problem statements](#problem-statements-from-leetcode)) | the Settings toggle (on) |
+
+## Problem statements from LeetCode
+
+When you open a catalog problem, the **local server on your machine** can
+fetch that one problem's statement and starter code from LeetCode, so you can
+read it next to your notes (ADR 0015). This is the app's only network call
+besides your own LLM, and it is optional.
+
+- **What is sent:** one `POST https://leetcode.com/graphql` asking for that
+  problem's title, statement, example test cases and code snippets. The
+  problem's slug comes from the shipped catalog link. No login, no cookies,
+  no API key, and none of your notes or data are sent. The `User-Agent` names
+  this project.
+- **When:** only when you open a problem that is not cached yet, or click
+  Refresh. One request at a time, at most 10 per 10 minutes, a 10 s timeout,
+  a 1 MiB response cap, and no redirects followed.
+- **What is stored, and where:** a cleaned copy in your data folder, at
+  `<data folder>/problem-cache/<id>.json` (owner-only permissions). The HTML is
+  reduced to text with a few formatting tags (no links, images, scripts or
+  styles), and only the Python 3 and Go snippets are kept. The folder holds a
+  `.gitignore` of `*`, so a version-controlled data folder does not commit
+  it. It is never sent to the LLM. You can delete the folder at any time; a
+  problem is fetched again only when you open it.
+- **Premium or missing problems, or no connection:** the app shows the
+  "Open on LeetCode" link and a **Paste the problem** box instead. Pasted
+  text is stored in the same cache file, shown as plain text, and wins over a
+  fetched statement.
+- **Your preferences** (the code language and this setting) are stored in
+  `<data folder>/preferences.json`.
+
+**How to turn it off:** Settings → "Fetch problem statements from LeetCode",
+or set `IBAI_LEETCODE_FETCH=off` (also `0` / `false`) in `.env` or your shell.
+The env value pins the setting, and the Settings toggle becomes read-only
+(`on` / `1` / `true` pins it on; any other value is ignored with a startup
+warning). Off means no request to LeetCode at all; cached statements and
+pasted text still show. Under Docker, `.env` values are not passed into the
+container, so use the Settings toggle there.
+
+**Terms of service, plainly:** LeetCode's terms restrict copying its content
+and automated access. This project ships no LeetCode text. The fetch runs on
+your machine, only when you open a problem, one problem at a time,
+rate-limited, without login, and the result stays in your private data
+folder. If LeetCode blocks it or objects, the app falls back to the link and
+the paste box, and the maintainers will switch the default to off. This is a
+recorded risk (ADR 0015), not legal advice; turn it off if you prefer.
 
 ## Run
 

@@ -72,6 +72,15 @@ export type {
 export type { ProblemView, ProblemSource } from './problems.js';
 export type { ApiCustomProblem } from './problems-routes.js';
 
+// Problem statements + preferences (ADR 0015)
+export { isStatementTree } from './statement-tree.js';
+export type { StatementNode, StatementTag } from './statement-tree.js';
+export type {
+  ApiProblemStatement,
+  StatementState,
+} from './statement-routes.js';
+export type { ApiPreferences, CodeLanguage } from './preferences.js';
+
 // Server-owned data dir + legacy-cookie recovery (ADR 0009 D1)
 export { DataDirControl, countNotes } from './data-dir-control.js';
 export type {
