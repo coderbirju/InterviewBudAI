@@ -77,7 +77,7 @@ _Last updated: 2026-10-04. PRs #1–#91 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 ADRs 0015 (problem view, code-first notes, language preference), 0016 (usage metrics, release zip) and 0017 (Architect merge authority) (`architect/adr-0015-0016-problem-view-metrics`).
+- 🟡 #92 ADRs 0015 (problem view, code-first notes, language preference), 0016 (usage metrics, release zip) and 0017 (Architect merge authority) (`architect/adr-0015-0016-problem-view-metrics`).
 - 🔨 Data page and Analytics layout tidy (`feature/data-analytics-tidy`, in parallel).
 
 ## Next up
