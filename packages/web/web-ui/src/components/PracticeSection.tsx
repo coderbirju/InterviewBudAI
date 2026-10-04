@@ -149,12 +149,9 @@ export function PracticeSection(): JSX.Element | null {
   return (
     <section
       aria-labelledby="an-practice"
-      className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-4"
+      className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-5 sm:p-6"
     >
-      <h2
-        id="an-practice"
-        className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-      >
+      <h2 id="an-practice" className="text-base font-semibold text-slate-300">
         Practice (intuition checks)
       </h2>
 
@@ -171,7 +168,7 @@ export function PracticeSection(): JSX.Element | null {
       {ready && data !== null && (
         <>
           <PracticeBody data={data} />
-          <div className="mt-4 border-t border-slate-800 pt-3">
+          <div className="mt-6 border-t border-slate-800 pt-4">
             {step === 'idle' ? (
               <button
                 ref={resetBtn}
@@ -290,11 +287,11 @@ function PracticeBody({ data }: { data: PracticeResponse }): JSX.Element {
   const total = segments.reduce((a, s) => a + s.count, 0);
   const since = shortDate(data.since);
   return (
-    <div className="mt-3 space-y-3 text-sm">
-      <div className="flex flex-wrap items-center gap-4">
+    <div className="mt-4 space-y-5 text-sm">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
         <svg
           viewBox="0 0 100 100"
-          className="h-20 w-20 shrink-0"
+          className="h-24 w-24 shrink-0"
           role="img"
           aria-label={`First-check outcomes. ${summary}`}
         >
@@ -338,10 +335,12 @@ function PracticeBody({ data }: { data: PracticeResponse }): JSX.Element {
             {total}
           </text>
         </svg>
-        <div className="space-y-1.5">
-          <p className="text-xs text-slate-500">First-check outcomes</p>
+        <div className="space-y-2.5">
+          <p className="text-xs font-medium text-slate-400">
+            First-check outcomes
+          </p>
           <ul
-            className="flex flex-wrap gap-x-4 gap-y-1 text-xs"
+            className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs"
             aria-label="First-check outcome counts"
           >
             {segments.map((s) => (
@@ -358,7 +357,7 @@ function PracticeBody({ data }: { data: PracticeResponse }): JSX.Element {
               </li>
             ))}
           </ul>
-          <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 text-xs">
+          <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-1 text-xs">
             <dt className="text-slate-400">Fixed after re-check</dt>
             <dd
               className="tabular-nums text-slate-200"
@@ -398,12 +397,12 @@ function PracticeSlips({
   }
   return (
     <div>
-      <h3 className="text-xs text-slate-500">Top practice slips</h3>
-      <ul className="mt-1 divide-y divide-slate-800/80">
+      <h3 className="text-xs font-medium text-slate-400">Top practice slips</h3>
+      <ul className="mt-2 divide-y divide-slate-800/80">
         {items.map((s, i) => (
           <li
             key={`${s.code}-${i}`}
-            className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 text-xs"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs"
           >
             <span className="font-medium text-slate-200">
               {missLabel(s.code, s.label)}

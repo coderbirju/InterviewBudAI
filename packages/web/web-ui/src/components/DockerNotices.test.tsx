@@ -49,6 +49,12 @@ describe('under Docker (ADR 0011 D3)', () => {
     expect(screen.getByTestId('docker-pinned')).toHaveTextContent(
       'on your computer: /Users/me/.interviewbudai/data',
     );
+    // Docker pinning detail is reference info: in the collapsed disclosure.
+    const details = screen.getByTestId('data-dir-details');
+    expect(details).not.toHaveAttribute('open');
+    expect(screen.getByTestId('docker-pinned').closest('details')).toBe(
+      details,
+    );
     expect(screen.queryByLabelText('Folder path')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Use this folder' }),
@@ -66,9 +72,13 @@ describe('under Docker (ADR 0011 D3)', () => {
       },
     });
     const { unmount } = render(<DataPage />);
-    expect(
-      await screen.findByRole('region', { name: 'Docker data folder' }),
-    ).toHaveTextContent(
+    const region = await screen.findByRole('region', {
+      name: 'Docker data folder',
+    });
+    // A warning: always visible, never inside a collapsed disclosure.
+    expect(region.closest('details')).toBeNull();
+    expect(region).toBeVisible();
+    expect(region).toHaveTextContent(
       'Your /setup choice outside Docker is /Users/me/Desktop/testBuai (saved in ~/.interviewbudai/config.json; npm start ignores it when IBAI_DATA_DIR is set). To use that folder in Docker, set IBAI_HOST_DATA_DIR=/Users/me/Desktop/testBuai in .env and restart.',
     );
     unmount();
@@ -78,6 +88,22 @@ describe('under Docker (ADR 0011 D3)', () => {
     expect(
       await screen.findByRole('region', { name: 'Docker data folder' }),
     ).toHaveTextContent('IBAI_HOST_DATA_DIR=/Users/me/Desktop/testBuai');
+  });
+
+  it('/data: the not-writable alert stays visible outside the disclosure', async () => {
+    mockedApi.fetchDataDir.mockResolvedValue({
+      ...DOCKER_STATUS,
+      docker: {
+        hostDataDir: '/home/me/.interviewbudai/data',
+        writable: false,
+        writableHelp: 'The data folder is not writable by the app (fix it).',
+      },
+    });
+    render(<DataPage />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('not writable in Docker');
+    expect(alert.closest('details')).toBeNull();
+    expect(alert).toBeVisible();
   });
 
   it('banner: not-writable alert with the fix', async () => {
