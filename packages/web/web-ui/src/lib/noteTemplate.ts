@@ -107,10 +107,49 @@ function goCommentMask(lines: readonly string[]): boolean[] {
   return mask;
 }
 
+/**
+ * Which lines are inside a Python triple-quoted string (`"""` or `'''`),
+ * including the opening and closing lines. LeetCode wraps helper classes in
+ * one (for example `class Node` above `class Solution`), so a `def` there is
+ * not a signature.
+ */
+function pythonStringMask(lines: readonly string[]): boolean[] {
+  const mask: boolean[] = [];
+  let open: '"""' | "'''" | null = null;
+  for (const line of lines) {
+    let touched = open !== null;
+    let pos = 0;
+    for (;;) {
+      if (open) {
+        const end = line.indexOf(open, pos);
+        if (end < 0) break;
+        open = null;
+        pos = end + 3;
+      } else {
+        const d = line.indexOf('"""', pos);
+        const s = line.indexOf("'''", pos);
+        const start = d < 0 ? s : s < 0 ? d : Math.min(d, s);
+        if (start < 0) break;
+        const hash = line.indexOf('#', pos);
+        if (hash >= 0 && hash < start) break; // the quotes are in a comment
+        touched = true;
+        open = start === d ? '"""' : "'''";
+        pos = start + 3;
+      }
+    }
+    mask.push(touched);
+  }
+  return mask;
+}
+
+function commentMask(lines: readonly string[], lang: CodeLanguage): boolean[] {
+  return lang === 'go' ? goCommentMask(lines) : pythonStringMask(lines);
+}
+
 /** Index of the first signature line that is not a comment, or -1. */
 function findSignature(lines: readonly string[], lang: CodeLanguage): number {
   const re = lang === 'python' ? PYTHON_SIGNATURE : GO_SIGNATURE;
-  const mask = lang === 'go' ? goCommentMask(lines) : [];
+  const mask = commentMask(lines, lang);
   return lines.findIndex((line, i) => re.test(line) && !mask[i]);
 }
 
@@ -137,10 +176,12 @@ function trimEnd(lines: string[]): string[] {
  */
 function addPythonPass(lines: readonly string[]): string[] {
   const out = [...lines];
+  // Edits only touch lines after `i`, so indices ≤ i still match `lines`.
+  const inString = pythonStringMask(lines);
   // Walk from the bottom so earlier indices stay valid while bodies change.
   for (let i = out.length - 1; i >= 0; i--) {
     const def = out[i] ?? '';
-    if (!PYTHON_SIGNATURE.test(def)) continue;
+    if (!PYTHON_SIGNATURE.test(def) || inString[i]) continue;
     const defWidth = widthOf(def);
     let end = i + 1;
     while (end < out.length) {

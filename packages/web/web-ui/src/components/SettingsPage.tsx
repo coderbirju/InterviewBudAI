@@ -196,6 +196,7 @@ function PreferencesSection(): JSX.Element {
             </label>
             <select
               id="settings-language"
+              aria-describedby="settings-language-hint"
               value={load.prefs.language}
               disabled={busy}
               onChange={(e) =>
@@ -206,7 +207,10 @@ function PreferencesSection(): JSX.Element {
               <option value="python">Python</option>
               <option value="go">Go</option>
             </select>
-            <p className="mt-1 text-xs text-slate-500">
+            <p
+              id="settings-language-hint"
+              className="mt-1 text-xs text-slate-500"
+            >
               New notes start as starter code in this language.
             </p>
           </div>
@@ -214,6 +218,7 @@ function PreferencesSection(): JSX.Element {
             <label className="flex items-center gap-2 text-sm text-slate-200">
               <input
                 type="checkbox"
+                aria-describedby="settings-fetch-hint"
                 checked={load.prefs.leetcodeFetch.enabled}
                 disabled={busy || load.prefs.leetcodeFetch.pinned}
                 onChange={(e) =>
@@ -223,7 +228,7 @@ function PreferencesSection(): JSX.Element {
               />
               Fetch problem statements from LeetCode
             </label>
-            <p className="mt-1 text-xs text-slate-500">
+            <p id="settings-fetch-hint" className="mt-1 text-xs text-slate-500">
               {load.prefs.leetcodeFetch.pinned ? (
                 <>
                   Set by <code className={CODE}>IBAI_LEETCODE_FETCH</code>.

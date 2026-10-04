@@ -749,6 +749,10 @@ export function Notes({ problemId }: { problemId: string }): JSX.Element {
                 timeComplexity={timeComplexity}
                 spaceComplexity={spaceComplexity}
                 status={status}
+                untouchedTemplate={
+                  untouched.current !== null &&
+                  content === untouched.current.text
+                }
               />
 
               {/* ADR 0015 D3: a prefill / append is not saved on open. */}

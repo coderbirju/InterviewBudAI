@@ -92,6 +92,7 @@ describe('Settings: Problems & code', () => {
       name: 'Fetch problem statements from LeetCode',
     });
     expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/fetches that one problem/);
     await user.click(toggle);
     await waitFor(() => expect(puts()).toEqual(['{"leetcodeFetch":false}']));
     await waitFor(() => expect(toggle).not.toBeChecked());
@@ -106,6 +107,7 @@ describe('Settings: Problems & code', () => {
     });
     expect(toggle).toBeDisabled();
     expect(toggle).not.toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/Set by IBAI_LEETCODE_FETCH/);
     expect(s).toHaveTextContent('Set by IBAI_LEETCODE_FETCH.');
     // The language stays editable.
     expect(within(s).getByLabelText('Code language')).toBeEnabled();

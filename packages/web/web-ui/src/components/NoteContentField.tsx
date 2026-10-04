@@ -40,6 +40,13 @@ const COPIED_MS = 2000;
 /** ADR 0015 D3: the editor mode follows the text, debounced. */
 const MODE_DEBOUNCE_MS = 300;
 
+type CopyTarget = 'note' | 'code';
+
+const COPIED_TEXT: Readonly<Record<CopyTarget, string>> = {
+  note: 'Copied',
+  code: 'Code copied',
+};
+
 const LANGUAGE_LABEL: Readonly<Record<CodeLanguage, string>> = {
   python: 'Python',
   go: 'Go',
@@ -87,7 +94,11 @@ export function NoteContentField({
   languageBusy?: boolean;
 }): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'textarea' });
-  const [copyMsg, setCopyMsg] = useState('');
+  // Which copy button the message belongs to (each has its own "Copied").
+  const [copied, setCopied] = useState<{
+    readonly what: CopyTarget;
+    readonly ok: boolean;
+  } | null>(null);
   const [editorMode, setEditorMode] = useState<NoteEditorMode>(() =>
     noteEditorMode(value, language),
   );
@@ -184,7 +195,7 @@ export function NoteContentField({
   };
 
   /** "Copy note" copies the whole text; "Copy code" uses `extractCode`. */
-  const onCopy = async (text: string): Promise<void> => {
+  const onCopy = async (what: CopyTarget, text: string): Promise<void> => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
     copyTimer.current = null;
     try {
@@ -192,12 +203,19 @@ export function NoteContentField({
         throw new Error('Clipboard API unavailable');
       }
       await navigator.clipboard.writeText(text);
-      setCopyMsg('Copied');
-      copyTimer.current = setTimeout(() => setCopyMsg(''), COPIED_MS);
+      setCopied({ what, ok: true });
+      copyTimer.current = setTimeout(() => setCopied(null), COPIED_MS);
     } catch {
-      setCopyMsg('Copy failed — select all and copy.');
+      setCopied({ what, ok: false });
     }
   };
+  const copyMsg = copied
+    ? copied.ok
+      ? COPIED_TEXT[copied.what]
+      : 'Copy failed — select all and copy.'
+    : '';
+  const isCopied = (what: CopyTarget): boolean =>
+    copied?.what === what && copied.ok;
 
   const editor = mode.kind === 'editor';
 
@@ -263,10 +281,10 @@ export function NoteContentField({
           </button>
           <button
             type="button"
-            onClick={() => void onCopy(value)}
+            onClick={() => void onCopy('note', value)}
             className={toolbarButton}
           >
-            {copyMsg === 'Copied' ? (
+            {isCopied('note') ? (
               <Check className="h-3.5 w-3.5" aria-hidden />
             ) : (
               <Copy className="h-3.5 w-3.5" aria-hidden />
@@ -275,16 +293,20 @@ export function NoteContentField({
           </button>
           <button
             type="button"
-            onClick={() => void onCopy(extractCode(value, language))}
+            onClick={() => void onCopy('code', extractCode(value, language))}
             className={toolbarButton}
           >
-            <Copy className="h-3.5 w-3.5" aria-hidden />
+            {isCopied('code') ? (
+              <Check className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Copy className="h-3.5 w-3.5" aria-hidden />
+            )}
             Copy code
           </button>
           <span
             role="status"
             aria-live="polite"
-            className={`text-xs ${copyMsg === 'Copied' ? 'text-status-done' : 'text-status-blocked'}`}
+            className={`text-xs ${copied?.ok ? 'text-status-done' : 'text-status-blocked'}`}
           >
             {copyMsg}
           </span>
