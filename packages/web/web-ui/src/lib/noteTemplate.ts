@@ -108,37 +108,59 @@ function goCommentMask(lines: readonly string[]): boolean[] {
 }
 
 /**
- * Which lines are inside a Python triple-quoted string (`"""` or `'''`),
- * including the opening and closing lines. LeetCode wraps helper classes in
- * one (for example `class Node` above `class Solution`), so a `def` there is
- * not a signature.
+ * Which lines are inside a Python triple-quoted string (`"""` or `'''`).
+ * LeetCode wraps helper classes in one (for example `class Node` above
+ * `class Solution`), so a `def` there is not a signature.
+ *
+ * A line is masked when it STARTS inside such a string or ENDS with one still
+ * open, so the opening and closing lines count but
+ * `def f(self, s="""x"""):` does not. Ordinary `'…'` / `"…"` strings are
+ * skipped on the line (a `#` or `"""` inside them means nothing), and a `#`
+ * outside any string ends the scan. A string that is never closed masks
+ * nothing: it is more likely a stray quote than a wrapped class.
  */
 function pythonStringMask(lines: readonly string[]): boolean[] {
   const mask: boolean[] = [];
-  let open: '"""' | "'''" | null = null;
-  for (const line of lines) {
-    let touched = open !== null;
-    let pos = 0;
-    for (;;) {
-      if (open) {
-        const end = line.indexOf(open, pos);
-        if (end < 0) break;
+  let open: string | null = null;
+  let openedAt = 0;
+  lines.forEach((line, index) => {
+    const startsOpen = open !== null;
+    let quote: string | null = null; // an ordinary one-line string
+    let i = 0;
+    while (i < line.length) {
+      if (open !== null) {
+        const close = line.indexOf(open, i);
+        if (close < 0) break;
         open = null;
-        pos = end + 3;
-      } else {
-        const d = line.indexOf('"""', pos);
-        const s = line.indexOf("'''", pos);
-        const start = d < 0 ? s : s < 0 ? d : Math.min(d, s);
-        if (start < 0) break;
-        const hash = line.indexOf('#', pos);
-        if (hash >= 0 && hash < start) break; // the quotes are in a comment
-        touched = true;
-        open = start === d ? '"""' : "'''";
-        pos = start + 3;
+        i = close + 3;
+        continue;
       }
+      const ch = line[i] ?? '';
+      if (quote !== null) {
+        if (ch === '\\') i += 2;
+        else {
+          if (ch === quote) quote = null;
+          i++;
+        }
+        continue;
+      }
+      if (ch === '#') break;
+      if (ch === '"' || ch === "'") {
+        if (line.startsWith(ch.repeat(3), i)) {
+          open = ch.repeat(3);
+          openedAt = index;
+          i += 3;
+        } else {
+          quote = ch;
+          i++;
+        }
+        continue;
+      }
+      i++;
     }
-    mask.push(touched);
-  }
+    mask.push(startsOpen || open !== null);
+  });
+  if (open !== null) mask.fill(false, openedAt);
   return mask;
 }
 
