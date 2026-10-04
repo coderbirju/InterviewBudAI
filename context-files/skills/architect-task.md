@@ -3,11 +3,12 @@
 ### 1. Purpose
 Perform the Architect's own authoring work in an isolated subagent so the chat
 window stays purely conversational: ADRs, interface contracts/skeletons,
-decision-log entries, and status updates.
+decision-log entries, status updates, and merges under charter §2.5
+(ADR 0017).
 
 ### 2. Inputs
-`kind` (adr | interface-skeleton | decision-log | status-update), `content/intent`,
-`branch`, `acceptance criteria`.
+`kind` (adr | interface-skeleton | decision-log | status-update | merge),
+`content/intent`, `branch`, `acceptance criteria`.
 
 ### 3. Tool allowlist (predefined permissions)
 - Read/write files, shell (`npm` for typecheck when skeletons involve code;
@@ -16,7 +17,10 @@ decision-log entries, and status updates.
   `context-files/progress/status.md`, and interface/skeleton files under the
   package the Architect owns the contract for.
 - MUST NOT: implement feature logic (that's `implement`/`integrate`/`frontend`);
-  push/merge to main.
+  push to main; force-push.
+- MAY (kind `merge` only): `gh pr merge <n> --merge --match-head-commit <sha>`
+  when the charter §2.5 / ADR 0017 D1 conditions hold. Never `--admin`, never
+  `--auto`.
 
 ### 4. Steps
 1. Produce the artifact (ADR / skeleton / log line / status edit) per intent.

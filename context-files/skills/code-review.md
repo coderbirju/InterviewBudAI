@@ -31,7 +31,8 @@ skill's output.
 - Data lifecycle (ADR 0009 D4): a change to where data lives, how the data dir is resolved, or a BREAKING on-disk format change (additive, back-compatible format changes are exempt) that is missing either a migration/recovery path or a `CHANGELOG.md` `### Breaking changes` entry is blocking.
 
 ### 6. Done / Blocked
-- **Pass**: no blocking findings → PR ready for the founder's morning review.
+- **Pass**: no blocking findings → PR ready to merge (by the Architect under
+  charter §2.5 / ADR 0017, or by the founder). Report the reviewed head SHA.
 - **Changes needed**: return blocking findings to the owning skill to fix, then
   re-review. Emit `NEEDS_CHANGES` so the Architect re-dispatches.
 - **Blocked**: architectural conflict needing a decision → bubble up.

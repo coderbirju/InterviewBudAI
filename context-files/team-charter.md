@@ -13,8 +13,9 @@
 
 The goal is a **production-ready, deployable, open-source** project built with
 **minimal input from the founder**. The founder's only routine involvement is:
-review open PRs each morning, and merge the green ones they approve. Everything
-else is autonomous.
+review PRs each morning (open and recently merged), answer open decisions, and
+push release tags. The Architect merges green, reviewed PRs under §2.5
+(ADR 0017). Everything else is autonomous.
 
 **Two-tier model:**
 - **Architect** — the sole agent and the only one that converses with the
@@ -51,8 +52,12 @@ autonomously.
 2.4. Every unit of work **MUST** be delivered as a **Pull Request** targeting
 `main`, using the PR template.
 
-2.5. Agents **MUST NOT** merge PRs. Merging is exclusively the founder's action,
-after review, only on green CI. Auto-merge **MUST NOT** be enabled.
+2.5. *Amended by ADR 0017.* Skills **MUST NOT** merge PRs. The **Architect
+MAY** merge a PR (`gh pr merge --merge --match-head-commit <sha>`, a merge
+commit) only when CI is green **and** an independent `code-review` pass on the
+same head commit returned no blocking findings (plus the other ADR 0017 D1
+conditions). The Architect **MUST NOT** push directly to `main`, force-push, or
+bypass checks. The founder may also merge. Auto-merge **MUST NOT** be enabled.
 
 2.6. Each PR **MUST** include a **short, plain-language description** of what
 changed and why, what was tested, and anything blocked or deferred. The founder
@@ -87,7 +92,7 @@ A task is done only when **all** hold:
 4.2. New behavior has tests; fixed bugs have a regression test.
 4.3. Relevant docs are updated (README, package README, or context files).
 4.4. `progress/status.md` is updated.
-4.5. A PR is open with a complete description. (Not merged — that's the founder.)
+4.5. A PR is open with a complete description. (Merged only under §2.5.)
 
 ## 5. Architecture discipline
 
@@ -117,7 +122,9 @@ curriculum layer. The catalog is links + difficulty only.
 config (e.g. `compose.yaml`); code must never name or require a model.
 
 6.4. Agents **MUST NOT** add mandatory network calls, telemetry, or cloud
-dependencies. The tool runs local-first.
+dependencies. The tool runs local-first. *Amended by ADR 0015:* no mandatory
+network calls except the configured LLM; optional user-triggered LeetCode fetch
+per ADR 0015.
 
 6.5. Agents **MUST NOT** pull a "later feature ring" item (voice, graphs,
 gamification, cloud, external tool integrations) into v1 without an ADR.

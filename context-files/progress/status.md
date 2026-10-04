@@ -4,17 +4,17 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-10-01. PRs #1–#88 are merged or closed (source: `gh pr list`). ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-04. PRs #1–#91 are merged or closed (source: `gh pr list`). ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
 **Team model:** Architect (sole orchestrator, talks to the founder) plus the skills in
-`skills/`. See `team-charter.md` §0 and §9A.
+`skills/`. See `team-charter.md` §0 and §9A. The Architect may merge green, reviewed PRs (charter §2.5, ADR 0017).
 
 ## Current product (on `main`)
 - **The web app is the product** (ADR 0008). It is a React SPA started with `npm start` or `docker compose up`. The CLI is frozen.
 - **Catalog:** the Home page lists curated problems (links and difficulty only, no answers) in the 13-topic learning order, with search and filters.
-- **Notes and import:** a notes editor per problem with status tags, plus CSV import from Notion (preview, conflict choices, backups before import).
+- **Notes and import:** a notes editor per problem (CodeMirror, Python/Go fences highlighted, textarea fallback; ADR 0014) with status tags, plus CSV import from Notion (preview, conflict choices, backups before import).
 - **Custom problems:** you can add problems yourself, or add unmatched CSV rows as custom problems (ADR 0010).
 - **Quiz:** the Quickfire Quiz Master. The Home page shows guidance ("Where you stand / Next up").
 - **Analytics** shows progress and competency. **Settings** shows the active provider and has a test-connection button; keys are set by env only. The **Data page** (`/data`) shows the data folder and recovers legacy folders.
@@ -50,6 +50,11 @@ _Last updated: 2026-10-01. PRs #1–#88 are merged or closed (source: `gh pr lis
 - ✅ #86 Notes "Check my intuition" UI
 - ✅ #85 Analytics Practice section + reset
 
+**Note code editor (ADR 0014)**
+- ✅ #89 ADR 0014
+- ✅ #90 Remove the Reference approach
+- ✅ #91 CodeMirror note editor (Python/Go fences, lazy chunk, style nonce)
+
 **Analytics v2 (ADR 0012)**
 - ✅ #81 ADR 0012
 - ✅ #82 Analytics UI (donut, locked/unlocked, topic tiles)
@@ -61,7 +66,7 @@ _Last updated: 2026-10-01. PRs #1–#88 are merged or closed (source: `gh pr lis
 - ✅ #63 D5 release-zip decision
 - ✅ #64 `/data` hardening
 - ✅ #65 CSV import
-- ⏸ PR C (manifest/migrations) and PR D (release zip) are not started or deferred
+- ⏸ PR C (manifest/migrations) not started; PR D (release zip) is now ADR 0016 PR B
 
 **Earlier (all ✅)**
 - #55–#60: web usability and hardening (ADR 0008)
@@ -72,13 +77,16 @@ _Last updated: 2026-10-01. PRs #1–#88 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 ADR 0014: note code editor (CodeMirror 6) and removal of the Reference approach (`architect/adr-0014-editor-remove-reference`).
+- 🟡 ADRs 0015 (problem view, code-first notes, language preference), 0016 (usage metrics, release zip) and 0017 (Architect merge authority) (`architect/adr-0015-0016-problem-view-metrics`).
+- 🔨 Data page and Analytics layout tidy (`feature/data-analytics-tidy`, in parallel).
 
 ## Next up
-1. **ADR 0014 PR A: remove the Reference approach** (storage reader, API, UI, CSV, prompts and budgets, tests, CHANGELOG breaking note).
-2. **ADR 0014 PR B: CodeMirror note editor** (pinned deps, lazy editor with a textarea fallback, Python/Go fences, toolbar, CSP style nonce, tests). Merge after PR A.
-3. **Docs pass.** On hold until the founder says go.
-4. **Small follow-ups:**
+1. **ADR 0015 PR A: server.** LeetCode fetch (optional, user-triggered), cache, sanitizer (`htmlparser2`), statement and preferences routes, `IBAI_LEETCODE_FETCH`, README.
+2. **ADR 0015 PR B: UI.** Split view, statement render, code-first template and append, language picker, "Copy code". Built against PR A fixtures; merge after A.
+3. **ADR 0016 PR A: metrics workflow** (`metrics` branch). Founder action after merge: add the `METRICS_TOKEN` secret.
+4. **ADR 0016 PR B: release zip workflow** (tag-triggered; the founder pushes tags).
+5. **Docs pass.** On hold until the founder says go.
+6. **Small follow-ups:**
    - Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
    - Pin CI actions by SHA.
    - Pin the provider empty-response error text with a shared constant and a test.
@@ -87,7 +95,6 @@ _Last updated: 2026-10-01. PRs #1–#88 are merged or closed (source: `gh pr lis
 - System Design: whether it is in scope, and in what shape.
 - Backups: git-backed or export.
 - Coaching beyond the quiz and the Notes intuition check (ADR 0013): a free-form coach or plan in the web.
-- In-app problem display, signature prefill and copy-to-LeetCode (ADR 0014 D4): showing LeetCode statements means shipping copyrighted text or a runtime fetch from leetcode.com (§6.4, ToS), so it needs its own ADR. Custom problems can come first.
 - Quiz difficulty knob and per-topic quizzes.
-- Release zip and Docker image publishing (ADR 0009 D5 PR D is deferred; the founder pushes tags).
+- Docker image publishing (the release zip is decided in ADR 0016; the founder pushes tags).
 - ⛔ Branch protection: GitHub returns 403 on this free private repo. The options are to go public, upgrade to Pro, or rely on the charter alone. See `.github/BRANCH_PROTECTION.md`.
