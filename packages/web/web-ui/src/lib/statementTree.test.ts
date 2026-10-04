@@ -6,14 +6,15 @@ import {
   isStatementTree,
   utf8ByteLength,
 } from '../../../src/statement-tree.js';
-import ready from '../test/fixtures/statement/get-ready.json';
+import ready from '../test/fixtures/statement/statement-ready.json';
 
 /* ADR 0015 D2 — the shared tree check, imported by relative path exactly as
  * the SPA uses it. A hostile or invalid tree is rejected. */
 
+/** `depth` nested elements (text leaves do not add depth). */
 function nested(depth: number): unknown[] {
   let node: unknown = { t: 'text', v: 'deep' };
-  for (let i = 1; i < depth; i++) node = { t: 'em', c: [node] };
+  for (let i = 0; i < depth; i++) node = { t: 'em', c: [node] };
   return [node];
 }
 

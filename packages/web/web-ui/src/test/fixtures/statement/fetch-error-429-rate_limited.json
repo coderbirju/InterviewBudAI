@@ -1,0 +1,5 @@
+{
+  "error": "Too many LeetCode requests. Try again shortly.",
+  "code": "rate_limited",
+  "retryAfterMs": 1000
+}

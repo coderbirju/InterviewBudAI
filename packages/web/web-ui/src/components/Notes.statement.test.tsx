@@ -7,19 +7,19 @@ import {
   buildTemplate,
   fencedStarter,
 } from '../lib/noteTemplate';
-import ready from '../test/fixtures/statement/get-ready.json';
-import readyTruncated from '../test/fixtures/statement/get-ready-truncated.json';
-import notCached from '../test/fixtures/statement/get-not-cached.json';
-import disabled from '../test/fixtures/statement/get-disabled.json';
-import premium from '../test/fixtures/statement/get-premium.json';
-import unavailable from '../test/fixtures/statement/get-unavailable.json';
-import pasted from '../test/fixtures/statement/get-pasted.json';
-import custom from '../test/fixtures/statement/get-custom.json';
-import errDisabled from '../test/fixtures/statement/fetch-error-fetch_disabled.json';
-import errNotFound from '../test/fixtures/statement/fetch-error-not_found.json';
-import errRateLimited from '../test/fixtures/statement/fetch-error-rate_limited.json';
-import errFailed from '../test/fixtures/statement/fetch-error-fetch_failed.json';
-import errTimeout from '../test/fixtures/statement/fetch-error-fetch_timeout.json';
+import ready from '../test/fixtures/statement/statement-ready.json';
+import readyTruncated from '../test/fixtures/statement/statement-ready-truncated.json';
+import notCached from '../test/fixtures/statement/statement-not-cached.json';
+import disabled from '../test/fixtures/statement/statement-disabled.json';
+import premium from '../test/fixtures/statement/statement-premium.json';
+import unavailable from '../test/fixtures/statement/statement-unavailable.json';
+import pasted from '../test/fixtures/statement/statement-pasted.json';
+import custom from '../test/fixtures/statement/statement-custom.json';
+import errDisabled from '../test/fixtures/statement/fetch-error-403-fetch_disabled.json';
+import errNotFound from '../test/fixtures/statement/fetch-error-404-not_found.json';
+import errRateLimited from '../test/fixtures/statement/fetch-error-429-rate_limited.json';
+import errFailed from '../test/fixtures/statement/fetch-error-502-fetch_failed.json';
+import errTimeout from '../test/fixtures/statement/fetch-error-504-fetch_timeout.json';
 import prefsUnpinned from '../test/fixtures/statement/preferences-unpinned.json';
 
 /* ADR 0015 PR B: the Notes split view against the PR A fixtures — statement
@@ -28,7 +28,7 @@ import prefsUnpinned from '../test/fixtures/statement/preferences-unpinned.json'
  * the language picker, "Copy code", and the coach still working. Only
  * `fetch` is faked: the real api.ts clients run. */
 
-const ID = 'lc-1';
+const ID = ready.id;
 const PY_TEMPLATE = buildTemplate(ready.snippets.python, 'python');
 const GO_TEMPLATE = buildTemplate(ready.snippets.go, 'go');
 
@@ -47,16 +47,16 @@ const CATALOG = {
       problems: [
         {
           id: ID,
-          title: 'Pair Sum',
-          url: 'https://leetcode.com/problems/two-sum/',
-          difficulty: 'easy',
+          title: ready.title,
+          url: ready.url,
+          difficulty: ready.difficulty,
           status: 'none',
           completed: false,
         },
         {
           id: custom.id,
           title: custom.title,
-          difficulty: 'hard',
+          difficulty: custom.difficulty,
           status: 'none',
           completed: false,
           custom: true,
@@ -194,7 +194,9 @@ async function settledEditor(expected: string): Promise<HTMLElement> {
 }
 
 function pane(): HTMLElement {
-  return screen.getByRole('region', { name: /Pair Sum|Book Puzzle/ });
+  return screen.getByRole('region', {
+    name: /Longest Substring|My own problem/,
+  });
 }
 
 function noNoteWrites(): void {
@@ -207,9 +209,9 @@ describe('statement states', () => {
     await settledEditor(PY_TEMPLATE);
     const region = pane();
     expect(
-      within(region).getByText(/Given a list of numbers/),
+      within(region).getByText(/longest run of distinct letters/),
     ).toBeInTheDocument();
-    expect(within(region).getByText('Easy')).toBeInTheDocument();
+    expect(within(region).getByText('Medium')).toBeInTheDocument();
     const open = within(region).getByRole('link', {
       name: /open on leetcode/i,
     });
@@ -257,7 +259,9 @@ describe('statement states', () => {
     expect(seen).toContain(PY_TEMPLATE);
     expect(seen).not.toContain(GENERIC_TEMPLATES.python);
     expect(calls('POST', '/statement/fetch')).toHaveLength(1);
-    expect(screen.getByText(/Given a list of numbers/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/longest run of distinct letters/),
+    ).toBeInTheDocument();
   });
 
   it('not-cached + 429: retries ONCE after retryAfterMs, then shows the statement', async () => {
@@ -477,8 +481,8 @@ describe('paste fallback', () => {
     server.get = json(pasted);
     render(<Notes problemId={ID} />);
     await settledEditor(PY_TEMPLATE);
-    expect(screen.getByText(/Return two positions/)).toBeInTheDocument();
-    expect(screen.queryByText(/Given a list of numbers/)).toBeNull();
+    expect(screen.getByText(/My own notes on the problem/)).toBeInTheDocument();
+    expect(screen.queryByText(/longest run of distinct letters/)).toBeNull();
   });
 });
 
@@ -511,7 +515,9 @@ describe('code-first template', () => {
     render(<Notes problemId={ID} />);
     const ed = await editor();
     await waitFor(() =>
-      expect(screen.getByText(/Given a list of numbers/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/longest run of distinct letters/),
+      ).toBeInTheDocument(),
     );
     // Let the template step run; nothing changes.
     await new Promise((r) => setTimeout(r, 20));
@@ -527,7 +533,7 @@ describe('code-first template', () => {
     const ed = await editor();
     await user.type(ed, 'mine');
     release(json(ready));
-    await screen.findByText(/Given a list of numbers/);
+    await screen.findByText(/longest run of distinct letters/);
     await new Promise((r) => setTimeout(r, 20));
     expect(ed).toHaveValue('mine');
   });

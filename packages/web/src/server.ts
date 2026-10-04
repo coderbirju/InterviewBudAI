@@ -29,6 +29,7 @@ import type { DockerDataInfo } from './container.js';
 import type { BootDataDir, ProviderStatus } from './config.js';
 import { createCoachHandler, precheckRequest } from './handler.js';
 import { hostPolicyFor, securityHeaders, MAX_BODY_BYTES } from './security.js';
+import { resolveLeetCodeFetchEnv } from './preferences.js';
 
 export interface ServerHandle {
   readonly url: string;
@@ -150,7 +151,12 @@ export function selectProvider(env: NodeJS.ProcessEnv): {
 }
 
 /** Methods whose request body is read (capped at `MAX_BODY_BYTES`). */
-const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PATCH', 'DELETE']);
+const BODY_METHODS: ReadonlySet<string> = new Set([
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+]);
 
 /** Server timeouts: whole request, headers, idle keep-alive (ms). */
 export const REQUEST_TIMEOUT_MS = 30_000;
@@ -234,6 +240,12 @@ export async function startServer(
     log(`Warning: ${bootData.warning}`);
   }
   const dataDir = bootData.dataDir;
+  // IBAI_LEETCODE_FETCH (ADR 0015 D1): an unrecognised value is ignored with
+  // one boot warning.
+  const leetcodeFetchEnv = resolveLeetCodeFetchEnv(env);
+  if (leetcodeFetchEnv.warning !== undefined) {
+    log(`Warning: ${leetcodeFetchEnv.warning}`);
+  }
   const port = resolvePort(env, argv);
   // Refuses to start on a non-loopback bind outside the container (ADR 0011 D2).
   const host = resolveHost(env);
@@ -296,7 +308,8 @@ export async function startServer(
         headers: req.headers as Record<string, string | string[] | undefined>,
       };
 
-      // Read the body only for POST / PATCH / DELETE (ADR 0010 D5), and only
+      // Read the body only for POST / PUT / PATCH / DELETE (ADR 0010 D5,
+      // ADR 0015 adds PUT for the pasted statement), and only
       // after the header-only checks (Host / Origin / Content-Type) pass and
       // the declared length fits.
       let body: string | undefined;

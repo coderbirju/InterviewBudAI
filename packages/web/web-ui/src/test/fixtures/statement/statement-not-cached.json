@@ -1,8 +1,8 @@
 {
-  "id": "lc-1",
-  "title": "Pair Sum",
-  "difficulty": "easy",
-  "url": "https://leetcode.com/problems/two-sum/",
+  "id": "lc-3",
+  "title": "Longest Substring Without Repeating Characters",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
   "custom": false,
   "state": "not-cached",
   "source": null,

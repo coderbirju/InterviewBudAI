@@ -24,7 +24,10 @@ import { isSpaRequest, handleSpaRequest } from './spa.js';
 import { createKnownProblemIdCheck } from './problems.js';
 import { isApiRoute, handleApiRoute } from './api.js';
 import { createCoachLimiter } from './coach-routes.js';
-import { createProviderTester } from './settings.js';
+import { appVersion, createProviderTester } from './settings.js';
+import { createLeetCodeLimiter } from './leetcode.js';
+import { createPreferencesStore } from './preferences.js';
+import type { StatementServices } from './statement-routes.js';
 import {
   checkSameOrigin,
   hostPolicyFor,
@@ -109,6 +112,11 @@ export interface CoachHandlerDeps extends AssessHandlerDeps {
    * network in CI). Default: global fetch, resolved at call time.
    */
   readonly fetchImpl?: typeof fetch;
+  /**
+   * fetch for the LeetCode statement request (ADR 0015 D1). Tests inject a
+   * fake; no real network in CI. Default: global fetch, at call time.
+   */
+  readonly leetcodeFetchImpl?: typeof fetch;
   /** ms clock for the test-provider rate limit + latency (default Date.now). */
   readonly clock?: () => number;
   /** Built SPA directory (tests inject a temp dir). Default: `dist-ui`. */
@@ -319,6 +327,22 @@ export function createCoachHandler(
     deps.clock !== undefined ? { clock: deps.clock } : {},
   );
 
+  // Problem statements + preferences (ADR 0015): one preferences store (warns
+  // once), one LeetCode limiter (one in flight, 10 per 10 min) per handler.
+  const statementServices: StatementServices = {
+    preferences: createPreferencesStore({
+      env: settingsEnv,
+      ...(deps.warn !== undefined && { warn: deps.warn }),
+    }),
+    limiter: createLeetCodeLimiter(
+      deps.clock !== undefined ? { clock: deps.clock } : {},
+    ),
+    version: appVersion(),
+    ...(deps.leetcodeFetchImpl !== undefined && {
+      fetchImpl: deps.leetcodeFetchImpl,
+    }),
+  };
+
   const route = async (req: HandlerRequest): Promise<HandlerResponse> => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
@@ -367,6 +391,7 @@ export function createCoachHandler(
           providerLabel: deps.providerLabel,
           settings,
           coachLimiter,
+          statementServices,
         },
         req.body,
       );

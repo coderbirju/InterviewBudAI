@@ -8,19 +8,19 @@ import {
   pasteStatement,
   savePreferences,
 } from './api';
-import ready from '../test/fixtures/statement/get-ready.json';
-import readyTruncated from '../test/fixtures/statement/get-ready-truncated.json';
-import notCached from '../test/fixtures/statement/get-not-cached.json';
-import disabled from '../test/fixtures/statement/get-disabled.json';
-import premium from '../test/fixtures/statement/get-premium.json';
-import unavailable from '../test/fixtures/statement/get-unavailable.json';
-import pasted from '../test/fixtures/statement/get-pasted.json';
-import custom from '../test/fixtures/statement/get-custom.json';
-import errDisabled from '../test/fixtures/statement/fetch-error-fetch_disabled.json';
-import errNotFound from '../test/fixtures/statement/fetch-error-not_found.json';
-import errRateLimited from '../test/fixtures/statement/fetch-error-rate_limited.json';
-import errFailed from '../test/fixtures/statement/fetch-error-fetch_failed.json';
-import errTimeout from '../test/fixtures/statement/fetch-error-fetch_timeout.json';
+import ready from '../test/fixtures/statement/statement-ready.json';
+import readyTruncated from '../test/fixtures/statement/statement-ready-truncated.json';
+import notCached from '../test/fixtures/statement/statement-not-cached.json';
+import disabled from '../test/fixtures/statement/statement-disabled.json';
+import premium from '../test/fixtures/statement/statement-premium.json';
+import unavailable from '../test/fixtures/statement/statement-unavailable.json';
+import pasted from '../test/fixtures/statement/statement-pasted.json';
+import custom from '../test/fixtures/statement/statement-custom.json';
+import errDisabled from '../test/fixtures/statement/fetch-error-403-fetch_disabled.json';
+import errNotFound from '../test/fixtures/statement/fetch-error-404-not_found.json';
+import errRateLimited from '../test/fixtures/statement/fetch-error-429-rate_limited.json';
+import errFailed from '../test/fixtures/statement/fetch-error-502-fetch_failed.json';
+import errTimeout from '../test/fixtures/statement/fetch-error-504-fetch_timeout.json';
 import prefsUnpinned from '../test/fixtures/statement/preferences-unpinned.json';
 import prefsPinned from '../test/fixtures/statement/preferences-pinned.json';
 
@@ -127,7 +127,7 @@ describe('POST …/statement/fetch', () => {
   it.each([
     [errDisabled, 403, 'fetch_disabled', undefined],
     [errNotFound, 404, 'not_found', undefined],
-    [errRateLimited, 429, 'rate_limited', 1500],
+    [errRateLimited, 429, 'rate_limited', errRateLimited.retryAfterMs],
     [errFailed, 502, 'fetch_failed', undefined],
     [errTimeout, 504, 'fetch_timeout', undefined],
   ])('error body %j (%i)', async (body, status, code, retry) => {
