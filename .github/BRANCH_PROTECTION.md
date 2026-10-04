@@ -32,7 +32,8 @@ and only green, reviewed PRs get merged.** Do this once.
 - Agents can push only to feature branches and open PRs.
 - A PR can be merged only when CI is green **and** you approve it.
 - No direct pushes, force-pushes, or deletions of `main`.
-- You merge the PRs you approve each morning — nothing merges on its own.
+- The Architect may merge green PRs that passed an independent code review
+  (charter §2.5, ADR 0017); you can merge too. Nothing merges on its own.
 
 ## Note for agents
 
