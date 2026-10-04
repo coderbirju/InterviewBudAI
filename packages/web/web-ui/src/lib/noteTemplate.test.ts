@@ -85,8 +85,13 @@ describe('buildTemplate — Python', () => {
     );
   });
 
-  it('design class: comments in the first method only, pass in EVERY empty method', () => {
-    expect(buildTemplate(PY_DESIGN, 'python')).toBe(
+  it('design class: comments in the first method only, pass in EVERY empty method, one blank line kept between methods', () => {
+    const out = buildTemplate(PY_DESIGN, 'python');
+    // No whitespace-only body line survives.
+    expect(out.split('\n').some((l) => l !== '' && l.trim() === '')).toBe(
+      false,
+    );
+    expect(out).toBe(
       [
         'class Counter:',
         '',
@@ -97,13 +102,49 @@ describe('buildTemplate — Python', () => {
         '        #',
         '        # Complexity: time O(?), space O(?)',
         '        pass',
+        '',
         '    def hit(self, key: int) -> int:',
         '        pass',
+        '',
         '    def reset(self) -> None:',
         '        pass',
+        '',
+        '',
         '# Your Counter object will be instantiated and called as such:',
         '# obj = Counter(limit)',
         '# param_1 = obj.hit(key)',
+      ].join('\n'),
+    );
+  });
+
+  it('separators stay outside bodies: a method with code keeps its blank line before the next def', () => {
+    const snippet = [
+      'class Box:',
+      '    def __init__(self):',
+      '        self.items = []',
+      '',
+      '    def add(self, x: int) -> None:',
+      '        ',
+      '',
+      '    def size(self) -> int:',
+      '        ',
+    ].join('\n');
+    expect(buildTemplate(snippet, 'python')).toBe(
+      [
+        'class Box:',
+        '    def __init__(self):',
+        '        # Intuition:',
+        '        #',
+        '        # Approach:',
+        '        #',
+        '        # Complexity: time O(?), space O(?)',
+        '        self.items = []',
+        '',
+        '    def add(self, x: int) -> None:',
+        '        pass',
+        '',
+        '    def size(self) -> int:',
+        '        pass',
       ].join('\n'),
     );
   });

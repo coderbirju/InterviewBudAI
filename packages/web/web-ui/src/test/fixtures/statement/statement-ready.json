@@ -1,8 +1,8 @@
 {
-  "id": "lc-1",
-  "title": "Pair Sum",
-  "difficulty": "easy",
-  "url": "https://leetcode.com/problems/two-sum/",
+  "id": "lc-3",
+  "title": "Longest Substring Without Repeating Characters",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
   "custom": false,
   "state": "ready",
   "source": "leetcode",
@@ -12,46 +12,20 @@
       "c": [
         {
           "t": "text",
-          "v": "Given a list of numbers "
+          "v": "You get a string "
         },
         {
           "t": "code",
           "c": [
             {
               "t": "text",
-              "v": "nums"
+              "v": "s"
             }
           ]
         },
         {
           "t": "text",
-          "v": " and a number "
-        },
-        {
-          "t": "code",
-          "c": [
-            {
-              "t": "text",
-              "v": "goal"
-            }
-          ]
-        },
-        {
-          "t": "text",
-          "v": ", return the positions of two numbers that add up to "
-        },
-        {
-          "t": "em",
-          "c": [
-            {
-              "t": "text",
-              "v": "goal"
-            }
-          ]
-        },
-        {
-          "t": "text",
-          "v": "."
+          "v": ". Return the length of its longest run of distinct letters."
         }
       ]
     },
@@ -73,6 +47,10 @@
       "t": "pre",
       "c": [
         {
+          "t": "text",
+          "v": "\n"
+        },
+        {
           "t": "strong",
           "c": [
             {
@@ -83,7 +61,7 @@
         },
         {
           "t": "text",
-          "v": " nums = [1,4,6], goal = 10\n"
+          "v": " s = \"abca\"\n"
         },
         {
           "t": "strong",
@@ -96,7 +74,7 @@
         },
         {
           "t": "text",
-          "v": " [1,2]"
+          "v": " 3\n"
         }
       ]
     },
@@ -125,7 +103,7 @@
               "c": [
                 {
                   "t": "text",
-                  "v": "2 <= nums.length <= 10"
+                  "v": "0 <= s.length <= 10"
                 },
                 {
                   "t": "sup",
@@ -139,27 +117,22 @@
               ]
             }
           ]
-        },
-        {
-          "t": "li",
-          "c": [
-            {
-              "t": "text",
-              "v": "Exactly one answer exists."
-            }
-          ]
         }
       ]
+    },
+    {
+      "t": "text",
+      "v": "[image: diagram]"
     }
   ],
   "text": null,
-  "exampleTestcases": "[1,4,6]\n10",
+  "exampleTestcases": "\"abca\"\n\"bbbb\"",
   "snippets": {
-    "python": "class Solution:\n    def pairSum(self, nums: List[int], goal: int) -> List[int]:\n        ",
-    "go": "func pairSum(nums []int, goal int) []int {\n    \n}"
+    "python": "class Solution:\n    def longestRun(self, s: str) -> int:\n        ",
+    "go": "func longestRun(s string) int {\n    \n}"
   },
   "fetchedAt": "2026-10-04T12:00:00.000Z",
-  "truncated": true,
+  "truncated": false,
   "cached": true,
   "fetch": {
     "enabled": true,

@@ -59,6 +59,22 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Problem statement fetch, cache and preferences API** (ADR 0015 PR A,
+  server side; the Notes view is the entry below). When you open a catalog
+  problem, the local server can fetch that one problem's statement and
+  starter code from LeetCode (one `POST https://leetcode.com/graphql`, no
+  login or cookies, one at a time, at most 10 per 10 minutes, 10 s timeout,
+  1 MiB cap). The HTML is cleaned on the server into a small allowlisted tree
+  (new runtime dependency `htmlparser2` 10.1.0, server only) and cached in
+  `<data folder>/problem-cache/<id>.json` (with a `.gitignore` of `*`).
+  Premium or missing problems fall back to the link plus a pasted statement.
+  Your code language (Python or Go) and the fetch setting are stored in
+  `<data folder>/preferences.json`. **To turn the fetch off:** Settings, or
+  `IBAI_LEETCODE_FETCH=off` (pins it; see the README section "Problem
+  statements from LeetCode"). New routes: `GET`/`PUT
+  /api/problems/:id/statement`, `POST /api/problems/:id/statement/fetch`,
+  `GET`/`PUT /api/preferences`. Additive: new optional files only, no format
+  change, no migration (ADR 0015 D6). Nothing to do.
 - **Problem view on the Notes page** (ADR 0015 D5). The problem statement now
   shows next to your note: title, difficulty, **Open on LeetCode**, the
   statement with its examples and constraints, a collapsed **Example test

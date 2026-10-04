@@ -1,5 +1,0 @@
-{
-  "error": "Too many fetches; try again shortly",
-  "code": "rate_limited",
-  "retryAfterMs": 1500
-}

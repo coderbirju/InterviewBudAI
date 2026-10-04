@@ -146,6 +146,11 @@ const ENV_VARS: readonly { readonly name: string; readonly purpose: string }[] =
     { name: 'IBAI_DATA_DIR', purpose: 'Pins the data folder' },
     { name: 'IBAI_WEB_PORT', purpose: 'Web server port (default 4173)' },
     {
+      name: 'IBAI_LEETCODE_FETCH',
+      purpose:
+        'Problem statement fetch from LeetCode: off/0/false or on/1/true pins it (default: the Settings toggle, on)',
+    },
+    {
       name: 'IBAI_HOST_DATA_DIR',
       purpose:
         'Docker only: the host folder mounted at /data (default ~/.interviewbudai/data)',
@@ -180,6 +185,12 @@ function readAppVersion(): string {
 }
 
 let cachedVersion: string | undefined;
+
+/** The app version (`packages/web/package.json`), read once. */
+export function appVersion(): string {
+  cachedVersion ??= readAppVersion();
+  return cachedVersion;
+}
 
 /** Docker Model Runner's host-side TCP port (ADR 0011 verified facts). */
 const DMR_PORT = '12434';
@@ -282,11 +293,10 @@ export function buildSettingsResponse(input: {
     readonly pinned: boolean;
   };
 }): ApiSettingsResponse {
-  cachedVersion ??= readAppVersion();
   return {
     provider: settingsProvider(input.env),
     dataDir: input.dataDir,
-    app: { version: cachedVersion, node: process.version },
+    app: { version: appVersion(), node: process.version },
     envHelp: ENV_VARS.map(({ name, purpose }) => ({
       var: name,
       purpose,

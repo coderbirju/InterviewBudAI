@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { StatementView } from './StatementView';
-import ready from '../test/fixtures/statement/get-ready.json';
+import ready from '../test/fixtures/statement/statement-ready.json';
 
 /* ADR 0015 D2: the tree is rendered with React elements; text is escaped;
  * a tree that fails isStatementTree shows the fallback instead. */
@@ -15,9 +15,9 @@ describe('StatementView', () => {
     );
     const root = screen.getByTestId('statement');
     expect(root.querySelectorAll('p').length).toBe(3);
-    expect(root.querySelector('pre')).toHaveTextContent('nums = [1,4,6]');
+    expect(root.querySelector('pre')).toHaveTextContent('s = "abca"');
     expect(root.querySelector('sup')).toHaveTextContent('4');
-    expect(root.querySelectorAll('li')).toHaveLength(2);
+    expect(root.querySelectorAll('li')).toHaveLength(1);
     expect(screen.queryByText('fallback shown')).toBeNull();
     // Only the class attribute is ever set, from the fixed map.
     for (const el of Array.from(root.querySelectorAll('*'))) {

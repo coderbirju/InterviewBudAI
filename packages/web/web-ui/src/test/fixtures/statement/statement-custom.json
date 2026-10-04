@@ -1,13 +1,13 @@
 {
-  "id": "u-book-puzzle-abc123",
-  "title": "Book Puzzle",
-  "difficulty": "hard",
+  "id": "u-my-own-problem",
+  "title": "My own problem",
+  "difficulty": "easy",
   "url": null,
   "custom": true,
   "state": "ready",
   "source": "custom",
   "blocks": null,
-  "text": "Arrange the books so that each shelf holds at most k books.",
+  "text": "Count the distinct letters in a word.",
   "exampleTestcases": null,
   "snippets": {
     "python": null,

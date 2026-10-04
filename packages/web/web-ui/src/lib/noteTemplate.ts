@@ -129,6 +129,11 @@ function trimEnd(lines: string[]): string[] {
  * Python rule 4: every `def` whose body has only blank and comment lines gets
  * its blank lines removed and one `pass` at its end, at the def indent + 4.
  * A body ends at the next non-blank line indented ≤ the def, or at the end.
+ *
+ * Separators: the blank lines at the END of that range that are not indented
+ * past the def (LeetCode's empty line between methods) are not part of the
+ * body. They stay as they are, so methods keep their one blank line between
+ * them. The body's own indented blank line is still removed.
  */
 function addPythonPass(lines: readonly string[]): string[] {
   const out = [...lines];
@@ -142,6 +147,12 @@ function addPythonPass(lines: readonly string[]): string[] {
       const line = out[end] ?? '';
       if (!isBlank(line) && widthOf(line) <= defWidth) break;
       end++;
+    }
+    // Trailing separator lines stay outside the body.
+    while (end > i + 1) {
+      const last = out[end - 1] ?? '';
+      if (!isBlank(last) || widthOf(last) > defWidth) break;
+      end--;
     }
     const body = out.slice(i + 1, end);
     const hasCode = body.some(
