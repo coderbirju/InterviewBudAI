@@ -154,6 +154,45 @@ describe('buildTemplate — Python', () => {
     expect(lines.filter((l) => l.trim() === 'pass')).toHaveLength(1);
   });
 
+  it('an unclosed triple quote masks nothing (signature, pass and append still work)', () => {
+    const snippet =
+      '"""\nclass Solution:\n    def solve2(self, n: int) -> int:\n        ';
+    expect(signatureKey(snippet, 'python')).toBe(
+      'def solve2(self, n: int) -> int:',
+    );
+    const out = buildTemplate(snippet, 'python');
+    expect(out).toContain('        # Intuition:');
+    expect(out.split('\n').at(-1)).toBe('        pass');
+    expect(starterFor('Idea', snippet, 'python')).not.toBeNull();
+  });
+
+  it('a one-line triple-quoted default does not hide the signature', () => {
+    const snippet =
+      'class Solution:\n    def f(self, s="""x""") -> None:\n        ';
+    expect(signatureKey(snippet, 'python')).toBe(
+      'def f(self, s="""x""") -> None:',
+    );
+    expect(buildTemplate(snippet, 'python')).toContain('        pass');
+  });
+
+  it('a # inside an ordinary string is not a comment when scanning for triple quotes', () => {
+    const snippet = [
+      'x = \'#\'; doc = """',
+      'class Node:',
+      '    def __init__(self):',
+      '        pass',
+      '"""',
+      'class Solution:',
+      '    def run(self) -> None:',
+      '        ',
+    ].join('\n');
+    expect(signatureKey(snippet, 'python')).toBe('def run(self) -> None:');
+    // A real comment still hides quotes after it.
+    const commented =
+      'class Solution:\n    # see """\n    def g(self):\n        ';
+    expect(signatureKey(commented, 'python')).toBe('def g(self):');
+  });
+
   it('separators stay outside bodies: a method with code keeps its blank line before the next def', () => {
     const snippet = [
       'class Box:',
