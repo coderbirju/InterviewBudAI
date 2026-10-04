@@ -103,8 +103,13 @@ problem again reads the cache.
 **Cache.** `<dataDir>/problem-cache/<id>.json`, one file per catalog id.
 
 - The directory is created 0700, files 0600, written atomically (temp file
-  plus rename). The path is built with the existing `safeJoin` from a catalog
-  id only.
+  plus rename).
+- **Path safety.** `safeJoin` is private to `@ibai/storage`, so PR A adds its
+  own helper, `problemCachePath(dataDir, id)` in
+  `packages/web/src/problem-cache.ts`. It runs **after** the catalog lookup
+  and requires the id to match `^lc-[0-9]+$` (else it throws). It joins
+  `<dataDir>/problem-cache/<id>.json` and checks with `path.relative` that the
+  result stays inside `problem-cache/`. Custom (`u-`) ids never reach it.
 - The app writes `problem-cache/.gitignore` containing `*`, so a user who
   git-tracks the data folder does not commit LeetCode text by accident.
 - The cache stores the **sanitized** form (D2), never raw HTML.
@@ -114,28 +119,45 @@ problem again reads the cache.
 {
   "schema": 1,
   "id": "lc-1",
-  "source": "leetcode",
   "titleSlug": "two-sum",
   "title": "Two Sum",
   "isPaidOnly": false,
   "fetchedAt": "2026-10-04T12:00:00.000Z",
   "blocks": [],
+  "truncated": false,
   "exampleTestcases": "[2,7,11,15]\n9",
   "snippets": { "python": "class Solution: ...", "go": "func twoSum(...) ..." },
   "pastedText": null
 }
 ```
 
-  `source` is `leetcode` or `pasted`. `blocks` is the D2 tree or `null`.
-  `exampleTestcases` is a string (≤ 16 KiB) or `null`. Each snippet is a
-  string (≤ 16 KiB) or `null`. `pastedText` is a string (≤ 64 KiB) or `null`.
+  `blocks` is the D2 tree or `null`. `truncated` is `true` when a D2 cap cut
+  the tree. `fetchedAt` is `null` when nothing was fetched (paste only).
+  `exampleTestcases` and each snippet are a string or `null`. `pastedText` is
+  a string or `null`. There is no stored `source`: the API derives it (see
+  "Which text is shown").
+- **All caps are UTF-8 bytes** (`Buffer.byteLength`). `exampleTestcases` and
+  each snippet: ≤ 16 KiB; a longer value from LeetCode is stored as `null`
+  (not cut). `pastedText`: ≤ 64 KiB. D2 text: ≤ 128 KiB. Whole file:
+  ≤ 512 KiB.
+- **The writer checks** that the serialized JSON is ≤ 512 KiB (the read cap)
+  before writing. Over the cap → it does not write, and the reply has
+  `cached: false`. So the app never writes a file it would refuse to read.
 - A cache file is **untrusted on read**: ≤ 512 KiB, must parse, must match the
-  shape, and `blocks` must pass the D2 structure check. Anything else is
-  treated as "not cached" (and is overwritten by the next fetch or paste).
+  shape (including the per-field caps), and `blocks` must pass
+  `isStatementTree()` (D2). Anything else is treated as "not cached" (and is
+  overwritten by the next fetch or paste).
 - A premium result is cached too (`isPaidOnly: true`, `blocks: null`), so the
   app does not ask again.
 - When the data folder is read-only (ADR 0009 D4), a fetch still returns the
   statement but does not cache it (`cached: false`).
+
+**Which text is shown.** When both a fetched statement and pasted text exist,
+**the pasted text wins**: the API returns `source: 'pasted'`, `blocks: null`,
+`text` = the pasted text, and **keeps the snippets** (and `exampleTestcases`)
+from the fetch. Clearing the paste (`PUT` with empty `text`) shows the fetched
+statement again. Otherwise: `blocks` present → `source: 'leetcode'`; nothing
+present → `source: null` with the right `state`.
 
 **Setting.** "Fetch problem statements from LeetCode" — default **on**.
 
@@ -157,7 +179,7 @@ each case the left pane shows:
 - a short reason ("Premium problem", "LeetCode could not be reached",
   "Fetching is turned off in Settings");
 - a **"Paste the problem"** box. Saving it stores `pastedText` in the same
-  cache file (`source: "pasted"`). Pasted text is shown as plain text.
+  cache file. Pasted text is shown as plain text.
 
 **ToS risk, recorded plainly.** LeetCode's terms restrict copying its content
 and automated access. This project ships no LeetCode text. The fetch runs on
@@ -208,7 +230,25 @@ pinned. Its transitive packages (`domhandler` 5, `domutils` 3,
 lockfile. PR A adds a row to the ADR 0006 table. A later bump to 12.x waits
 for the Node floor to move.
 
-**Tree shape** (`StatementNode`, shared by server and client):
+**Module split (decided: one shared file, imported by relative path).**
+
+- `packages/web/src/statement-tree.ts` holds the `StatementNode` type, the
+  caps, and `isStatementTree(value): value is StatementNode[]`. It has **zero
+  imports**.
+- `packages/web/src/statement-sanitize.ts` holds the `htmlparser2` code and
+  imports `statement-tree.ts`. **web-ui never imports it**, so `htmlparser2`
+  never reaches the SPA bundle.
+- web-ui imports the tree module by relative path:
+  `import { isStatementTree } from '../../../src/statement-tree.js'` (from
+  `web-ui/src/lib/`). Checked on 2026-10-04 with a throwaway probe file:
+  `npm run typecheck:ui` (web-ui `tsconfig`, `moduleResolution: bundler`)
+  pulls the file in even though `include` is `src` only, `vite build`
+  resolves `.js` to the `.ts` file and bundles it, and the server
+  `tsc --build` still compiles it to `dist/`. No config change is needed.
+  Rejected: a copy at `web-ui/src/lib/statementTree.ts` with a contract test,
+  because two copies can drift.
+
+**Tree shape** (`StatementNode`, in `statement-tree.ts`):
 
 ```ts
 type StatementTag =
@@ -225,31 +265,38 @@ type StatementNode =
 - Allowed tags: `p pre code strong em ul ol li sup sub br`. `b` → `strong`,
   `i` → `em`.
 - **No attributes at all.** No `class`, `style`, `href` or `src` survives.
-- `script`, `style`, `iframe`, `object`, `embed`, `svg`, `math`, `template`,
-  `noscript`, `textarea`, `select` and `form` are dropped **with** their
-  content.
+- Dropped **with** their content: `script style iframe object embed svg math
+  template noscript noembed noframes xmp plaintext textarea select option
+  button form head title audio video canvas`.
 - `img` is dropped. In its place goes the text `[image: <alt>]` (or
   `[image]`), so the user knows to open the problem on LeetCode. The SPA CSP
   (`img-src 'self' data:`) would block remote images anyway, and the CSP is
   not loosened.
 - `a` is unwrapped to its text. Links inside a statement are not kept.
-- Every other tag (`div`, `span`, `font`, `table`, `u`, `h1`–`h6`, …) is
+- Block tags become paragraphs, so their text does not run together:
+  `div`, `h1`–`h6`, `blockquote`, `section`, `article` and `tr` → `p`. Table
+  cells (`td`, `th`) are unwrapped, with a `br` after each cell that is not
+  the last in its row. A `p` is never nested in a `p` or `li`: an inner block
+  there closes into a `br` instead.
+- Every other tag (`span`, `font`, `u`, `table`, `tbody`, `thead`, …) is
   unwrapped: its children are kept, the tag is not.
 - Entities are decoded by the parser. `&nbsp;` becomes a normal space. C0
   control characters other than `\t` and `\n` are removed.
-- Limits: depth ≤ 32, ≤ 5 000 nodes, ≤ 128 KiB of text. Past a limit the tree
-  is cut and the reply says `truncated: true`.
+- Limits: depth ≤ 32, ≤ 5 000 nodes, ≤ 128 KiB of text (UTF-8 bytes). Past
+  a limit the tree is cut, and `truncated: true` is stored in the cache and
+  returned.
 - Empty `p` elements are removed. Whitespace is kept inside `pre`.
 
 **Client rendering.** `StatementView` maps each tag to the same React element,
 with Tailwind classes from a fixed `className` map (no inline styles, fits the
 CSP). Text goes in as React children. The client checks the tree with the
-**same** structure validator before rendering, and shows the fallback if it
+**same** `isStatementTree()` before rendering, and shows the fallback if it
 fails.
 
 **Tests (PR A):** a script tag and its text are gone; `onclick`, `style`,
 `class` and `href` are gone; `img` becomes `[image: …]`; `font` and `span` are
-unwrapped; `<sup>` survives (`10<sup>4</sup>`); `&nbsp;` decodes; the depth,
+unwrapped; `div`, `h3` and table cells keep their text apart; `head`,
+`title`, `button` and `video` content is gone; `<sup>` survives (`10<sup>4</sup>`); `&nbsp;` decodes; the depth,
 node and size caps; a malformed and an unclosed document; and a recorded Two
 Sum fixture (a short **synthetic** stand-in written for the test, not
 LeetCode's text, §6.2).
@@ -296,11 +343,16 @@ func twoSum(nums []int, target int) []int {
    `^\s*def \w+\(.*:\s*$`. Go: `^\s*func\b.*\{\s*$`.
 2. Indent = that line's indent + 4 spaces.
 3. Insert the five comment lines right after it.
-4. Python: if the rest of that function body is only blank lines, replace
-   them with one `pass` line at the same indent, so the template parses.
-   Go: leave the body as LeetCode gives it (minus blank lines). No `return`
-   is invented, because that needs the result type. LeetCode's own Go
-   snippet does not compile either until the user writes code.
+4. **Python `pass`:** for **every** `def` in the snippet (not only the first),
+   find its body. **A body ends** at the next non-blank line whose indent is
+   less than or equal to the `def` line's indent, or at the end of the
+   snippet. If a body has only blank lines and comment lines (the inserted
+   comments do not count as code), its blank lines are removed and one `pass`
+   line is added at the end of the body (after any comments), at the `def`
+   indent + 4 spaces. So every method of a design class parses.
+   **Go:** leave the bodies as LeetCode gives them (blank lines removed). No
+   `return` is invented, because that needs the result type. LeetCode's own
+   Go snippet does not compile either until the user writes code.
 5. Leading comment blocks in the snippet (for example `# Definition for
    singly-linked list.`) stay above, unchanged.
 6. Design problems with several methods get the comments in the **first**
@@ -315,19 +367,40 @@ not fetched yet) use a generic template:
 class Solution:
     def solve(self):
         # Intuition:
-        # ...
+        #
+        # Approach:
+        #
+        # Complexity: time O(?), space O(?)
         pass
 ```
 
 ```go
 func solve() {
     // Intuition:
-    // ...
+    //
+    // Approach:
+    //
+    // Complexity: time O(?), space O(?)
 }
 ```
 
-The prefill runs once, after the statement request settles (success or
-failure). If the user has already typed, there is no prefill.
+**When the prefill or append runs: once, after the final state is known.**
+That is after the `GET /api/problems/:id/statement`, plus, when the GET
+returned `not-cached` and fetching is enabled, after the
+`POST …/statement/fetch` settles (success or error). Never between the two,
+so a note is not filled with the generic template and then changed. If the
+user has typed before that point, there is no prefill or append.
+
+**StrictMode.** React StrictMode runs the effect twice in development, so the
+second POST can get a 429 from the single-flight guard. The UI retries the
+POST **once**, after `retryAfterMs` (capped at 2 s), on a 429. A second 429
+shows the fallback.
+
+**Complexity comment vs. the Time/Space fields.** The Notes page keeps its
+Time and Space complexity fields (stored as `timeComplexity` /
+`spaceComplexity`). The `# Complexity:` comment is only a prompt inside the
+code. The app does **not** sync the two, in either direction. The fields stay
+the source for the quiz, the coach and Analytics.
 
 **Existing non-empty notes (founder: "append starter code").** On open, if the
 note does not already contain the language's **signature key**, the starter
@@ -338,9 +411,12 @@ note valid Markdown, and ADR 0014 already highlights those fences.
 - Signature key: the first signature line (rule 1 above), trimmed. For the
   generic template it is `def solve(` / `func solve(`. The check is a plain
   substring test on the note text.
-- **The append is not saved on open.** It shows in the editor and the note is
-  marked unsaved. It is written only when the user clicks Save. Leaving
-  without saving discards it, and the next open appends it again.
+- **The prefill and the append are not saved on open.** They show in the
+  editor and the note is marked unsaved: the text **"Unsaved changes"**
+  appears next to the Save button (muted text, `aria-live="polite"`), and goes
+  away after a save. It is written only when the user clicks Save. There is
+  **no leave prompt** (no `beforeunload`, no route block). Leaving without
+  saving discards it, and the next open applies it again.
 - The appended block has the same comments as the empty-note template.
 
 **On disk.** A note stays plain Markdown text in the ADR 0009 note format. A
@@ -372,6 +448,13 @@ applies to the append rule the next time a note is opened.
 
 It uses the same clipboard and `aria-live` messages as "Copy note"
 (ADR 0014 D2). The pure helper is `extractCode(text, preferred)`.
+
+**Fence aliases are shared, not repeated.** A fence counts as Python or Go by
+ADR 0014's alias set (`python` / `py` / `python3` → Python, `go` / `golang` →
+Go). PR B moves that set into the pure `lib/noteEditor/fencedBlock.ts` (for
+example `fenceLanguageOf(info): FenceLanguage | null`). `markdown.ts` builds
+`CODE_LANGUAGES` from it, and `extractCode` and `noteEditorMode` use it. This
+keeps CodeMirror out of the helpers.
 
 **Prompts.** The coach and the quiz read the note text as it is. No prompt
 changes. The template comments are short and count against the existing note
@@ -469,26 +552,38 @@ interface ApiProblemStatement {
 
 | Method + path | Body | Result |
 |---|---|---|
-| `GET /api/problems/:id/statement` | — | 200 `ApiProblemStatement`. **Cache only, never calls LeetCode.** Custom: `source: 'custom'`, `state: 'ready'` (or `'unavailable'` when it has no statement). |
+| `GET /api/problems/:id/statement` | — | 200 `ApiProblemStatement`. **Cache only, never calls LeetCode.** Pasted text wins over a fetched statement (D1). Custom: `source: 'custom'`, `state: 'ready'` (or `'unavailable'` when it has no statement). |
 | `POST /api/problems/:id/statement/fetch` | `{ refresh?: boolean }` | Catalog ids only (custom → 400). Cache hit and no `refresh` → 200 from cache, no request. Otherwise one LeetCode request → 200 `ApiProblemStatement` (`ready` or `premium`). Errors: 403 `{ error, code: 'fetch_disabled' }`; 404 `{ error, code: 'not_found' }` (LeetCode has no such slug); 429 `{ error, code: 'rate_limited', retryAfterMs }` (also while another fetch is in flight); 502 `{ error, code: 'fetch_failed' }` (network error, non-200, bad shape, too large); 504 `{ error, code: 'fetch_timeout' }`. Error text is fixed; LeetCode's reply is never echoed. |
-| `PUT /api/problems/:id/statement` | `{ text: string }` | Catalog ids only (custom → 400 "Edit the custom problem's statement"). `text` ≤ 64 KiB after normalising (CRLF → LF, C0 controls except `\t` `\n` removed, trimmed). Saves `pastedText` and sets `source: 'pasted'`; keeps cached snippets. Empty `text` removes the pasted text (back to the fetched or not-cached state). → 200 `ApiProblemStatement`. Read-only folder → 409. |
+| `PUT /api/problems/:id/statement` | `{ text: string }` | Catalog ids only (custom → 400 "Edit the custom problem's statement"). `text` ≤ 64 KiB (UTF-8 bytes) after normalising (CRLF → LF, C0 controls except `\t` `\n` removed, trimmed); larger → 413. Saves `pastedText`; the reply follows "Which text is shown" (D1): `source: 'pasted'`, `blocks: null`, `text` = the paste, cached snippets kept. Empty `text` removes the pasted text (back to the fetched or not-cached state). → 200 `ApiProblemStatement`. Read-only folder → 409. |
 | `GET /api/preferences` | — | 200 `{ language: 'python' \| 'go', leetcodeFetch: { enabled: boolean, pinned: boolean } }` |
 | `PUT /api/preferences` | `{ language?: 'python' \| 'go', leetcodeFetch?: boolean }` | 200, same shape as GET. Bad value → 400. `leetcodeFetch` while pinned by env → 400 "Set by IBAI_LEETCODE_FETCH". Read-only folder → 409. |
 
 `GET /api/settings` gains `IBAI_LEETCODE_FETCH` in its env-var list (set ✓/✗
 only, like the others).
 
-PR A ships JSON fixtures for each state (`ready` from a synthetic statement,
-`not-cached`, `disabled`, `premium`, `pasted`, `custom`) under
+PR A ships JSON fixtures under
 `packages/web/web-ui/src/test/fixtures/statement/`, so PR B tests do not wait
-for the server.
+for the server:
+
+- `GET` statement, one per state: `ready` (a synthetic statement, with
+  `truncated: false`), `ready` with `truncated: true`, `not-cached`,
+  `disabled`, `premium`, `unavailable`, `pasted` (with fetched snippets
+  kept), and `custom`.
+- Every `POST …/fetch` error body: `fetch_disabled` (403), `not_found` (404),
+  `rate_limited` (429, **with `retryAfterMs`**), `fetch_failed` (502) and
+  `fetch_timeout` (504).
+- `GET /api/preferences` unpinned (`{ enabled: true, pinned: false }`) and
+  pinned by env (`{ enabled: false, pinned: true }`).
+
+A server test checks that each fixture matches what the routes return (so
+the fixtures cannot drift from the server).
 
 ## Roadmap (two PRs, each with a `code-review` pass)
 
 | PR | Scope | Depends on |
 |---|---|---|
-| **A — server** | `leetcode.ts` (fetch, limits, rate window, single flight), `statement-sanitize.ts` (D2 tree + validator, shared type), cache read/write (`problem-cache/`, `.gitignore`), `preferences.json` read/write, the five routes above, `BODY_METHODS` + `PUT`, `IBAI_LEETCODE_FETCH` (config, `.env.example`, Settings env list), `htmlparser2` pin + ADR 0006 row, fixtures, tests (no real network: `fetch` injected), README section (what is fetched, where it is stored, how to turn it off), CHANGELOG `### Added`. | — |
-| **B — UI** | Split view (D5), `StatementView`, fallback + paste box, `noteTemplate.ts` (template, insertion, signature key, append), `noteEditorMode`, `extractCode` and "Copy code", the Notes language picker, the Settings language select + fetch toggle, `lib/api` clients, tests against the PR A fixtures, CHANGELOG `### Added` / `### Changed`. | Builds in parallel against the fixtures; merge after A. |
+| **A — server** | `leetcode.ts` (fetch, limits, rate window, single flight), `statement-tree.ts` (type, caps, `isStatementTree`, zero imports), `statement-sanitize.ts` (`htmlparser2`), `problem-cache.ts` (`problemCachePath`, read/write, `.gitignore`, size checks), `preferences.json` read/write, the five routes above, `BODY_METHODS` + `PUT`, `IBAI_LEETCODE_FETCH` (config, `.env.example`, Settings env list), `htmlparser2` pin + ADR 0006 row, fixtures, tests (no real network: `fetch` injected), README section (what is fetched, where it is stored, how to turn it off), CHANGELOG `### Added`. | — |
+| **B — UI** | Split view (D5), `StatementView`, fallback + paste box, `noteTemplate.ts` (template, insertion, `pass` rule, signature key, append), the shared fence aliases in `fencedBlock.ts`, `noteEditorMode`, `extractCode` and "Copy code", "Unsaved changes", the one 429 retry, the Notes language picker, the Settings language select + fetch toggle, `lib/api` clients, tests against the PR A fixtures, CHANGELOG `### Added` / `### Changed`. | Builds in parallel against the fixtures; merge after A. |
 
 ## Consequences
 

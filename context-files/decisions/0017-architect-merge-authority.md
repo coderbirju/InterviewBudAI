@@ -32,6 +32,12 @@ The Architect **MAY** merge a PR into `main` only when **all** of these hold:
    that proposes a question the founder has not answered **MUST NOT** be
    merged by the Architect.
 5. The PR's stated merge order is respected (for example "merge after #N").
+6. **Stale-base guard:** `gh pr view <n> --json mergeStateStatus` returns
+   **`CLEAN`**. Any other value (`BEHIND`, `DIRTY`, `BLOCKED`, `UNSTABLE`,
+   `UNKNOWN`, …) means no merge. If the branch is behind or conflicts, the
+   owning skill merges `main` into the branch (a normal merge commit, no
+   rebase, no force-push), CI must go green again, and the **new head** needs
+   a new `code-review` pass. Then check again.
 
 ### D2 — How
 
@@ -44,7 +50,19 @@ The Architect **MAY** merge a PR into `main` only when **all** of these hold:
 - The merge is recorded in `decision-logs/architect.md` and in
   `progress/status.md`.
 
-### D3 — What does not change
+### D3 — When it starts
+
+- **This ADR's own PR (#92) is merged by the founder, by hand.** The
+  Architect does not use the authority to grant it to itself.
+- The Architect's merge authority starts with the **next** PR after #92
+  lands.
+- The Claude Code harness also needs a **founder-granted permission rule**
+  that allows `gh pr merge` (a project or user settings rule). The Architect
+  never adds that rule itself. **Until that rule exists, the Architect hands
+  ready PRs to the founder** (status `ready to merge`, with the reviewed SHA),
+  as before.
+
+### D4 — What does not change
 
 - Skills still never merge. Only the Architect may, under D1.
 - The founder can still review and merge any PR, and can revert.

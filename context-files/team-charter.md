@@ -55,8 +55,12 @@ autonomously.
 2.5. *Amended by ADR 0017.* Skills **MUST NOT** merge PRs. The **Architect
 MAY** merge a PR (`gh pr merge --merge --match-head-commit <sha>`, a merge
 commit) only when CI is green **and** an independent `code-review` pass on the
-same head commit returned no blocking findings (plus the other ADR 0017 D1
-conditions). The Architect **MUST NOT** push directly to `main`, force-push, or
+same head commit returned no blocking findings, **and**
+`gh pr view <n> --json mergeStateStatus` is `CLEAN` (stale-base guard: if not,
+merge `main` into the branch, wait for green CI, and re-review the new head),
+plus the other ADR 0017 D1 conditions. The authority starts with the PR after
+ADR 0017's own PR, which the founder merges, and needs a founder-granted
+harness permission for `gh pr merge`; until then ready PRs go to the founder. The Architect **MUST NOT** push directly to `main`, force-push, or
 bypass checks. The founder may also merge. Auto-merge **MUST NOT** be enabled.
 
 2.6. Each PR **MUST** include a **short, plain-language description** of what

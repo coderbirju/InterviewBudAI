@@ -52,13 +52,14 @@ never logged, actions pinned by SHA).
 |---|---|
 | `GET /repos/{owner}/{repo}/traffic/clones?per=day` | `METRICS_TOKEN` |
 | `GET /repos/{owner}/{repo}/traffic/views?per=day` | `METRICS_TOKEN` |
-| `GET /repos/{owner}/{repo}/releases?per_page=100` (each `assets[].download_count`) | `GITHUB_TOKEN` |
+| `GET /repos/{owner}/{repo}/releases?per_page=100`, **all pages** (`gh api --paginate`, which follows the `Link` header), each `assets[].download_count` | `GITHUB_TOKEN` |
 
 **Token.** The founder creates a **fine-grained personal access token**:
 
 - Repository access: only `coderbirju/InterviewBudAI`.
-- Permissions: **Administration: Read** (needed for traffic) and
-  **Contents: Read**. Metadata: Read is added by GitHub. Nothing else.
+- Permission: **Administration: Read** only (the traffic endpoints need it).
+  GitHub adds Metadata: Read by itself. Nothing else; releases are read with
+  `GITHUB_TOKEN`.
 - Saved as the repo secret **`METRICS_TOKEN`**.
 - Expiry: the longest the founder accepts. When it expires the workflow warns
   (below) and the founder renews it.
@@ -86,13 +87,24 @@ file.
     asset, one snapshot per day)
   - `README.md` — one paragraph on what the files are.
 - **Merge rule (so history grows past 14 days):** rows are keyed by `date`
-  (UTC `YYYY-MM-DD`) for traffic and by `date,tag,asset` for downloads. A new
-  fetch **replaces** rows with the same key (GitHub's last days are partial
-  and change) and keeps every older row. Rows are sorted by key. The merge is
-  idempotent: running twice on one day gives the same files.
+  (UTC `YYYY-MM-DD`) for traffic and by `date,tag,asset` for downloads.
+  - A new fetch **replaces** rows with the same key (GitHub's last days are
+    partial and change) and keeps every older row.
+  - **Oldest day of the window:** GitHub may report it only in part (the
+    14-day window can start mid-day). For that one date the merge keeps the
+    **per-field maximum** of the stored row and the new one, so a later,
+    smaller view of it never lowers the count.
+  - **Zero-fill:** clones and views come from two endpoints. A date that
+    appears in only one of them gets `0` for the other's two fields.
+  - Rows are sorted by key. The merge is idempotent: running twice on one
+    day gives the same files.
 - The merge is a small Node script, `scripts/metrics/merge-metrics.mjs`
-  (Node built-ins only, no dependency), with unit tests run by the normal
-  `npm test`.
+  (Node built-ins only, no dependency), with unit tests
+  (`scripts/metrics/merge-metrics.test.mjs`). The root `vitest.config.ts`
+  `include` today covers only `packages/*/src/**/*.test.ts`, so PR A adds
+  `scripts/**/*.test.mjs` to it; then `npm test` and CI run them.
+- **CI:** PR A adds `metrics` to `branches-ignore` in `ci.yml` (next to
+  `main`), so data pushes to that branch do not start CI runs.
 - The push uses `GITHUB_TOKEN` (`contents: write`), commits as
   `github-actions[bot]`, and is skipped when the files did not change.
 - The data is aggregate counts only. No user names, IPs or referrers are
@@ -108,14 +120,20 @@ Actions pinned by SHA.
 **Steps:**
 
 1. Check out the tag. Set up Node 20. `npm ci`. `npm run verify`.
-2. Read the CHANGELOG section `## [x.y.z]` for the tag `vx.y.z`. **Missing
-   section → the run fails** (ADR 0009 D5: the section is the release notes,
-   and it must have `### Breaking changes`).
+2. Read the CHANGELOG section `## [x.y.z]` for the tag `vx.y.z`. **The run
+   fails** if that section is missing, **or if it has no
+   `### Breaking changes` heading** (ADR 0009 D5: every release has one,
+   "None." if empty). No release is created in either case.
 3. Build the zip (layout below).
 4. **Smoke test:** unzip into a temp folder, start the server on a free port
    with a temp data dir, check that `GET /` and `GET /api/catalog` return 200,
    then stop it.
-5. `gh release create "$TAG" interviewbudai-$TAG.zip --notes-file notes.md
+5. Write `notes.md`: a fixed "Install" block first, then the CHANGELOG
+   section. The block is a template in `scripts/release/notes-header.md`
+   with `{{TAG}}` replaced by the tag: "Download `interviewbudai-{{TAG}}.zip`,
+   unzip it, and run `node interviewbudai-{{TAG}}/dist/server.js` (Node ≥
+   20.12)." So the run command is always in the release notes.
+6. `gh release create "$TAG" interviewbudai-$TAG.zip --notes-file notes.md
    --title "$TAG"`. The zip is an uploaded asset, so GitHub counts its
    downloads (D1).
 
@@ -166,8 +184,8 @@ are.
 
 | PR | Scope |
 |---|---|
-| **A — metrics** | `metrics.yml`, `scripts/metrics/merge-metrics.mjs` + tests (merge, dedupe, idempotence, missing token skip logic as a pure function), README "Usage metrics" note (what is counted, private-repo caveat, how to add `METRICS_TOKEN`). |
-| **B — release zip** | `release.yml`, the bundle script (`scripts/release/build-zip.mjs`), the `esbuild` pin, the bundled `.env` path + test, README "Install from a release" section, CHANGELOG `### Added`. |
+| **A — metrics** | `metrics.yml`, `scripts/metrics/merge-metrics.mjs` + tests (merge, dedupe, oldest-day max, zero-fill, idempotence, missing-token skip logic as a pure function), the `vitest.config.ts` include, `metrics` in `ci.yml` `branches-ignore`, README "Usage metrics" note (what is counted, private-repo caveat, how to add `METRICS_TOKEN`). |
+| **B — release zip** | `release.yml`, the bundle script (`scripts/release/build-zip.mjs`), `notes-header.md` and the CHANGELOG section check (section and `### Breaking changes`), the `esbuild` pin, the bundled `.env` path + test, README "Install from a release" section, CHANGELOG `### Added`. |
 
 Founder action after PR A: create the fine-grained token and add it as
 `METRICS_TOKEN`. Until then the workflow records downloads only.

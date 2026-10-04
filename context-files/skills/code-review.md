@@ -38,7 +38,8 @@ skill's output.
 - **Blocked**: architectural conflict needing a decision → bubble up.
 
 ### 7. Output contract
-`status: pass|needs_changes|blocked`, `findings`, `summary`.
+`status: pass|needs_changes|blocked`, `reviewedSha` (the PR head commit that
+was reviewed), `findings`, `summary`.
 
 ### 8. Project binding (InterviewBudAI)
 Rubric enforces the non-negotiables in `../01-architecture.md` and product rules

@@ -19,8 +19,13 @@ decision-log entries, status updates, and merges under charter §2.5
 - MUST NOT: implement feature logic (that's `implement`/`integrate`/`frontend`);
   push to main; force-push.
 - MAY (kind `merge` only): `gh pr merge <n> --merge --match-head-commit <sha>`
-  when the charter §2.5 / ADR 0017 D1 conditions hold. Never `--admin`, never
-  `--auto`.
+  when the charter §2.5 / ADR 0017 D1 conditions hold: CI green on the head,
+  a `code-review` `pass` with `reviewedSha` equal to the head, and
+  `gh pr view <n> --json mergeStateStatus` = `CLEAN`. Not `CLEAN` → do not
+  merge; report it so the owning skill merges `main` into the branch, CI goes
+  green, and the new head is re-reviewed. Never `--admin`, never `--auto`. If
+  the harness denies `gh pr merge` (no founder-granted rule), return
+  `blocked: ready for founder merge` with the reviewed SHA.
 
 ### 4. Steps
 1. Produce the artifact (ADR / skeleton / log line / status edit) per intent.
