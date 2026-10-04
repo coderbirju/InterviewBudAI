@@ -162,7 +162,8 @@ or auth, 10 s timeout, 1 MiB streamed cap, JSON + shape check, one fetch in
 flight and ≤ 10 per 10 minutes per process). `leetcode.ts` makes the request;
 `statement-sanitize.ts` (`htmlparser2` 10.1.0, server only) turns the HTML into
 the allowlisted node tree of `statement-tree.ts` (zero imports, shared with
-the SPA: `isStatementTree()`); `problem-cache.ts` stores it in
+the SPA: `isStatementTree()`; linear time: input cut to 256 KiB, at most
+1 024 open tags, parsing stops at the first cap and sets `truncated`); `problem-cache.ts` stores it in
 `<dataDir>/problem-cache/<id>.json` (`^lc-[0-9]+$` ids only, 0700/0600,
 atomic, `.gitignore` = `*`, ≤ 512 KiB, untrusted on read). Turn it off in
 Settings or with `IBAI_LEETCODE_FETCH=off` (this pins it). The root README
@@ -171,7 +172,7 @@ explains what is sent and stored, and the ToS note.
 | Route | Behaviour |
 |---|---|
 | `GET /api/problems/:id/statement` | Cache only, **never calls LeetCode**. `ApiProblemStatement`: `{ id, title, difficulty, url, custom, state: 'ready'\|'not-cached'\|'disabled'\|'premium'\|'unavailable', source: 'leetcode'\|'pasted'\|'custom'\|null, blocks, text, exampleTestcases, snippets: { python, go }, fetchedAt, truncated, cached, fetch: { enabled, pinned } }`. Pasted text wins over a fetched statement (its snippets are kept). Custom problems return their own `statement` (`source: 'custom'`, or `unavailable` without one). Unknown id → `404`. |
-| `POST /api/problems/:id/statement/fetch` | Body `{ refresh? }`. Catalog ids only (custom → `400`). A cached fetch without `refresh` → `200` from the cache, no request. Else one request → `200` (`ready` or `premium`, both cached). Errors: `403 fetch_disabled`; `404 not_found` (LeetCode has no such slug; cached, so a later GET is `unavailable`); `429 rate_limited` with `retryAfterMs` (also while another fetch is in flight); `502 fetch_failed`; `504 fetch_timeout`. Fixed error text; LeetCode's reply is never echoed. Read-only or missing folder → still `200`, `cached: false`. |
+| `POST /api/problems/:id/statement/fetch` | Body `{ refresh? }`. Catalog ids only (custom → `400`). A cached fetch without `refresh` → `200` from the cache, no request. Else one request → `200` (`ready` or `premium`, both cached). Errors: `403 fetch_disabled`; `404 not_found` (LeetCode has no such slug; cached, so a later GET is `unavailable`, and a later POST without `refresh` returns `200` from the cache with `state: 'unavailable'`, no request); `429 rate_limited` with `retryAfterMs` (also while another fetch is in flight); `502 fetch_failed`; `504 fetch_timeout`. Fixed error text; LeetCode's reply is never echoed. Read-only or missing folder → still `200`, `cached: false`. |
 | `PUT /api/problems/:id/statement` | Body `{ text }`, normalised (CRLF → LF, C0 controls except tab/newline removed, trimmed), ≤ 64 KiB, else `413`. Saves the paste; empty text clears it. Custom → `400`; no folder → `400`; read-only → `409`. |
 | `GET /api/preferences` | `{ language: 'python'\|'go', leetcodeFetch: { enabled, pinned } }` from `<dataDir>/preferences.json` (defaults `python` and on; `IBAI_LEETCODE_FETCH` pins). |
 | `PUT /api/preferences` | Body `{ language?, leetcodeFetch? }`; a bad value or unknown field → `400`; `leetcodeFetch` while pinned → `400 "Set by IBAI_LEETCODE_FETCH"`; unknown keys in the file are kept; atomic, 0600; no folder → `400`; read-only → `409`. |

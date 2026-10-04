@@ -75,7 +75,7 @@ Exact pinned versions (charter §7.1 — pinned exact, widely used):
 | @codemirror/lang-go | 6.0.1 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
 | @lezer/markdown | 1.7.2 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
 | @lezer/highlight | 1.2.5 | runtime (bundled, lazy Notes chunk; ADR 0014 D2) |
-| htmlparser2 | 10.1.0 | runtime, **server only** (`packages/web` `dependencies`; `statement-sanitize.ts`, never in the SPA bundle; ADR 0015 D2). 10.1.0 because 11/12 need Node ≥ 20.19. Transitive, pinned by the lockfile: `domhandler` 5.0.3, `domutils` 3.2.2, `domelementtype` 2.3.0, `entities` 7.0.1 (BSD-2-Clause), `dom-serializer` 2.0.0 (MIT) with its own `entities` 4.5.0 (BSD-2-Clause) |
+| htmlparser2 | 10.1.0 | runtime, **server only** (`packages/web` `dependencies`; `statement-sanitize.ts`, never in the SPA bundle; ADR 0015 D2). 10.1.0 because 11/12 need Node ≥ 20.19. License: `htmlparser2` MIT. Transitive, pinned by the lockfile: `domhandler` 5.0.3 (BSD-2-Clause), `domutils` 3.2.2 (BSD-2-Clause), `domelementtype` 2.3.0 (BSD-2-Clause), `entities` 7.0.1 (BSD-2-Clause), `dom-serializer` 2.0.0 (MIT), and `dom-serializer`'s own `entities` 4.5.0 (BSD-2-Clause) |
 
 **Rejected alternatives:** Tailwind 4.x (CSS-first config, less established, no
 classic `theme.extend`) and Vite 8 / React 19 (newest majors, less
