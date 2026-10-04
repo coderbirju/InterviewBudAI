@@ -6,15 +6,25 @@ import {
   CircleX,
   Copy,
   Cpu,
+  Code2,
   FolderOpen,
   Info,
   Loader2,
   Plug,
   Terminal,
 } from 'lucide-react';
-import { ApiError, fetchSettings, testProviderConnection } from '../lib/api';
+import {
+  ApiError,
+  fetchPreferences,
+  fetchSettings,
+  savePreferences,
+  testProviderConnection,
+} from '../lib/api';
 import type {
+  CodeLanguage,
   DataDirSource,
+  Preferences,
+  PreferencesPatch,
   ProviderKind,
   ProviderTestResult,
   SettingsResponse,
@@ -29,11 +39,14 @@ import { dataHref, isPlainClick, navigate } from '../lib/router';
  *     an explicit "Test connection" (Anthropic: one tiny billable call).
  *  2. How to configure — the env vars the server reads (set ✓/✗) and a
  *     copyable `.env` snippet with placeholders only.
- *  3. Data — the active folder, linking to `/data`.
- *  4. App — version and Node.
+ *  3. Problems & code (ADR 0015 D1/D4) — the "Code language" select and the
+ *     "Fetch problem statements from LeetCode" toggle (read-only when
+ *     `IBAI_LEETCODE_FETCH` pins it), through GET/PUT /api/preferences.
+ *  4. Data — the active folder, linking to `/data`.
+ *  5. App — version and Node.
  *
- * Keys stay env-only (founder decision D5.2 pending): this page has no input,
- * never receives a key and never shows one. Everything is JSX text (escaped).
+ * Keys stay env-only (founder decision D5.2 pending): this page has no key
+ * input, never receives a key and never shows one. Everything is JSX text (escaped).
  */
 
 type Load =
@@ -107,6 +120,127 @@ function YesNo({
       <CircleX className="h-4 w-4" aria-hidden />
       {noLabel}
     </span>
+  );
+}
+
+type PrefsLoad =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'error' }
+  | { readonly kind: 'ready'; readonly prefs: Preferences };
+
+/** ADR 0015: the code language and the LeetCode fetch setting. */
+function PreferencesSection(): JSX.Element {
+  const [load, setLoad] = useState<PrefsLoad>({ kind: 'loading' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPreferences()
+      .then((prefs) => {
+        if (!cancelled) setLoad({ kind: 'ready', prefs });
+      })
+      .catch(() => {
+        if (!cancelled) setLoad({ kind: 'error' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const update = async (patch: PreferencesPatch): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setLoad({ kind: 'ready', prefs: await savePreferences(patch) });
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'Your data folder is read-only, so this was not saved.'
+          : err instanceof ApiError && err.status === 400
+            ? err.message
+            : 'Could not save. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className={CARD} aria-labelledby="settings-problems">
+      <h2
+        id="settings-problems"
+        className="flex items-center gap-2 text-lg font-semibold text-slate-100"
+      >
+        <Code2 className="h-5 w-5 text-emerald-500" aria-hidden />
+        Problems &amp; code
+      </h2>
+      {load.kind === 'loading' && (
+        <p className="mt-3 text-sm text-slate-400" role="status">
+          Loading preferences…
+        </p>
+      )}
+      {load.kind === 'error' && (
+        <p className="mt-3 text-sm text-amber-200">
+          Couldn&apos;t load your preferences from the local server.
+        </p>
+      )}
+      {load.kind === 'ready' && (
+        <div className="mt-3 space-y-4">
+          <div>
+            <label
+              htmlFor="settings-language"
+              className="block text-sm font-medium text-slate-200"
+            >
+              Code language
+            </label>
+            <select
+              id="settings-language"
+              value={load.prefs.language}
+              disabled={busy}
+              onChange={(e) =>
+                void update({ language: e.target.value as CodeLanguage })
+              }
+              className="mt-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="python">Python</option>
+              <option value="go">Go</option>
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              New notes start as starter code in this language.
+            </p>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={load.prefs.leetcodeFetch.enabled}
+                disabled={busy || load.prefs.leetcodeFetch.pinned}
+                onChange={(e) =>
+                  void update({ leetcodeFetch: e.target.checked })
+                }
+                className="h-4 w-4 accent-emerald-500"
+              />
+              Fetch problem statements from LeetCode
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              {load.prefs.leetcodeFetch.pinned ? (
+                <>
+                  Set by <code className={CODE}>IBAI_LEETCODE_FETCH</code>.
+                </>
+              ) : (
+                'When you open a problem, the local server fetches that one problem from LeetCode and keeps it in your data folder. Off: no request to LeetCode at all.'
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-amber-200">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -398,7 +532,10 @@ export function SettingsPage(): JSX.Element {
         </div>
       </section>
 
-      {/* 3. Data */}
+      {/* 3. Problems & code */}
+      <PreferencesSection />
+
+      {/* 4. Data */}
       <section className={CARD} aria-labelledby="settings-data">
         <h2
           id="settings-data"
@@ -425,7 +562,7 @@ export function SettingsPage(): JSX.Element {
         </a>
       </section>
 
-      {/* 4. App */}
+      {/* 5. App */}
       <section className={CARD} aria-labelledby="settings-app">
         <h2 id="settings-app" className="text-lg font-semibold text-slate-100">
           App

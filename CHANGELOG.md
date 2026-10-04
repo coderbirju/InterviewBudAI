@@ -59,6 +59,26 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Problem view on the Notes page** (ADR 0015 D5). The problem statement now
+  shows next to your note: title, difficulty, **Open on LeetCode**, the
+  statement with its examples and constraints, a collapsed **Example test
+  cases** block, and **Refresh**. It is rendered from the server's sanitized
+  tree with React, never as HTML. If the statement is not available (premium,
+  unknown problem, fetching off, LeetCode unreachable), the pane says why and
+  offers **Paste the problem**: the pasted text is saved in your data folder
+  and shown as plain text. The LeetCode fetch is optional: turn it off with
+  **Settings → Fetch problem statements from LeetCode** or
+  `IBAI_LEETCODE_FETCH=off`.
+- **Code-first notes** (ADR 0015 D3). An empty note starts as the starter code
+  for your language, with `Intuition:` / `Approach:` / `Complexity:` comments
+  inside the function, so **Copy code** pastes straight into LeetCode. The
+  toolbar gains **Copy code** (a code-only note whole, else the last code
+  block in your language) and the editor switches to Python or Go mode for a
+  code-only note. Nothing is saved until you click Save; **Unsaved changes**
+  shows next to Save.
+- **Code language preference** (ADR 0015 D4): **Python | Go** on the Notes
+  toolbar and **Code language** in Settings (default Python), saved in
+  `<data folder>/preferences.json`.
 - **Code editor for notes** (ADR 0014 D2). The "Intuition & approach" box on
   the Notes page is now a CodeMirror 6 Markdown editor. Fenced ` ```python `
   (also `py`, `python3`) and ` ```go ` (also `golang`) blocks get syntax
@@ -260,6 +280,11 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Notes page layout** (ADR 0015 D5): a split view, statement on the left and
+  the editor on the right; on narrow screens the statement comes first. An
+  existing note that does not contain the starter code's signature shows the
+  starter code appended as a fenced block when opened. It is **not saved**
+  unless you click Save; leaving discards it.
 - **Quiz prompt diet** (ADR 0012 D2). The grader prompt states each rule once
   and holds about half the fixed text (≈ 277 estimated tokens, was ≈ 497); the
   worst case incl. the retry is ≈ 1 979 (budget 2 000, was 3 000). After a
