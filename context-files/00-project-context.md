@@ -34,6 +34,8 @@ competency map that any AI coaching session can read and build on.
 
 1. **Local-first.** Runs on the user's machine. No mandatory cloud, no central
    server, no telemetry. Cloud is an *optional future*, never a requirement.
+   No mandatory network calls except the configured LLM; the optional,
+   user-triggered LeetCode statement fetch (ADR 0015) can be turned off.
 2. **Bring-your-own-LLM.** The project is **not opinionated** about models. Any
    LLM works on day one — OpenAI, Anthropic, local Ollama, etc. — behind a
    pluggable interface. The project never requires a specific model, and

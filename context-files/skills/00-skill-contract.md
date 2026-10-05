@@ -46,7 +46,8 @@ when the skill is reused on another project.
 
 ## Universal rules (all skills)
 
-- Obey the team charter, especially §2 (never push/merge to main; feature
+- Obey the team charter, especially §2 (never push to main; skills never
+  merge — only the Architect may, under §2.5 / ADR 0017; feature
   branches + PR), §10 (subagent isolation), §11 (append to
   `../decision-logs/`), §12 (minimal output).
 - Never weaken checks to pass (charter §3.3).

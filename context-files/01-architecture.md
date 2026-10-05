@@ -122,4 +122,5 @@ unchanged. See `decisions/0008-web-first-product-focus.md`.
 - [ ] No dependency cycles between packages.
 - [ ] No shipped answers/intuitions in the curriculum layer.
 - [ ] No user progress data committed to the repo.
-- [ ] No mandatory network calls except to the user-configured LLM.
+- [ ] No mandatory network calls except to the user-configured LLM (the
+      optional, user-triggered LeetCode fetch of ADR 0015 is the one exception).

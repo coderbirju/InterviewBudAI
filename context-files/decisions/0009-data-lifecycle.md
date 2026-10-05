@@ -377,3 +377,9 @@ as blocking (`NEEDS_CHANGES`); the rubric in
 | D | Release packaging (D5 d5-zip): prebuilt zip (compiled server + built SPA + production `node_modules` or a bundled server), documented `node …` start command, `.env` location; tag-triggered GitHub Action: `npm ci` → `verify` → build → zip → create GitHub Release with the zip + CHANGELOG section as notes (built-in `GITHUB_TOKEN`, no `NPM_TOKEN`) | **Deferred** (founder, 2026-09-25) — D5 accepted, not scheduled |
 
 Any change to these decisions requires a new ADR.
+
+## Amendment pointer (2026-10-04) — ADR 0016
+
+ADR 0016 D2 schedules PR D (release zip) and makes its open choices: an
+`esbuild` single-file server bundle, the zip layout and run command, and
+`.env` read from the unzipped folder.
