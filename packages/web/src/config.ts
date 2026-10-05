@@ -488,13 +488,36 @@ export function resolveOpenAITimeoutMs(
 }
 
 /**
- * The repo-root `.env` path. Fixed (not configurable) and independent of the
- * working directory: both `src/` and `dist/` sit at packages/web/<dir>/, so the
- * repo root is three levels up from this module.
+ * Set to `true` by the release bundle build (esbuild `--define`, ADR 0016 D2).
+ * Undeclared, hence `undefined`, everywhere else (tsc, tests, `npm start`).
  */
-export const REPO_DOTENV_PATH = fileURLToPath(
-  new URL('../../../.env', import.meta.url),
-);
+declare const __IBAI_BUNDLED__: boolean | undefined;
+
+/** True only inside the release bundle (`dist/server.js` in the zip). */
+export const IS_BUNDLED: boolean =
+  typeof __IBAI_BUNDLED__ !== 'undefined' && __IBAI_BUNDLED__ === true;
+
+/**
+ * Where the server reads `.env` from (ADR 0016 D2). Unbundled, both `src/`
+ * and `dist/` sit at packages/web/<dir>/, so the repo root is three levels up.
+ * Bundled, the module is `interviewbudai-vX.Y.Z/dist/server.js`, so the
+ * unzipped folder is one level up.
+ */
+export function resolveDotenvPath(
+  bundled: boolean,
+  moduleUrl: string = import.meta.url,
+): string {
+  return fileURLToPath(
+    new URL(bundled ? '../.env' : '../../../.env', moduleUrl),
+  );
+}
+
+/**
+ * The `.env` path. Fixed (not configurable) and independent of the working
+ * directory: the repo root when run from the source tree, the unzipped
+ * release folder when run from the release zip.
+ */
+export const REPO_DOTENV_PATH = resolveDotenvPath(IS_BUNDLED);
 
 export type DotEnvResult =
   | { readonly status: 'loaded' | 'absent' | 'unsupported' }

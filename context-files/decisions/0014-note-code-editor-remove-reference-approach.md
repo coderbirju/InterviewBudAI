@@ -333,6 +333,8 @@ fetched at runtime (§6.4).
 
 ### D4 — Future, recorded and NOT decided now
 
+> **Resolved by ADR 0015 (2026-10-04).**
+
 In-app problem display, signature prefill, and copy-to-LeetCode. **Constraint:**
 the catalog ships links and difficulty only (§6.2). Showing a LeetCode
 statement means either shipping copyrighted text, or fetching from

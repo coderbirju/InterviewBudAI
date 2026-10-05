@@ -245,6 +245,102 @@ describe('DataPage', () => {
   });
 });
 
+describe('DataPage disclosures (founder 2026-10-04: less crowded)', () => {
+  it('config details sit in a native <details>, collapsed by default, toggled by its summary', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchDataDir.mockResolvedValue({
+      ...DEFAULT_STATUS,
+      noteCount: 3,
+    });
+    render(<DataPage />);
+    const details = await screen.findByTestId('data-dir-details');
+    expect(details.tagName).toBe('DETAILS');
+    expect(details).not.toHaveAttribute('open');
+    // The precedence list (env var / flag) is inside, hidden until opened.
+    const env = within(details).getByText('IBAI_DATA_DIR');
+    expect(env).not.toBeVisible();
+    // Primary info stays visible.
+    expect(screen.getByTestId('active-path')).toBeVisible();
+    expect(screen.getByTestId('note-count')).toBeVisible();
+
+    const summary = within(details).getByText('How this folder is chosen');
+    // A native <summary>: browsers make it focusable and toggle it on
+    // Enter/Space (jsdom only models the click activation).
+    expect(summary.tagName).toBe('SUMMARY');
+    await user.click(summary);
+    expect(details).toHaveAttribute('open');
+    expect(env).toBeVisible();
+  });
+
+  it('"Use an existing folder" is collapsed when the folder has notes', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchDataDir.mockResolvedValue({
+      ...DEFAULT_STATUS,
+      noteCount: 3,
+    });
+    render(<DataPage />);
+    const details = await screen.findByTestId('use-existing-details');
+    expect(details).not.toHaveAttribute('open');
+    expect(screen.getByLabelText('Folder path')).not.toBeVisible();
+    // The heading stays visible as the summary.
+    expect(
+      screen.getByRole('heading', { name: 'Use an existing notes folder' }),
+    ).toBeVisible();
+    await user.click(screen.getByText('Use an existing notes folder'));
+    expect(details).toHaveAttribute('open');
+    expect(screen.getByLabelText('Folder path')).toBeVisible();
+  });
+
+  it('"Use an existing folder" starts open when the folder has 0 notes (recovery path)', async () => {
+    mockedApi.fetchDataDir.mockResolvedValue(DEFAULT_STATUS);
+    render(<DataPage />);
+    const details = await screen.findByTestId('use-existing-details');
+    expect(details).toHaveAttribute('open');
+    expect(screen.getByLabelText('Folder path')).toBeVisible();
+  });
+
+  it('the recovery prompt is never inside a disclosure', async () => {
+    mockedApi.fetchDataDir.mockResolvedValue({ ...WITH_LEGACY, noteCount: 2 });
+    render(<DataPage />);
+    const heading = await screen.findByRole('heading', {
+      name: 'Found previous data',
+    });
+    expect(heading.closest('details')).toBeNull();
+    expect(heading).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Use it' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeVisible();
+  });
+
+  it('pinned: the "can\'t be changed here" line stays visible; how-to-unpin is in the disclosure', async () => {
+    mockedApi.fetchDataDir.mockResolvedValue({
+      ...DEFAULT_STATUS,
+      source: 'flag',
+      pinned: true,
+      noteCount: 5,
+    });
+    render(<DataPage />);
+    const pinned = await screen.findByText(/can.t be changed here/);
+    expect(pinned).toBeVisible();
+    expect(pinned.closest('details')).toBeNull();
+    const howTo = screen.getByText(/restart the server without/);
+    expect(howTo.closest('details')).toBe(
+      screen.getByTestId('data-dir-details'),
+    );
+    expect(howTo).not.toBeVisible();
+  });
+
+  it('a missing-folder warning stays outside every disclosure', async () => {
+    mockedApi.fetchDataDir.mockResolvedValue({
+      ...DEFAULT_STATUS,
+      exists: false,
+    });
+    render(<DataPage />);
+    const warning = await screen.findByText(/does not exist yet/);
+    expect(warning.closest('details')).toBeNull();
+    expect(warning).toBeVisible();
+  });
+});
+
 describe('DataFolderBanner', () => {
   it('shows on an empty folder, links to /data, and is not dismissible', async () => {
     mockedApi.fetchDataDir.mockResolvedValue(DEFAULT_STATUS);
