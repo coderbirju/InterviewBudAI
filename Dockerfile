@@ -7,8 +7,9 @@
 #   runtime — slim Node, non-root, built output only (no source, no .env)
 #
 # Node is pinned by version tag AND digest (charter §7.1). To bump: pick a new
-# `22.x.y-bookworm-slim` tag and its index digest from Docker Hub.
-ARG NODE_IMAGE=node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
+# `24.x.y-bookworm-slim` tag (Node 24 LTS, ADR 0019) and its index digest
+# from Docker Hub.
+ARG NODE_IMAGE=node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 
 # ---------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS build

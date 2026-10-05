@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -19,7 +20,8 @@ import type { NoteEditorProps } from '../lib/noteEditor/types';
 
 /**
  * ADR 0014 D2 — the note field: lazy CodeMirror editor vs textarea fallback,
- * toolbar, copy, label focus and the lazy swap. Uses the REAL editor (jsdom
+ * toolbar (only the language picker and "Copy code", ADR 0015 D3/D4), copy,
+ * label focus and the lazy swap. Uses the REAL editor (jsdom
  * with the Range rect polyfills from vitest.setup.ts).
  */
 
@@ -133,19 +135,6 @@ describe('fallback to the textarea', () => {
     expect(screen.getByLabelText(/Intuition/)).toHaveValue('kept');
     expect(document.querySelector('.cm-editor')).toBeNull();
   });
-
-  it('textarea toolbar: inserts a block and puts the cursor inside', async () => {
-    const user = userEvent.setup();
-    render(<Host initial="abc" loadEditor={realLoader} />);
-    const ta = screen.getByLabelText(/Intuition/) as HTMLTextAreaElement;
-    ta.setSelectionRange(3, 3);
-    await user.click(
-      screen.getByRole('button', { name: 'Insert Go code block' }),
-    );
-    expect(ta).toHaveValue('abc\n```go\n\n```');
-    expect(ta).toHaveFocus();
-    expect(ta.selectionStart).toBe('abc\n```go\n'.length);
-  });
 });
 
 describe('the CodeMirror editor', () => {
@@ -222,40 +211,9 @@ describe('the CodeMirror editor', () => {
     expect(view.state.doc.toString()).toBe('from outside');
     expect(onChange).not.toHaveBeenCalled();
   });
-
-  it('toolbar inserts a Python block around the selection', async () => {
-    const user = userEvent.setup();
-    render(<Host initial={'Idea\ndef f(): pass'} loadEditor={realLoader} />);
-    const view = await editorMounted();
-    act(() => {
-      view.dispatch({ selection: { anchor: 5, head: 18 } });
-    });
-    await user.click(
-      screen.getByRole('button', { name: 'Insert Python code block' }),
-    );
-    expect(view.state.doc.toString()).toBe(
-      'Idea\n```python\ndef f(): pass\n```',
-    );
-    expect(screen.getByTestId('value')).toHaveTextContent('```python');
-    expect(view.state.selection.main.head).toBe(
-      'Idea\n```python\ndef f(): pass'.length,
-    );
-    expect(view.hasFocus).toBe(true);
-  });
-
-  it('toolbar inserts an empty Go block at the cursor', async () => {
-    const user = userEvent.setup();
-    render(<Host initial="" loadEditor={realLoader} />);
-    const view = await editorMounted();
-    await user.click(
-      screen.getByRole('button', { name: 'Insert Go code block' }),
-    );
-    expect(view.state.doc.toString()).toBe('```go\n\n```');
-    expect(view.state.selection.main.head).toBe('```go\n'.length);
-  });
 });
 
-describe('Copy note', () => {
+describe('Copy code', () => {
   function mockClipboard(writeText: (t: string) => Promise<void>): void {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -271,28 +229,28 @@ describe('Copy note', () => {
     });
   });
 
-  it('copies the note and announces "Copied" for 2 s', async () => {
+  it('copies the code and announces "Code copied" for 2 s', async () => {
     vi.useFakeTimers();
     const writeText = vi.fn(() => Promise.resolve());
     mockClipboard(writeText);
     render(<Host initial={'my note\n```go\nx\n```'} loadEditor={realLoader} />);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Copy note' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     });
-    expect(writeText).toHaveBeenCalledWith('my note\n```go\nx\n```');
-    const live = screen.getByText('Copied');
+    expect(writeText).toHaveBeenCalledWith('x');
+    const live = screen.getByText('Code copied');
     expect(live).toHaveAttribute('aria-live', 'polite');
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    expect(screen.queryByText('Copied')).toBeNull();
+    expect(screen.queryByText('Code copied')).toBeNull();
   });
 
   it('shows the failure text when the clipboard rejects', async () => {
     mockClipboard(() => Promise.reject(new Error('denied')));
     render(<Host initial="n" loadEditor={realLoader} />);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Copy note' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     });
     expect(
       screen.getByText('Copy failed — select all and copy.'),
@@ -302,10 +260,60 @@ describe('Copy note', () => {
   it('shows the failure text without a Clipboard API', async () => {
     render(<Host initial="n" loadEditor={realLoader} />);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Copy note' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     });
     expect(
       screen.getByText('Copy failed — select all and copy.'),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * ADR 0014 D2 amendment (2026-10-05): the toolbar is exactly the Python | Go
+ * picker and "Copy code", for the editor and the textarea fallback alike.
+ */
+describe('toolbar contents', () => {
+  function toolbarButtons(): (string | undefined)[] {
+    const toolbar = screen.getByRole('toolbar', { name: 'Note tools' });
+    return within(toolbar)
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim());
+  }
+
+  function renderWithPicker(loadEditor: NoteEditorLoader): void {
+    render(
+      <NoteContentField
+        value="x"
+        onChange={() => {}}
+        loadEditor={loadEditor}
+        language="go"
+        onLanguageChange={() => {}}
+      />,
+    );
+  }
+
+  it('textarea fallback: exactly the language picker and Copy code', async () => {
+    renderWithPicker(realLoader); // no nonce: the textarea stays
+    await act(async () => {});
+    expect(screen.getByLabelText(/Intuition/).tagName).toBe('TEXTAREA');
+    expect(toolbarButtons()).toEqual(['Python', 'Go', 'Copy code']);
+    const picker = screen.getByRole('group', { name: 'Code language' });
+    expect(within(picker).getByRole('button', { name: 'Go' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('CodeMirror editor: exactly the language picker and Copy code', async () => {
+    setNonce(VALID);
+    renderWithPicker(realLoader);
+    await editorMounted();
+    expect(toolbarButtons()).toEqual(['Python', 'Go', 'Copy code']);
+    expect(
+      screen.getByRole('group', { name: 'Code language' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /block|Copy note/ }),
+    ).toBeNull();
   });
 });
