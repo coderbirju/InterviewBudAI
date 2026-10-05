@@ -13,6 +13,14 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Breaking changes
 
+- **Node.js 24 LTS is now required** (was ≥ 20.12; ADR 0019). Node 20 reached
+  end of life in April 2026. `npm start` from a clone and the release zip
+  need Node 24 or newer: install Node 24 LTS (for example `nvm install 24`,
+  or the installer from nodejs.org), then run `npm ci` again before
+  `npm start`. On Node 20/22 npm only warns (`EBADENGINE`), but those
+  versions are no longer supported or tested. Docker users are unaffected:
+  the image ships its own Node (now 24). CI and the release build also run
+  Node 24.
 - **The data folder is no longer chosen by a browser cookie** (#60). The server
   now decides it once at startup: `--data-dir` flag > `IBAI_DATA_DIR` env >
   `~/.interviewbudai/config.json` > default `~/.interviewbudai/data`.
@@ -98,7 +106,7 @@ and is listed there with what you need to do (ADR 0009 D4).
 - **Release zip** (ADR 0016 D2, ADR 0009 D5). Pushing a `vX.Y.Z` tag builds
   `interviewbudai-vX.Y.Z.zip` (one bundled server file plus the built web
   app), smoke-tests it and attaches it to a GitHub Release. Run it with
-  `node interviewbudai-vX.Y.Z/dist/server.js` (Node ≥ 20.12); nothing is
+  `node interviewbudai-vX.Y.Z/dist/server.js` (Node.js 24 LTS or newer); nothing is
   installed or built. Inside the zip the server reads `.env` from the
   unzipped folder; from a clone it still reads the repo-root `.env`. A
   release whose CHANGELOG section is missing or has no `### Breaking changes`
@@ -272,7 +280,7 @@ and is listed there with what you need to do (ADR 0009 D4).
 - Home catalog search plus difficulty and status filters (#54).
 - One-command start: `npm start` builds what is stale and creates the default
   data folder `~/.interviewbudai/data` (0700) on first run; accurate
-  `.env.example` (#55). Requires **Node.js ≥ 20.12** (built-in `.env`
+  `.env.example` (#55). Requires **Node.js 24 LTS or newer** (ADR 0019; built-in `.env`
   loading).
 - The data-folder choice persists across restarts in
   `~/.interviewbudai/config.json` (#60).
@@ -305,6 +313,12 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Notes toolbar trimmed** (founder feedback 2026-10-05, ADR 0014 D2
+  amendment). The editor toolbar now shows only the **Python | Go** language
+  picker and **Copy code**. The **Python block**, **Go block** and **Copy
+  note** buttons are removed, in the editor and in the plain text box
+  fallback. Fenced ` ```python ` / ` ```go ` blocks you type by hand are still
+  highlighted. Breaking changes: none.
 - **Notes page layout** (ADR 0015 D5): a split view, statement on the left and
   the editor on the right; on narrow screens the statement comes first. An
   existing note that does not contain the starter code's signature shows the

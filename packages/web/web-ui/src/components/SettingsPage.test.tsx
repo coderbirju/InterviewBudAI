@@ -46,7 +46,7 @@ const BASE: Omit<SettingsResponse, 'provider'> = {
     source: 'default',
     pinned: false,
   },
-  app: { version: '0.0.0', node: 'v20.12.0' },
+  app: { version: '0.0.0', node: 'v24.21.0' },
   envHelp: envHelp(),
 };
 
@@ -153,7 +153,7 @@ describe('SettingsPage', () => {
       ),
     ).toBeInTheDocument();
     const data = screen.getByRole('region', { name: 'Data & app' });
-    expect(data).toHaveTextContent('v20.12.0');
+    expect(data).toHaveTextContent('v24.21.0');
     expect(data).toHaveTextContent('0.0.0');
     expect(data).toHaveTextContent('/home/me/.interviewbudai/data');
     expect(data).toHaveTextContent('Default location');

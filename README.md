@@ -22,7 +22,7 @@ Your notes and progress live in your own local data directory, never in this rep
 
 ## Quick start
 
-Requires Node.js 20.12+.
+Requires Node.js 24 LTS or newer (ADR 0019).
 
 ```bash
 npm ci
@@ -39,7 +39,7 @@ Ctrl+C. The server only listens on 127.0.0.1.
 
 No clone and no `npm install`: download `interviewbudai-vX.Y.Z.zip` from the
 [Releases](https://github.com/coderbirju/InterviewBudAI/releases) page, unzip
-it, and run (Node.js 20.12+):
+it, and run (Node.js 24 LTS or newer):
 
 ```bash
 node interviewbudai-vX.Y.Z/dist/server.js   # serves http://127.0.0.1:4173/

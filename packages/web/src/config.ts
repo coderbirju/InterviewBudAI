@@ -525,7 +525,7 @@ export type DotEnvResult =
 
 /**
  * Load the repo-root `.env` into the process environment using Node's built-in
- * `process.loadEnvFile` (Node >= 20.12; no dependency). Variables already set
+ * `process.loadEnvFile` (built into Node 24+; no dependency). Variables already set
  * in the shell take precedence over the file. No-op when the file is absent;
  * 'unsupported' when the API is missing; 'invalid' (never throws) when the
  * file cannot be read or parsed.
