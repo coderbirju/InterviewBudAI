@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   prepareBootDataDir,
   resolveProviderStatus,
@@ -11,6 +12,8 @@ import {
   localConfigPathFor,
   writeLocalConfig,
   REPO_DOTENV_PATH,
+  resolveDotenvPath,
+  IS_BUNDLED,
 } from './config.js';
 import {
   startServer,
@@ -253,6 +256,23 @@ describe('loadDotEnv', () => {
     ) as { name: string };
     expect(path.basename(REPO_DOTENV_PATH)).toBe('.env');
     expect(rootPkg.name).toBe('interviewbudai');
+  });
+
+  it('resolves the repo .env unbundled and the unzipped folder .env bundled (ADR 0016 D2)', () => {
+    expect(IS_BUNDLED).toBe(false);
+    expect(resolveDotenvPath(false)).toBe(REPO_DOTENV_PATH);
+    const bundleUrl = pathToFileURL(
+      path.join(tmpHome, 'interviewbudai-v1.2.3', 'dist', 'server.js'),
+    ).href;
+    expect(resolveDotenvPath(true, bundleUrl)).toBe(
+      path.join(tmpHome, 'interviewbudai-v1.2.3', '.env'),
+    );
+    const srcUrl = pathToFileURL(
+      path.join(tmpHome, 'repo', 'packages', 'web', 'dist', 'config.js'),
+    ).href;
+    expect(resolveDotenvPath(false, srcUrl)).toBe(
+      path.join(tmpHome, 'repo', '.env'),
+    );
   });
 
   it('loads via process.loadEnvFile when present', () => {
