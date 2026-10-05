@@ -337,6 +337,18 @@ and is listed there with what you need to do (ADR 0009 D4).
   donuts and rings, topic tiles that wrap their labels and drop to fewer
   columns on narrow screens instead of squeezing. No new data or charts; no
   data/API behavior changes. Breaking changes: none.
+- **Simpler Settings page** (founder feedback 2026-10-05). `/settings` now
+  leads with an **AI provider** card (provider, model, endpoint, key
+  configured ✓/✗, a **Connection** row, and **Test connection** with its
+  result), then **Problems & code** (code language, LeetCode fetch toggle with
+  its pinned state) beside a combined **Data & app** card on wide screens.
+  Reference detail moved into collapsed sections: **How to change the
+  provider** (env/`.env`, restart note, provider precedence, the copyable
+  placeholder `.env` snippet) and **Environment variables (n)** (the
+  Variable / Purpose / Status table). Provider hints, invalid endpoints, the
+  "No model is configured" state and test failures are always visible. Card
+  spacing matches Analytics and Your data. Nothing was removed; no data/API
+  behavior changes; keys are still never shown. Breaking changes: none.
 - **Your data: the "Use an existing notes folder" heading is back in heading
   navigation** (#93 review). The heading now sits above its collapsible
   section instead of inside the toggle (screen readers such as VoiceOver skip

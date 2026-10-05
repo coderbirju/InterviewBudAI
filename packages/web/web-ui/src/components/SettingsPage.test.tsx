@@ -120,17 +120,22 @@ describe('SettingsPage', () => {
     );
   });
 
-  it('anthropic: model card, key configured, billable note, env table, no key input', async () => {
+  it('anthropic: provider card, key configured, billable note, env table, no key input', async () => {
+    const user = userEvent.setup();
     mockedApi.fetchSettings.mockResolvedValue(ANTHROPIC);
     const { container } = render(<SettingsPage />);
-    const model = await screen.findByRole('region', { name: 'Model' });
+    const model = await screen.findByRole('region', { name: 'AI provider' });
     expect(model).toHaveTextContent('Anthropic');
     expect(model).toHaveTextContent('claude-test');
     expect(within(model).getByText('Configured')).toBeInTheDocument();
     expect(model).toHaveTextContent(/billable call/i);
     expect(within(model).queryByText('Endpoint')).not.toBeInTheDocument();
 
-    const table = screen.getByRole('table', {
+    const envDetails = screen.getByTestId('env-vars');
+    await user.click(
+      within(envDetails).getByText('Environment variables (12)'),
+    );
+    const table = within(envDetails).getByRole('table', {
       name: /environment variables/i,
     });
     const keyRow = within(table).getByRole('row', {
@@ -139,12 +144,19 @@ describe('SettingsPage', () => {
     expect(keyRow).toHaveTextContent('Set');
     const urlRow = within(table).getByRole('row', { name: /^IBAI_OLLAMA_URL/ });
     expect(urlRow).toHaveTextContent('Not set');
+    // Every env var from the API is listed (nothing dropped).
+    expect(within(table).getAllByRole('row')).toHaveLength(1 + 12);
 
-    expect(screen.getByText(/restart the server/i)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'App' })).toHaveTextContent(
-      'v24.21.0',
-    );
-    const data = screen.getByRole('region', { name: 'Data' });
+    expect(
+      within(screen.getByTestId('provider-howto')).getByText(
+        /restart the server/i,
+      ),
+    ).toBeInTheDocument();
+    const data = screen.getByRole('region', { name: 'Data & app' });
+    expect(data).toHaveTextContent('v24.21.0');
+    expect(data).toHaveTextContent('0.0.0');
+    expect(data).toHaveTextContent('/home/me/.interviewbudai/data');
+    expect(data).toHaveTextContent('Default location');
     expect(
       within(data).getByRole('link', { name: /manage your data/i }),
     ).toHaveAttribute('href', '/data');
@@ -156,7 +168,7 @@ describe('SettingsPage', () => {
   it('ollama: shows the endpoint and not the billable note', async () => {
     mockedApi.fetchSettings.mockResolvedValue(OLLAMA);
     render(<SettingsPage />);
-    const model = await screen.findByRole('region', { name: 'Model' });
+    const model = await screen.findByRole('region', { name: 'AI provider' });
     expect(model).toHaveTextContent('Ollama');
     expect(model).toHaveTextContent('http://127.0.0.1:11434');
     expect(within(model).getByText('Not configured')).toBeInTheDocument();
@@ -166,7 +178,7 @@ describe('SettingsPage', () => {
   it('openai: DMR label, endpoint, optional key row, test button, no billable note', async () => {
     mockedApi.fetchSettings.mockResolvedValue(DMR);
     const { container } = render(<SettingsPage />);
-    const model = await screen.findByRole('region', { name: 'Model' });
+    const model = await screen.findByRole('region', { name: 'AI provider' });
     expect(model).toHaveTextContent('Docker Model Runner (local)');
     expect(model).toHaveTextContent('ai/qwen3:4b-instruct-2507-q4_K_M');
     expect(model).toHaveTextContent('http://localhost:12434');
@@ -185,7 +197,7 @@ describe('SettingsPage', () => {
       provider: { ...DMR.provider, label: undefined },
     });
     render(<SettingsPage />);
-    const model = await screen.findByRole('region', { name: 'Model' });
+    const model = await screen.findByRole('region', { name: 'AI provider' });
     expect(model).toHaveTextContent('OpenAI-compatible');
   });
 
@@ -207,7 +219,7 @@ describe('SettingsPage', () => {
       },
     });
     const { container } = render(<SettingsPage />);
-    const model = await screen.findByRole('region', { name: 'Model' });
+    const model = await screen.findByRole('region', { name: 'AI provider' });
     expect(model).toHaveTextContent('None configured');
     expect(model).toHaveTextContent('IBAI_ANTHROPIC_MODEL is missing');
     expect(
@@ -270,8 +282,11 @@ describe('SettingsPage', () => {
     });
     mockedApi.fetchSettings.mockResolvedValue(ANTHROPIC);
     render(<SettingsPage />);
+    const howTo = await screen.findByTestId('provider-howto');
+    await user.click(within(howTo).getByText('How to change the provider'));
+    expect(howTo).toHaveAttribute('open');
     await user.click(
-      await screen.findByRole('button', { name: /copy snippet/i }),
+      within(howTo).getByRole('button', { name: /copy snippet/i }),
     );
     expect(writeText).toHaveBeenCalledWith(ENV_SNIPPET);
     expect(
@@ -285,6 +300,154 @@ describe('SettingsPage', () => {
         value === 'http://127.0.0.1:11434' || /^<[a-z-]+>$/.test(value),
       ).toBe(true);
     }
+  });
+});
+
+describe('SettingsPage layout (founder feedback 2026-10-05)', () => {
+  it('reference detail sits in native <details>, collapsed by default, toggled by its summary', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchSettings.mockResolvedValue(ANTHROPIC);
+    const { container } = render(<SettingsPage />);
+    const provider = await screen.findByRole('region', { name: 'AI provider' });
+    const howTo = within(provider).getByTestId('provider-howto');
+    const envVars = screen.getByTestId('env-vars');
+    for (const d of [howTo, envVars]) {
+      expect(d.tagName).toBe('DETAILS');
+      expect(d).not.toHaveAttribute('open');
+    }
+    expect(container.querySelectorAll('details')).toHaveLength(2);
+    expect(container.querySelectorAll('details[open]')).toHaveLength(0);
+    // The env table, precedence and .env snippet are inside the disclosures.
+    expect(screen.getByRole('table').closest('details')).toBe(envVars);
+    expect(
+      screen.getByLabelText(/example \.env file/i).closest('details'),
+    ).toBe(howTo);
+    expect(
+      within(howTo).getByText(/first complete one wins/i),
+    ).toBeInTheDocument();
+    // Summaries are plain toggle labels (no heading inside).
+    const howToSummary = within(howTo).getByText('How to change the provider');
+    const envSummary = within(envVars).getByText('Environment variables (12)');
+    for (const s of [howToSummary, envSummary]) {
+      expect(s.tagName).toBe('SUMMARY');
+      expect(within(s).queryByRole('heading')).toBeNull();
+    }
+    for (const h of screen.getAllByRole('heading', { level: 2 })) {
+      expect(h.closest('details')).toBeNull();
+    }
+    await user.click(envSummary);
+    expect(envVars).toHaveAttribute('open');
+    expect(howTo).not.toHaveAttribute('open');
+    await user.click(envSummary);
+    expect(envVars).not.toHaveAttribute('open');
+  });
+
+  it('at a glance: provider, model, endpoint and key status are outside any <details>', async () => {
+    mockedApi.fetchSettings.mockResolvedValue(DMR);
+    render(<SettingsPage />);
+    const provider = await screen.findByRole('region', { name: 'AI provider' });
+    for (const text of [
+      'Docker Model Runner (local)',
+      'ai/qwen3:4b-instruct-2507-q4_K_M',
+      'http://localhost:12434',
+      'Not configured',
+      'Not tested yet',
+    ]) {
+      expect(within(provider).getByText(text).closest('details')).toBeNull();
+    }
+    expect(
+      within(provider)
+        .getByRole('button', { name: /test connection/i })
+        .closest('details'),
+    ).toBeNull();
+  });
+
+  it('warnings, the not-configured state and invalid endpoints sit outside any <details>', async () => {
+    mockedApi.fetchSettings.mockResolvedValue({
+      ...NONE,
+      provider: {
+        ...NONE.provider,
+        hint: 'IBAI_OPENAI_MODEL is missing',
+      },
+    });
+    const { unmount } = render(<SettingsPage />);
+    const provider = await screen.findByRole('region', { name: 'AI provider' });
+    const hint = within(provider).getByTestId('provider-hint');
+    expect(hint).toHaveTextContent('IBAI_OPENAI_MODEL is missing');
+    expect(hint.closest('details')).toBeNull();
+    const notConfigured = within(provider).getByTestId('not-configured');
+    expect(notConfigured).toHaveTextContent(/quiz master is off/i);
+    expect(notConfigured.closest('details')).toBeNull();
+    // No connection row when there is nothing to test.
+    expect(within(provider).queryByText('Connection')).toBeNull();
+    unmount();
+
+    mockedApi.fetchSettings.mockResolvedValue({
+      ...OLLAMA,
+      provider: { ...OLLAMA.provider, endpoint: null },
+    });
+    render(<SettingsPage />);
+    const invalid = await screen.findByText('Invalid IBAI_OLLAMA_URL');
+    expect(invalid.closest('details')).toBeNull();
+    expect(screen.queryByTestId('not-configured')).toBeNull();
+  });
+
+  it('test connection: status row and result update, all outside any <details>', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchSettings.mockResolvedValue(DMR);
+    let resolveTest: (r: api.ProviderTestResult) => void = () => undefined;
+    mockedApi.testProviderConnection
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          resolveTest = r;
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        latencyMs: 9,
+        detail:
+          'The local model is starting or unavailable — try again in a moment.',
+      })
+      .mockRejectedValueOnce(
+        new ApiError('please wait 5 s between connection tests', 429),
+      );
+    render(<SettingsPage />);
+    const provider = await screen.findByRole('region', { name: 'AI provider' });
+    expect(within(provider).getByText('Not tested yet')).toBeInTheDocument();
+    expect(mockedApi.testProviderConnection).not.toHaveBeenCalled();
+
+    await user.click(
+      within(provider).getByRole('button', { name: /test connection/i }),
+    );
+    expect(within(provider).getByText('Checking')).toBeInTheDocument();
+    expect(
+      within(provider).getByRole('button', { name: /testing/i }),
+    ).toBeDisabled();
+    resolveTest({ ok: true, latencyMs: 12, detail: 'Model is listed.' });
+    const ok = await within(provider).findByText(/connected in 12 ms/i);
+    expect(ok).toHaveTextContent('Model is listed.');
+    expect(ok.closest('details')).toBeNull();
+    expect(within(provider).getByText('Reachable')).toBeInTheDocument();
+
+    await user.click(
+      within(provider).getByRole('button', { name: /test connection/i }),
+    );
+    const failed = await within(provider).findByText(
+      /connection failed \(9 ms\)/i,
+    );
+    expect(failed).toHaveTextContent(/local model is starting/i);
+    expect(failed.closest('details')).toBeNull();
+    expect(within(provider).getByText('Failed')).toBeInTheDocument();
+
+    await user.click(
+      within(provider).getByRole('button', { name: /test connection/i }),
+    );
+    const err = await within(provider).findByText(/please wait 5 s/i);
+    expect(err.closest('details')).toBeNull();
+    expect(
+      within(provider).getByText('Not tested — see below'),
+    ).toBeInTheDocument();
+    expect(mockedApi.testProviderConnection).toHaveBeenCalledTimes(3);
   });
 });
 
