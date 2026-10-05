@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   AlertTriangle,
+  ChevronRight,
   CircleCheck,
   FolderOpen,
   History,
@@ -37,6 +39,11 @@ import type {
  *     and "Use this folder" (switch); inline server validation errors.
  *  4. Import CSV — `CsvImport` (ADR 0009 D2): preview, choose, import.
  *
+ * Reference detail (precedence, how to unpin, Docker pinning) sits in a
+ * collapsed native `<details>`; "Use an existing folder" is collapsed while the
+ * folder has notes. Warnings, errors and the recovery prompt are never inside
+ * a disclosure (founder feedback 2026-10-04).
+ *
  * Every path is rendered as JSX text (auto-escaped); no raw HTML.
  */
 
@@ -68,6 +75,39 @@ const PRIMARY_BTN =
 const SECONDARY_BTN =
   'rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-emerald-500 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50';
 
+/** Native `<summary>`: keyboard accessible (Enter/Space), custom chevron. */
+const SUMMARY =
+  'flex cursor-pointer list-none items-center gap-2 rounded-md transition-all duration-200 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 [&::-webkit-details-marker]:hidden';
+const CHEVRON =
+  'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-90';
+
+/**
+ * A collapsed-by-default `<details>` for reference detail (env vars,
+ * precedence, Docker pinning). Never used for warnings, errors or the
+ * recovery prompt — those always stay visible.
+ */
+function Disclosure({
+  testId,
+  summary,
+  children,
+}: {
+  testId: string;
+  summary: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <details className="group mt-4" data-testid={testId}>
+      <summary className={`${SUMMARY} w-fit text-sm text-slate-400`}>
+        <ChevronRight className={CHEVRON} aria-hidden />
+        {summary}
+      </summary>
+      <div className="mt-3 space-y-2 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
+        {children}
+      </div>
+    </details>
+  );
+}
+
 export function DataPage(): JSX.Element {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [pathInput, setPathInput] = useState('');
@@ -77,6 +117,8 @@ export function DataPage(): JSX.Element {
   const [inspection, setInspection] = useState<DataDirInspection | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // `null` until the user toggles "Use an existing folder" (then their choice).
+  const [existingOpen, setExistingOpen] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +226,7 @@ export function DataPage(): JSX.Element {
 
   const { status } = load;
   const trimmed = pathInput.trim();
+  const useExistingOpen = existingOpen ?? status.noteCount === 0;
 
   return (
     <div className="space-y-6">
@@ -238,43 +281,75 @@ export function DataPage(): JSX.Element {
             below (or create it yourself).
           </p>
         )}
-        {status.docker && (
-          <div className="mt-4 space-y-3">
-            <div className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
-              <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <p className="break-all" data-testid="docker-pinned">
-                {dockerPinnedText(status.docker)}. Inside Docker this folder is
-                shown as <code>{status.dataDir}</code>
-                {status.docker.hostDataDir !== null && (
-                  <>
-                    {' '}
-                    (on your computer: <code>{status.docker.hostDataDir}</code>)
-                  </>
-                )}
-                , including backups under <code>{status.dataDir}/.backups</code>
-                . To use another folder, set <code>IBAI_HOST_DATA_DIR</code> in{' '}
-                <code>.env</code> and restart <code>docker compose up</code>.
-              </p>
-            </div>
-            <DockerNotices docker={status.docker} />
-          </div>
-        )}
         {status.pinned && !status.docker && (
-          <div className="mt-4 flex items-start gap-2 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
+          <p className="mt-3 flex items-start gap-2 text-sm text-slate-300">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <p>
+            <span>
               This folder is pinned by{' '}
               {status.source === 'flag' ? (
                 <code>--data-dir</code>
               ) : (
                 <code>IBAI_DATA_DIR</code>
               )}
-              , so it can&apos;t be changed here. To choose a folder on this
-              page, restart the server without the <code>--data-dir</code> flag
-              and with <code>IBAI_DATA_DIR</code> unset.
-            </p>
+              , so it can&apos;t be changed here.
+            </span>
+          </p>
+        )}
+        {/* Warnings stay outside the disclosure below: never collapsed. */}
+        {status.docker && (
+          <div className="mt-4 empty:hidden">
+            <DockerNotices docker={status.docker} />
           </div>
         )}
+        <Disclosure
+          testId="data-dir-details"
+          summary="How this folder is chosen"
+        >
+          {status.docker ? (
+            <p className="break-all" data-testid="docker-pinned">
+              {dockerPinnedText(status.docker)}. Inside Docker this folder is
+              shown as <code>{status.dataDir}</code>
+              {status.docker.hostDataDir !== null && (
+                <>
+                  {' '}
+                  (on your computer: <code>{status.docker.hostDataDir}</code>)
+                </>
+              )}
+              , including backups under <code>{status.dataDir}/.backups</code>.
+              To use another folder, set <code>IBAI_HOST_DATA_DIR</code> in{' '}
+              <code>.env</code> and restart <code>docker compose up</code>.
+            </p>
+          ) : (
+            <>
+              <p>
+                The server picks the folder once at start-up. The first of these
+                that is set wins:
+              </p>
+              <ol className="list-decimal space-y-1 pl-5">
+                <li>
+                  the <code>--data-dir=&lt;path&gt;</code> flag;
+                </li>
+                <li>
+                  the <code>IBAI_DATA_DIR</code> environment variable;
+                </li>
+                <li>
+                  your choice on this page (or <code>/setup</code>), saved in{' '}
+                  <code>~/.interviewbudai/config.json</code>;
+                </li>
+                <li>
+                  the default <code>~/.interviewbudai/data</code>.
+                </li>
+              </ol>
+              {status.pinned && (
+                <p>
+                  To choose a folder on this page, restart the server without
+                  the <code>--data-dir</code> flag and with{' '}
+                  <code>IBAI_DATA_DIR</code> unset.
+                </p>
+              )}
+            </>
+          )}
+        </Disclosure>
       </section>
 
       {/* 2. Found previous data */}
@@ -338,75 +413,93 @@ export function DataPage(): JSX.Element {
         </section>
       )}
 
-      {/* 3. Use an existing folder (never offered under Docker: pinned) */}
+      {/* 3. Use an existing folder (never offered under Docker: pinned).
+          Collapsed by default, but open while the active folder has no notes:
+          then it is the recovery path (ADR 0009 D1). */}
       {!status.docker && (
         <section aria-labelledby="use-existing" className={CARD}>
-          <h2 id="use-existing" className="font-semibold text-slate-100">
-            Use an existing notes folder
-          </h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Point InterviewBudAI at a folder that already holds your notes (the
-            one containing <code>notes/</code>), or a new folder to start fresh.
-            Use an absolute path or one starting with <code>~/</code>.
-          </p>
-          <form
-            className="mt-4 space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (trimmed) void chooseFolder(pathInput, 'switch');
-            }}
+          <details
+            className="group"
+            data-testid="use-existing-details"
+            open={useExistingOpen}
+            onToggle={(e) => setExistingOpen(e.currentTarget.open)}
           >
-            <label htmlFor="data-path" className="block text-sm text-slate-300">
-              Folder path
-            </label>
-            <input
-              id="data-path"
-              type="text"
-              value={pathInput}
-              disabled={status.pinned}
-              onChange={(e) => {
-                setPathInput(e.target.value);
-                setInspection(null);
-                setFormError(null);
+            <summary className={SUMMARY}>
+              <ChevronRight className={CHEVRON} aria-hidden />
+              <h2
+                id="use-existing"
+                className="inline font-semibold text-slate-100"
+              >
+                Use an existing notes folder
+              </h2>
+            </summary>
+            <p className="mt-3 text-sm text-slate-400">
+              Point InterviewBudAI at a folder that already holds your notes
+              (the one containing <code>notes/</code>), or a new folder to start
+              fresh. Use an absolute path or one starting with <code>~/</code>.
+            </p>
+            <form
+              className="mt-4 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (trimmed) void chooseFolder(pathInput, 'switch');
               }}
-              placeholder="~/Documents/interview-notes"
-              aria-invalid={formError ? true : undefined}
-              aria-describedby={formError ? 'data-path-error' : undefined}
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-600 transition-all duration-200 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={SECONDARY_BTN}
-                disabled={status.pinned || !trimmed || busy !== null}
-                onClick={() => void onCheck()}
+            >
+              <label
+                htmlFor="data-path"
+                className="block text-sm text-slate-300"
               >
-                {busy === 'check' ? 'Checking…' : 'Check'}
-              </button>
-              <button
-                type="submit"
-                className={PRIMARY_BTN}
-                disabled={status.pinned || !trimmed || busy !== null}
-              >
-                {busy === 'switch' ? 'Switching…' : 'Use this folder'}
-              </button>
-            </div>
-            {formError && (
-              <p
-                id="data-path-error"
-                role="alert"
-                className="text-sm text-status-blocked"
-              >
-                {formError}
-              </p>
-            )}
-            {inspection && (
-              <InspectionResult
-                inspection={inspection}
-                onUsePath={setPathInput}
+                Folder path
+              </label>
+              <input
+                id="data-path"
+                type="text"
+                value={pathInput}
+                disabled={status.pinned}
+                onChange={(e) => {
+                  setPathInput(e.target.value);
+                  setInspection(null);
+                  setFormError(null);
+                }}
+                placeholder="~/Documents/interview-notes"
+                aria-invalid={formError ? true : undefined}
+                aria-describedby={formError ? 'data-path-error' : undefined}
+                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-600 transition-all duration-200 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
               />
-            )}
-          </form>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={SECONDARY_BTN}
+                  disabled={status.pinned || !trimmed || busy !== null}
+                  onClick={() => void onCheck()}
+                >
+                  {busy === 'check' ? 'Checking…' : 'Check'}
+                </button>
+                <button
+                  type="submit"
+                  className={PRIMARY_BTN}
+                  disabled={status.pinned || !trimmed || busy !== null}
+                >
+                  {busy === 'switch' ? 'Switching…' : 'Use this folder'}
+                </button>
+              </div>
+              {formError && (
+                <p
+                  id="data-path-error"
+                  role="alert"
+                  className="text-sm text-status-blocked"
+                >
+                  {formError}
+                </p>
+              )}
+              {inspection && (
+                <InspectionResult
+                  inspection={inspection}
+                  onUsePath={setPathInput}
+                />
+              )}
+            </form>
+          </details>
         </section>
       )}
 

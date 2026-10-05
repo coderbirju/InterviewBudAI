@@ -58,8 +58,11 @@ const MAX_SLIPS = 3;
 const MAX_SLIP_TOPICS = 3;
 const MAX_STRENGTHS = 5;
 
-const CARD = 'rounded-xl border border-slate-800 bg-slate-800/40 p-5';
-const HEADING = 'text-sm font-semibold uppercase tracking-wide text-slate-400';
+// Spacing scale (founder 2026-10-04: "too cramped"): sections 2rem apart,
+// cards padded 1.25rem → 1.5rem from `sm`, section body 1rem under its heading.
+const CARD = 'rounded-xl border border-slate-800 bg-slate-800/40 p-5 sm:p-6';
+const HEADING = 'text-base font-semibold text-slate-100';
+const BODY_GAP = 'mt-4';
 const CTA =
   'inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400';
 
@@ -143,16 +146,16 @@ export function Analytics(): JSX.Element {
   const unlocked = data.state === 'unlocked';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <section aria-labelledby="an-status" className={CARD}>
         <h2 id="an-status" className={HEADING}>
           Your problems
         </h2>
-        <div className="mt-4">
+        <div className={BODY_GAP}>
           <StatusDonut status={data.status} />
         </div>
         {!unlocked && (
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-slate-800 bg-slate-900/40 p-4 sm:px-5">
             <p className="text-sm text-slate-300">
               Take a quiz to see your gaps and patterns —{' '}
               <span className="font-semibold text-slate-100">
@@ -204,10 +207,10 @@ function StatusDonut({ status }: { status: InsightsStatus }): JSX.Element {
   const segments = donutSegments(status);
   const summary = donutSummary(status);
   return (
-    <div className="flex flex-wrap items-center gap-6">
+    <div className="flex flex-wrap items-center gap-x-10 gap-y-6">
       <svg
         viewBox="0 0 100 100"
-        className="h-32 w-32 shrink-0"
+        className="h-36 w-36 shrink-0"
         role="img"
         aria-label={`Problems by status. ${summary}`}
       >
@@ -252,7 +255,7 @@ function StatusDonut({ status }: { status: InsightsStatus }): JSX.Element {
         </text>
       </svg>
       <ul
-        className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm"
+        className="grid grid-cols-1 gap-x-8 gap-y-2.5 text-sm min-[380px]:grid-cols-2"
         aria-label="Status counts"
       >
         {segments.map((s) => (
@@ -306,15 +309,15 @@ function FocusNext({
         Focus next
       </h2>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-400">{EMPTY_SECTION}</p>
+        <p className={`${BODY_GAP} text-sm text-slate-400`}>{EMPTY_SECTION}</p>
       ) : (
-        <ul className="mt-3 divide-y divide-slate-800">
+        <ul className={`${BODY_GAP} divide-y divide-slate-800`}>
           {items.map((f) => {
             const band = bandOf(f.band);
             return (
               <li
                 key={f.topicId}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
+                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-3 first:pt-0 last:pb-0"
               >
                 <span className="font-medium text-slate-100">{labelOf(f)}</span>
                 <span
@@ -345,15 +348,15 @@ function Slips({ items }: { items: readonly InsightsSlip[] }): JSX.Element {
         Where you keep slipping
       </h2>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-400">
+        <p className={`${BODY_GAP} text-sm text-slate-400`}>
           {EMPTY_SECTION} Slips are tagged from your next quiz.
         </p>
       ) : (
-        <ul className="mt-3 divide-y divide-slate-800">
+        <ul className={`${BODY_GAP} divide-y divide-slate-800`}>
           {items.map((s, i) => (
             <li
               key={`${s.code}-${i}`}
-              className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-3 first:pt-0 last:pb-0"
             >
               <span className="font-medium text-slate-100">
                 {missLabel(s.code, s.label)}
@@ -394,13 +397,13 @@ function Strengths({
         Strengths
       </h2>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-400">{EMPTY_SECTION}</p>
+        <p className={`${BODY_GAP} text-sm text-slate-400`}>{EMPTY_SECTION}</p>
       ) : (
-        <ul className="mt-3 flex flex-wrap gap-2">
+        <ul className={`${BODY_GAP} flex flex-wrap gap-3`}>
           {items.map((s) => (
             <li
               key={s.topicId}
-              className="rounded-full border border-status-done/40 bg-status-done/10 px-3 py-1 text-sm text-slate-200"
+              className="rounded-full border border-status-done/40 bg-status-done/10 px-3.5 py-1.5 text-sm text-slate-200"
             >
               {labelOf(s)}{' '}
               <span className="tabular-nums text-xs text-slate-400">
@@ -426,9 +429,11 @@ function TopicTiles({
 }: {
   topics: readonly InsightsTopic[];
 }): JSX.Element {
+  // Auto-fill with an 11rem floor: tiles never squeeze on narrow widths, they
+  // wrap to fewer columns (one column on the narrowest phones).
   return (
     <ul
-      className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+      className={`${BODY_GAP} grid grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-3`}
       aria-label="Completion by topic"
     >
       {topics.map((t) => {
@@ -438,9 +443,9 @@ function TopicTiles({
             key={t.topicId}
             data-testid="topic-tile"
             aria-label={`${labelOf(t)}: ${t.done} of ${t.total} done`}
-            className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-2.5 py-2"
+            className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-3"
           >
-            <svg viewBox="0 0 36 36" className="h-8 w-8 shrink-0" aria-hidden>
+            <svg viewBox="0 0 36 36" className="h-10 w-10 shrink-0" aria-hidden>
               <circle
                 cx={18}
                 cy={18}
@@ -462,10 +467,10 @@ function TopicTiles({
               />
             </svg>
             <span className="min-w-0">
-              <span className="block truncate text-xs font-medium text-slate-200">
+              <span className="block break-words text-sm font-medium leading-snug text-slate-200">
                 {labelOf(t)}
               </span>
-              <span className="block tabular-nums text-xs text-slate-400">
+              <span className="mt-0.5 block tabular-nums text-xs text-slate-400">
                 {t.done}/{t.total}
               </span>
             </span>
