@@ -223,7 +223,7 @@ node packages/cli/dist/cli.js --help  # CLI (frozen; web is the product; after a
 Details: [packages/web/README.md](packages/web/README.md),
 [packages/cli/README.md](packages/cli/README.md).
 
-## Releases and usage metrics (maintainers)
+## Releases (maintainers)
 
 ### Cutting a release
 
@@ -243,44 +243,6 @@ Details: [packages/web/README.md](packages/web/README.md),
    section. **The run fails, and no release is created, if the tag is not
    `vX.Y.Z`, if `## [X.Y.Z]` is missing, or if it has no
    `### Breaking changes` heading.**
-
-### Usage metrics
-
-The app never reports anything (no telemetry). Instead,
-`.github/workflows/metrics.yml` runs every night (03:17 UTC, or by hand from
-the Actions tab) and copies GitHub's own counts to the data-only **`metrics`**
-branch, which is never merged into `main` (ADR 0016):
-
-- [`traffic.csv`](https://github.com/coderbirju/InterviewBudAI/blob/metrics/traffic.csv)
-  — `date,clones,unique_clones,views,unique_views`, one row per UTC day,
-  kept past GitHub's 14-day window.
-- [`downloads.csv`](https://github.com/coderbirju/InterviewBudAI/blob/metrics/downloads.csv)
-  — `date,tag,asset,download_count`, a daily snapshot of each release zip's
-  cumulative download count.
-
-The first run creates the branch. Only aggregate counts are stored (no
-names, IPs or referrers). While the repo is private, clones and views come
-only from people with access, so the numbers mean little until it is public.
-GitHub counts downloads only for uploaded release assets, not for the
-automatic "Source code" archives.
-
-**One-time setup of `METRICS_TOKEN` (founder).** Reading clones and views
-needs a token; the built-in workflow token cannot. Until this is done the
-workflow records downloads only and shows a notice (it does not fail).
-
-1. GitHub → Settings → Developer settings → Personal access tokens →
-   **Fine-grained tokens** → Generate new token.
-2. Resource owner `coderbirju`; Repository access **Only select repositories**
-   → `coderbirju/InterviewBudAI`.
-3. Repository permissions: **Administration: Read-only**. Nothing else
-   (Metadata: Read is added automatically). Pick the longest expiry you
-   accept.
-4. Copy the token. In the repo: Settings → Secrets and variables → Actions →
-   **New repository secret**, name `METRICS_TOKEN`, paste, save.
-5. Optional: Actions → Metrics → Run workflow to check it.
-
-When the token expires (or lacks the permission), the run shows a warning
-and skips traffic; create a new token and update the secret.
 
 ## Contributing
 

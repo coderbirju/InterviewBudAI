@@ -9,8 +9,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    # `metrics` holds data only (ADR 0016 D1); its nightly pushes need no CI.
-    branches-ignore: [main, metrics]
+    branches-ignore: [main]
 
 # Cancel superseded runs on the same ref to keep morning review fast.
 concurrency:

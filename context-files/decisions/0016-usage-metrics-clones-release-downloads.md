@@ -1,6 +1,7 @@
 # ADR 0016 — Usage metrics: clone and release download counts
 
-- **Status:** Accepted
+- **Status:** Accepted; D1 superseded by ADR 0018 (metrics move to the
+  private `coderbirju/repo-metrics` repo). D2 and D3 unchanged.
 - **Date:** 2026-10-04
 - **Deciders:** Founder, Architect
 - **Supersedes:** —
