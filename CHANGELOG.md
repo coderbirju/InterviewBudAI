@@ -305,6 +305,12 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Notes toolbar trimmed** (founder feedback 2026-10-05, ADR 0014 D2
+  amendment). The editor toolbar now shows only the **Python | Go** language
+  picker and **Copy code**. The **Python block**, **Go block** and **Copy
+  note** buttons are removed, in the editor and in the plain text box
+  fallback. Fenced ` ```python ` / ` ```go ` blocks you type by hand are still
+  highlighted. Breaking changes: none.
 - **Notes page layout** (ADR 0015 D5): a split view, statement on the left and
   the editor on the right; on narrow screens the statement comes first. An
   existing note that does not contain the starter code's signature shows the
