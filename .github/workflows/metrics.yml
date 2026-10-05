@@ -1,0 +1,111 @@
+name: Metrics
+
+# ADR 0016 D1: copy GitHub's clone/view counts (kept 14 days only) and the
+# release asset download counts to the data-only `metrics` branch every night.
+# The app itself never reports anything (ADR 0016 D3).
+#
+# Tokens:
+#   METRICS_TOKEN (repo secret, founder-held fine-grained PAT, this repo only,
+#   Administration: Read) is used only by the "Fetch traffic" step, only as a
+#   Bearer header. If it is missing the step prints a notice and traffic is
+#   skipped; a 401/403 prints a warning and skips. Downloads are still recorded.
+#   GITHUB_TOKEN (contents: write) reads releases and pushes the metrics branch.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: metrics
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: collect clones / views / downloads
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The scripts always come from the default branch, never from `metrics`.
+      - name: Check out scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Fetch traffic (METRICS_TOKEN)
+        env:
+          METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
+        run: node scripts/metrics/merge-metrics.mjs fetch-traffic --out "$RUNNER_TEMP/api"
+
+      - name: Fetch releases (GITHUB_TOKEN, all pages)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/api"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/api/releases.json"
+
+      - name: Does the metrics branch exist?
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/branches/metrics" --silent 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No metrics branch yet; this run creates it as an orphan branch."
+          fi
+
+      - name: Check out metrics branch
+        if: steps.branch.outputs.exists == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: metrics
+          path: metrics-data
+
+      # First run only: a working copy with credentials, switched to an empty
+      # orphan branch (no history shared with main, no code).
+      - name: Check out repo for a new metrics branch
+        if: steps.branch.outputs.exists != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: metrics-data
+
+      - name: Start orphan metrics branch
+        if: steps.branch.outputs.exists != 'true'
+        working-directory: metrics-data
+        run: |
+          git checkout -q --orphan metrics
+          git rm -r -f -q .
+          git clean -f -d -x -q
+
+      - name: Merge into CSVs
+        run: |
+          METRICS_DATE="$(date -u +%F)"
+          echo "METRICS_DATE=$METRICS_DATE" >> "$GITHUB_ENV"
+          node scripts/metrics/merge-metrics.mjs merge \
+            --data-dir metrics-data \
+            --api-dir "$RUNNER_TEMP/api" \
+            --date "$METRICS_DATE"
+
+      - name: Commit and push (skipped when nothing changed)
+        working-directory: metrics-data
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to the metrics files."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -q -m "metrics: $METRICS_DATE"
+          git push origin HEAD:refs/heads/metrics
