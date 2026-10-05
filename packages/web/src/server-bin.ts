@@ -14,7 +14,7 @@ import { startServer } from './server.js';
 const dotenv = loadDotEnv();
 if (dotenv.status === 'unsupported') {
   console.warn(
-    'Found .env but this Node version cannot load it (needs Node >= 20.12); export the variables in your shell instead.',
+    'Found .env but this Node version cannot load it (InterviewBudAI needs Node 24+); export the variables in your shell instead.',
   );
 } else if (dotenv.status === 'invalid') {
   console.warn(

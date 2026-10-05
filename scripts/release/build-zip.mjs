@@ -85,7 +85,7 @@ export function bundleOptions(root, outfile) {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node20.12',
+    target: 'node24',
     define: { __IBAI_BUNDLED__: 'true' },
     metafile: true,
     logLevel: 'warning',

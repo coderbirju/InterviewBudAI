@@ -107,7 +107,7 @@ describe('release notes', () => {
       extractSection(CHANGELOG, '0.2.0'),
     );
     expect(notes).toContain(
-      'Download `interviewbudai-v0.2.0.zip`, unzip it, and run `node interviewbudai-v0.2.0/dist/server.js` (Node ≥ 20.12).',
+      'Download `interviewbudai-v0.2.0.zip`, unzip it, and run `node interviewbudai-v0.2.0/dist/server.js` (Node.js 24 LTS or newer).',
     );
     expect(notes).not.toContain('{{TAG}}');
     expect(notes.indexOf('## Install')).toBe(0);
@@ -169,13 +169,13 @@ describe('release bundle', () => {
     ]);
   });
 
-  it('bundles server-bin into one ESM file for Node 20.12 with the bundled flag', () => {
+  it('bundles server-bin into one ESM file for Node 24 with the bundled flag', () => {
     const o = bundleOptions('/repo', '/out/dist/server.js');
     expect(o).toMatchObject({
       bundle: true,
       platform: 'node',
       format: 'esm',
-      target: 'node20.12',
+      target: 'node24',
       define: { __IBAI_BUNDLED__: 'true' },
       outfile: '/out/dist/server.js',
     });
@@ -195,7 +195,7 @@ describe('release bundle', () => {
       description: rootPkg.description,
       license: 'MIT',
       type: 'module',
-      engines: { node: '>=20.12' },
+      engines: { node: '>=24' },
     });
     expect(ROOT_FILES).not.toContain('.env');
     for (const f of ROOT_FILES)
