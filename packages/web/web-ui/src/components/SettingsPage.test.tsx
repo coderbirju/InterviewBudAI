@@ -46,7 +46,7 @@ const BASE: Omit<SettingsResponse, 'provider'> = {
     source: 'default',
     pinned: false,
   },
-  app: { version: '0.0.0', node: 'v20.12.0' },
+  app: { version: '0.0.0', node: 'v24.21.0' },
   envHelp: envHelp(),
 };
 
@@ -142,7 +142,7 @@ describe('SettingsPage', () => {
 
     expect(screen.getByText(/restart the server/i)).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'App' })).toHaveTextContent(
-      'v20.12.0',
+      'v24.21.0',
     );
     const data = screen.getByRole('region', { name: 'Data' });
     expect(
