@@ -11,6 +11,9 @@ on:
   push:
     branches-ignore: [main]
 
+# Actions are pinned by full commit SHA (tag in the trailing comment), the
+# same versions as release.yml where both use an action.
+
 # Cancel superseded runs on the same ref to keep morning review fast.
 concurrency:
   group: ci-${{ github.ref }}
@@ -22,16 +25,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Node.js is set up unconditionally. We do NOT enable `cache: npm` here
       # because that requires a dependency lockfile (package-lock.json) which
       # does not exist pre-scaffold. Caching is enabled later, gated behind
       # scaffold detection, so pre-scaffold runs stay green.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
+          # v5+ can turn on npm caching by itself; keep it off so caching stays
+          # with the explicit, scaffold-gated actions/cache step below.
+          package-manager-cache: false
 
       # The repo starts before any code is scaffolded. Until package.json
       # exists, CI passes as a no-op so the foundation PR is green. Once the
@@ -52,7 +58,7 @@ jobs:
       # the missing lockfile. Runs after Detect project by design.
       - name: Cache npm dependencies
         if: steps.detect.outputs.scaffolded == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
@@ -91,7 +97,7 @@ jobs:
       COMPOSE_SHA256: db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Docker Compose plugin
         run: |

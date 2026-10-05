@@ -226,8 +226,9 @@ pin; from `npm view` on 2026-10-04):
 `12.0.0` and `11.0.0` declare `engines.node >= 20.19.0`, but the project
 supports Node ≥ 20.12, so **10.1.0** (2026-01-21, no `engines` field) is
 pinned. Its transitive packages (`domhandler` 5, `domutils` 3,
-`domelementtype` 2, `entities` 7, all MIT, same author) are pinned by the
-lockfile. PR A adds a row to the ADR 0006 table. A later bump to 12.x waits
+`domelementtype` 2, `entities` 7 and `dom-serializer` 2, same author) are
+pinned by the lockfile. Licences: `htmlparser2` and `dom-serializer` are MIT;
+`domhandler`, `domutils`, `domelementtype` and `entities` are BSD-2-Clause. PR A adds a row to the ADR 0006 table. A later bump to 12.x waits
 for the Node floor to move.
 
 **Module split (decided: one shared file, imported by relative path).**
