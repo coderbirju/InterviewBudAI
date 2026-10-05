@@ -1,0 +1,23 @@
+{
+  "id": "lc-11",
+  "title": "Container With Most Water",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/container-with-most-water/",
+  "custom": false,
+  "state": "disabled",
+  "source": null,
+  "blocks": null,
+  "text": null,
+  "exampleTestcases": null,
+  "snippets": {
+    "python": null,
+    "go": null
+  },
+  "fetchedAt": null,
+  "truncated": false,
+  "cached": false,
+  "fetch": {
+    "enabled": false,
+    "pinned": false
+  }
+}

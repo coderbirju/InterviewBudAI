@@ -46,6 +46,10 @@
  *   POST   /api/problems      — add a custom problem (ADR 0010 D5)
  *   PATCH  /api/problems/:id  — edit a custom problem
  *   DELETE /api/problems/:id  — delete a custom problem (+ its note, with a backup)
+ *   GET    /api/problems/:id/statement       — cached statement (ADR 0015)
+ *   POST   /api/problems/:id/statement/fetch — the one optional LeetCode fetch
+ *   PUT    /api/problems/:id/statement       — save / clear a pasted statement
+ *   GET|PUT /api/preferences  — code language + the fetch setting (ADR 0015 D4)
  *
  * Every problem-aware route resolves ids through the per-request merged
  * source (catalog + the data dir's custom problems, ADR 0010 D4).
@@ -125,6 +129,12 @@ import {
   isDmrProvider,
 } from './settings.js';
 import type { ProviderTestOutcome } from './settings.js';
+import {
+  defaultStatementServices,
+  handleStatementRoute,
+  isStatementRoute,
+} from './statement-routes.js';
+import type { StatementServices } from './statement-routes.js';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 
@@ -374,6 +384,12 @@ export interface ApiDeps {
    * not be written, else null. Absent → writable (no format reader yet).
    */
   readonly readOnlyFormat?: () => number | null;
+  /**
+   * Statement fetch + preferences services (ADR 0015): the preferences
+   * store, the LeetCode limiter and the injectable fetch. The handler makes
+   * one set; absent → a module-level default.
+   */
+  readonly statementServices?: StatementServices;
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,6 +1016,27 @@ export async function handleApiRoute(
         body,
       );
       if (imported !== null) return imported;
+    }
+
+    // ----- /api/problems/:id/statement[/fetch], /api/preferences (ADR 0015) -----
+    // Before the /api/problems/:id routes, which own every other sub-path.
+    if (isStatementRoute(pathname)) {
+      const handled = await handleStatementRoute(
+        method,
+        pathname,
+        {
+          catalog: deps.catalog,
+          dataDir: deps.dataDir,
+          storage: resolveActiveStorage(deps).storage,
+          services: deps.statementServices ?? defaultStatementServices(),
+          ...(deps.now !== undefined && { now: deps.now }),
+          ...(deps.readOnlyFormat !== undefined && {
+            readOnlyFormat: deps.readOnlyFormat,
+          }),
+        },
+        body,
+      );
+      if (handled !== null) return handled;
     }
 
     // ----- /api/problems, /api/problems/:id (ADR 0010 D5) -----
