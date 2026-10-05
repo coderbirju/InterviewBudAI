@@ -269,6 +269,17 @@ fetched at runtime (§6.4).
   - The insert logic is one pure function,
     `fencedBlockEdit(text, from, to, lang) → { text, cursor }`, shared by the
     editor and the textarea fallback.
+  - **Amendment (2026-10-05):** per founder feedback, the **"Python block"**,
+    **"Go block"** and **"Copy note"** buttons are removed, with
+    `fencedBlockEdit`, the handle's `insertFence` and the "Copied" message.
+    Notes are code-first now (ADR 0015), so the toolbar, in the editor and
+    the textarea fallback alike, holds only ADR 0015's **Python | Go** picker
+    (D4) and **"Copy code"** (D3, same clipboard and `aria-live` behaviour,
+    "Code copied"). This also replaces ADR 0015 D3's "The toolbar keeps
+    'Copy note'". Fences typed by hand are still highlighted; the fence
+    aliases (`fencedBlock.ts`) and the placeholder are unchanged. The toolbar
+    and `fencedBlockEdit` tests below are replaced by a test that the
+    toolbar holds exactly the picker and "Copy code".
 - **Placeholder:** the current text, plus " Use ```python or ```go for code."
 - **Length:** no new limit. As today, only the 1 MiB request body cap
   applies, and the prompt caps (note head 2 500) are unchanged.

@@ -638,15 +638,21 @@ describe('Copy code', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Copy code' }));
     expect(writeText).toHaveBeenLastCalledWith(PY_TEMPLATE);
-    // Each button has its own confirmation.
     expect(await screen.findByText('Code copied')).toBeInTheDocument();
-    expect(screen.queryByText('Copied')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Copy note' }));
-    expect(await screen.findByText('Copied')).toBeInTheDocument();
-    expect(screen.queryByText('Code copied')).toBeNull();
-    expect(writeText).toHaveBeenLastCalledWith(
-      `Idea first.\n\n${fencedStarter(PY_TEMPLATE, 'python')}`,
-    );
+  });
+
+  it('the Notes toolbar holds only the language picker and Copy code', async () => {
+    render(<Notes problemId={ID} />);
+    await settledEditor(PY_TEMPLATE);
+    const toolbar = screen.getByRole('toolbar', { name: 'Note tools' });
+    expect(
+      within(toolbar)
+        .getAllByRole('button')
+        .map((b) => b.textContent?.trim()),
+    ).toEqual(['Python', 'Go', 'Copy code']);
+    expect(
+      within(toolbar).getByRole('group', { name: 'Code language' }),
+    ).toBeInTheDocument();
   });
 });
 
