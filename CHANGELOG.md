@@ -60,7 +60,7 @@ and is listed there with what you need to do (ADR 0009 D4).
 ### Added
 
 - **Problem statement fetch, cache and preferences API** (ADR 0015 PR A,
-  server only; the Notes split view comes in PR B). When you open a catalog
+  server side; the Notes view is the entry below). When you open a catalog
   problem, the local server can fetch that one problem's statement and
   starter code from LeetCode (one `POST https://leetcode.com/graphql`, no
   login or cookies, one at a time, at most 10 per 10 minutes, 10 s timeout,
@@ -75,6 +75,26 @@ and is listed there with what you need to do (ADR 0009 D4).
   /api/problems/:id/statement`, `POST /api/problems/:id/statement/fetch`,
   `GET`/`PUT /api/preferences`. Additive: new optional files only, no format
   change, no migration (ADR 0015 D6). Nothing to do.
+- **Problem view on the Notes page** (ADR 0015 D5). The problem statement now
+  shows next to your note: title, difficulty, **Open on LeetCode**, the
+  statement with its examples and constraints, a collapsed **Example test
+  cases** block, and **Refresh**. It is rendered from the server's sanitized
+  tree with React, never as HTML. If the statement is not available (premium,
+  unknown problem, fetching off, LeetCode unreachable), the pane says why and
+  offers **Paste the problem**: the pasted text is saved in your data folder
+  and shown as plain text. The LeetCode fetch is optional: turn it off with
+  **Settings → Fetch problem statements from LeetCode** or
+  `IBAI_LEETCODE_FETCH=off`.
+- **Code-first notes** (ADR 0015 D3). An empty note starts as the starter code
+  for your language, with `Intuition:` / `Approach:` / `Complexity:` comments
+  inside the function, so **Copy code** pastes straight into LeetCode. The
+  toolbar gains **Copy code** (a code-only note whole, else the last code
+  block in your language) and the editor switches to Python or Go mode for a
+  code-only note. Nothing is saved until you click Save; **Unsaved changes**
+  shows next to Save.
+- **Code language preference** (ADR 0015 D4): **Python | Go** on the Notes
+  toolbar and **Code language** in Settings (default Python), saved in
+  `<data folder>/preferences.json`.
 - **Release zip** (ADR 0016 D2, ADR 0009 D5). Pushing a `vX.Y.Z` tag builds
   `interviewbudai-vX.Y.Z.zip` (one bundled server file plus the built web
   app), smoke-tests it and attaches it to a GitHub Release. Run it with
@@ -290,6 +310,11 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Notes page layout** (ADR 0015 D5): a split view, statement on the left and
+  the editor on the right; on narrow screens the statement comes first. An
+  existing note that does not contain the starter code's signature shows the
+  starter code appended as a fenced block when opened. It is **not saved**
+  unless you click Save; leaving discards it.
 - **Tidier Your data and Analytics pages** (founder feedback 2026-10-04).
   On **Your data** (`/data`) the precedence of `--data-dir` /
   `IBAI_DATA_DIR` / `config.json` / default, the how-to-unpin steps and the

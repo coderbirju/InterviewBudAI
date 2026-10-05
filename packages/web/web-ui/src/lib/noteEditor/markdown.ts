@@ -7,6 +7,7 @@ import {
 import { python } from '@codemirror/lang-python';
 import { go } from '@codemirror/lang-go';
 import { GFM, parseCode, parser as mdParser } from '@lezer/markdown';
+import { FENCE_ALIASES, fenceLanguageOf } from './fencedBlock';
 
 /**
  * The note editor's Markdown language (ADR 0014 D2). EDITOR CHUNK ONLY.
@@ -21,24 +22,29 @@ import { GFM, parseCode, parser as mdParser } from '@lezer/markdown';
  * `markdown.test.ts` guards this wrapper against a dependency bump.
  */
 
-/** Fence languages, loaded eagerly: both grammars live in this chunk. */
-export const CODE_LANGUAGES: readonly LanguageDescription[] = [
-  LanguageDescription.of({
-    name: 'Python',
-    alias: ['py', 'python3'],
-    support: python(),
-  }),
-  LanguageDescription.of({ name: 'Go', alias: ['golang'], support: go() }),
-];
+/**
+ * Fence languages, loaded eagerly: both grammars live in this chunk. The
+ * aliases come from the shared `FENCE_ALIASES` (ADR 0015 D3).
+ */
+const PYTHON = LanguageDescription.of({
+  name: 'Python',
+  alias: FENCE_ALIASES.python,
+  support: python(),
+});
+const GO = LanguageDescription.of({
+  name: 'Go',
+  alias: FENCE_ALIASES.go,
+  support: go(),
+});
+export const CODE_LANGUAGES: readonly LanguageDescription[] = [PYTHON, GO];
 
 /**
  * Resolve a fence info string (```` ```python title ```` → `python`) to a
  * supported language, by its first word. Unknown or empty → null (plain).
  */
 export function resolveFenceLanguage(info: string): LanguageDescription | null {
-  const word = info.trim().split(/\s+/)[0] ?? '';
-  if (word === '') return null;
-  return LanguageDescription.matchLanguageName(CODE_LANGUAGES, word, false);
+  const lang = fenceLanguageOf(info);
+  return lang === 'python' ? PYTHON : lang === 'go' ? GO : null;
 }
 
 const markdownData = defineLanguageFacet({
