@@ -106,7 +106,7 @@ and is listed there with what you need to do (ADR 0009 D4).
 - **Release zip** (ADR 0016 D2, ADR 0009 D5). Pushing a `vX.Y.Z` tag builds
   `interviewbudai-vX.Y.Z.zip` (one bundled server file plus the built web
   app), smoke-tests it and attaches it to a GitHub Release. Run it with
-  `node interviewbudai-vX.Y.Z/dist/server.js` (Node ≥ 20.12); nothing is
+  `node interviewbudai-vX.Y.Z/dist/server.js` (Node.js 24 LTS or newer); nothing is
   installed or built. Inside the zip the server reads `.env` from the
   unzipped folder; from a clone it still reads the repo-root `.env`. A
   release whose CHANGELOG section is missing or has no `### Breaking changes`
@@ -280,7 +280,7 @@ and is listed there with what you need to do (ADR 0009 D4).
 - Home catalog search plus difficulty and status filters (#54).
 - One-command start: `npm start` builds what is stale and creates the default
   data folder `~/.interviewbudai/data` (0700) on first run; accurate
-  `.env.example` (#55). Requires **Node.js ≥ 20.12** (built-in `.env`
+  `.env.example` (#55). Requires **Node.js 24 LTS or newer** (ADR 0019; built-in `.env`
   loading).
 - The data-folder choice persists across restarts in
   `~/.interviewbudai/config.json` (#60).
