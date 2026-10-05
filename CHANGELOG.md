@@ -13,6 +13,14 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Breaking changes
 
+- **Node.js 24 LTS is now required** (was ≥ 20.12; ADR 0019). Node 20 reached
+  end of life in April 2026. `npm start` from a clone and the release zip
+  need Node 24 or newer: install Node 24 LTS (for example `nvm install 24`,
+  or the installer from nodejs.org), then run `npm ci` again before
+  `npm start`. On Node 20/22 npm only warns (`EBADENGINE`), but those
+  versions are no longer supported or tested. Docker users are unaffected:
+  the image ships its own Node (now 24). CI and the release build also run
+  Node 24.
 - **The data folder is no longer chosen by a browser cookie** (#60). The server
   now decides it once at startup: `--data-dir` flag > `IBAI_DATA_DIR` env >
   `~/.interviewbudai/config.json` > default `~/.interviewbudai/data`.
