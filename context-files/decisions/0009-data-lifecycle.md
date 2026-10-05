@@ -72,7 +72,9 @@ security (CSRF token, path validation, pinned-dir refusal) and behavior.
 
 1. *Active folder* — path, where it came from (flag / env / config / default),
    note count. If pinned by flag/env: read-only, with the same explanation
-   `/setup` gives.
+   `/setup` gives. *Note (#93, founder request 2026-10-04):* the how-to-unpin
+   explanation now sits behind a collapsed "How this folder is chosen"
+   disclosure; the "pinned, can't be changed here" line stays visible.
 2. *Use an existing folder* — a path field. "Check" does a dry run and shows
    what is there ("25 notes, 3 quiz sessions"); "Use this folder" switches.
    Hints: if the path ends in `/notes` and its parent looks like a data dir,

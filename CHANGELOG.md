@@ -311,10 +311,10 @@ and is listed there with what you need to do (ADR 0009 D4).
   starter code appended as a fenced block when opened. It is **not saved**
   unless you click Save; leaving discards it.
 - **Tidier Your data and Analytics pages** (founder feedback 2026-10-04).
-  On **Your data** (`/data`) the precedence of `--data-dir` /
-  `IBAI_DATA_DIR` / `config.json` / default, the how-to-unpin steps and the
-  Docker pinning details now sit in a collapsed **How this folder is chosen**
-  disclosure, and **Use an existing notes folder** is collapsed while your
+  On **Your data** (`/data`) a collapsed **How this folder is chosen**
+  disclosure adds a short precedence list (`--data-dir` / `IBAI_DATA_DIR` /
+  `config.json` / default) and holds the how-to-unpin steps and the Docker
+  pinning details, and **Use an existing notes folder** is collapsed while your
   folder has notes (it stays open when it has none, since it is then the way
   to recover them). The folder path, source, note count, the "pinned, can't be
   changed here" line, every warning, and the **Found previous data** prompt
@@ -322,7 +322,12 @@ and is listed there with what you need to do (ADR 0009 D4).
   sections, more padding in cards and tiles, plain section headings, larger
   donuts and rings, topic tiles that wrap their labels and drop to fewer
   columns on narrow screens instead of squeezing. No new data or charts; no
-  behavior changes. Breaking changes: none.
+  data/API behavior changes. Breaking changes: none.
+- **Your data: the "Use an existing notes folder" heading is back in heading
+  navigation** (#93 review). The heading now sits above its collapsible
+  section instead of inside the toggle (screen readers such as VoiceOver skip
+  headings inside a `<summary>`); the toggle reads **Enter a folder path**.
+  Same open/closed behavior. Breaking changes: none.
 
 - **Quiz prompt diet** (ADR 0012 D2). The grader prompt states each rule once
   and holds about half the fixed text (≈ 277 estimated tokens, was ≈ 497); the

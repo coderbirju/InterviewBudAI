@@ -136,7 +136,7 @@ Actions pinned by SHA.
    20.12)." So the run command is always in the release notes.
 6. `gh release create "$TAG" interviewbudai-$TAG.zip --notes-file notes.md
    --title "$TAG"`. The zip is an uploaded asset, so GitHub counts its
-   downloads (D1).
+   downloads (D1) (counted by repo-metrics, ADR 0018).
 
 **Packaging choice (ADR 0009 D5 left this open): one bundled server file.**
 

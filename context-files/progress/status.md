@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-10-04. PRs #1–#96 are merged or closed (source: `gh pr list`). ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-04. PRs #1–#97 are merged or closed (source: `gh pr list`). ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -21,6 +21,14 @@ _Last updated: 2026-10-04. PRs #1–#96 are merged or closed (source: `gh pr lis
 - **AI providers:** local AI through Docker Model Runner (default `ai/qwen3:4b-instruct-2507-q4_K_M`), OpenAI-compatible, Anthropic, and Ollama. A provider is required; there is no demo fallback.
 
 ## Recent work (one line per PR)
+**Problem view, metrics and release (ADRs 0015–0018)**
+- ✅ #92 ADRs 0015 (problem view + code-first notes), 0016 (usage metrics + release zip), 0017 (Architect merge authority)
+- ✅ #93 Data page disclosures; more room on Analytics
+- ✅ #94 ADR 0016: release zip workflow (its metrics part later moved out by #97)
+- ✅ #96 ADR 0015 PR A: problem statement fetch, cache, sanitizer, preferences API
+- ✅ #95 ADR 0015 PR B: split problem view, code-first notes, language picker
+- ✅ #97 ADR 0018: usage metrics move to the private `coderbirju/repo-metrics` repo; the release zip stays here
+
 **Wave 2a: growth loop and topics**
 - ✅ #66 Frontmatter escaping fix (complexity round-trip)
 - ✅ #67 Core `deriveGuidance` + `GET /api/guidance`
@@ -77,17 +85,15 @@ _Last updated: 2026-10-04. PRs #1–#96 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 #97 ADR 0018: usage metrics move to the private `coderbirju/repo-metrics` repo; this repo drops `metrics.yml`, `scripts/metrics/` and the `METRICS_TOKEN` text and keeps the release zip (`architect/metrics-move-out`).
-- ✅ Merged: #92 (ADRs 0015–0017), #93 (Data/Analytics tidy), #94 (ADR 0016 metrics + release zip), #96 (ADR 0015 PR A, server), #95 (ADR 0015 PR B, UI).
+- 🟡 Review follow-ups (this PR): Data page heading a11y, doc fixes (CHANGELOG, ADRs 0009/0015/0016), CI actions pinned by SHA (`feature/review-followups`).
 
 ## Next up
-1. **`coderbirju/repo-metrics`** (private, separate repo; ADR 0018): nightly traffic and release-download history for several repos. Seed: the removed merge script and tests.
-2. **Small follow-up PR (#93 a11y):** move the `h2` outside the `<summary>` on the Data page, fix the CHANGELOG wording, and add a one-line ADR 0009 D1 note that the unpin explanation now sits behind a disclosure.
-3. **Docs pass.** On hold until the founder says go.
-4. **Small follow-ups:**
+1. **Docs pass.** On hold until the founder says go.
+2. **Small follow-ups:**
    - Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
-   - Pin CI actions by SHA.
    - Pin the provider empty-response error text with a shared constant and a test.
+
+Note: the private repo `coderbirju/repo-metrics` exists (ADR 0018); its `METRICS_TOKEN` is founder-owned. Its seed is the ref `493a711:scripts/metrics/`.
 
 ## Open founder decisions
 - System Design: whether it is in scope, and in what shape.
