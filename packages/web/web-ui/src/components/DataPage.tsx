@@ -418,20 +418,21 @@ export function DataPage(): JSX.Element {
           then it is the recovery path (ADR 0009 D1). */}
       {!status.docker && (
         <section aria-labelledby="use-existing" className={CARD}>
+          {/* The heading sits above the <details>, not inside <summary>:
+              VoiceOver drops headings inside a summary from heading
+              navigation. The summary is only the toggle label. */}
+          <h2 id="use-existing" className="font-semibold text-slate-100">
+            Use an existing notes folder
+          </h2>
           <details
-            className="group"
+            className="group mt-3"
             data-testid="use-existing-details"
             open={useExistingOpen}
             onToggle={(e) => setExistingOpen(e.currentTarget.open)}
           >
-            <summary className={SUMMARY}>
+            <summary className={`${SUMMARY} w-fit text-sm text-slate-400`}>
               <ChevronRight className={CHEVRON} aria-hidden />
-              <h2
-                id="use-existing"
-                className="inline font-semibold text-slate-100"
-              >
-                Use an existing notes folder
-              </h2>
+              Enter a folder path
             </summary>
             <p className="mt-3 text-sm text-slate-400">
               Point InterviewBudAI at a folder that already holds your notes

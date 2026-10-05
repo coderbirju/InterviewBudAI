@@ -282,11 +282,24 @@ describe('DataPage disclosures (founder 2026-10-04: less crowded)', () => {
     const details = await screen.findByTestId('use-existing-details');
     expect(details).not.toHaveAttribute('open');
     expect(screen.getByLabelText('Folder path')).not.toBeVisible();
-    // The heading stays visible as the summary.
-    expect(
-      screen.getByRole('heading', { name: 'Use an existing notes folder' }),
-    ).toBeVisible();
-    await user.click(screen.getByText('Use an existing notes folder'));
+    // The heading stays visible and in heading navigation: it sits outside
+    // the <details> (VoiceOver drops headings inside <summary>).
+    const heading = screen.getByRole('heading', {
+      name: 'Use an existing notes folder',
+    });
+    expect(heading).toBeVisible();
+    expect(heading.closest('summary')).toBeNull();
+    expect(heading.closest('details')).toBeNull();
+    // The section is still labelled by that heading.
+    const section = heading.closest('section');
+    expect(section).toHaveAttribute('aria-labelledby', heading.id);
+    expect(heading.id).toBe('use-existing');
+    expect(section).toContainElement(details);
+    // The summary holds only the toggle label.
+    const summary = within(details).getByText('Enter a folder path');
+    expect(summary.tagName).toBe('SUMMARY');
+    expect(within(summary).queryByRole('heading')).toBeNull();
+    await user.click(summary);
     expect(details).toHaveAttribute('open');
     expect(screen.getByLabelText('Folder path')).toBeVisible();
   });
