@@ -144,7 +144,10 @@ export default function App(): JSX.Element {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      {/* ADR 0015 D5: Notes is a split view, so it gets a wider column. */}
+      <main
+        className={`mx-auto px-6 py-10 ${route.kind === 'notes' ? 'max-w-7xl' : 'max-w-5xl'}`}
+      >
         {route.kind === 'notes' ? (
           <Notes problemId={route.problemId} />
         ) : route.kind === 'data' ? (

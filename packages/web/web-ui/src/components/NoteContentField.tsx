@@ -10,6 +10,8 @@ import { Check, Copy, FileCode } from 'lucide-react';
 import { fencedBlockEdit } from '../lib/noteEditor/fencedBlock';
 import type { FenceLanguage } from '../lib/noteEditor/fencedBlock';
 import { readStyleNonce } from '../lib/noteEditor/nonce';
+import { extractCode, noteEditorMode } from '../lib/noteTemplate';
+import type { CodeLanguage, NoteEditorMode } from '../lib/noteTemplate';
 import type {
   NoteEditorHandle,
   NoteEditorProps,
@@ -35,6 +37,20 @@ const LABEL_ID = 'note-content-label';
 const HINT_ID = 'note-content-hint';
 const TEXTAREA_ID = 'note-content';
 const COPIED_MS = 2000;
+/** ADR 0015 D3: the editor mode follows the text, debounced. */
+const MODE_DEBOUNCE_MS = 300;
+
+type CopyTarget = 'note' | 'code';
+
+const COPIED_TEXT: Readonly<Record<CopyTarget, string>> = {
+  note: 'Copied',
+  code: 'Code copied',
+};
+
+const LANGUAGE_LABEL: Readonly<Record<CodeLanguage, string>> = {
+  python: 'Python',
+  go: 'Go',
+};
 
 type Mode =
   | { readonly kind: 'textarea' }
@@ -62,14 +78,30 @@ export function NoteContentField({
   value,
   onChange,
   loadEditor = loadNoteEditor,
+  language = 'python',
+  onLanguageChange,
+  languageBusy = false,
 }: {
   value: string;
   onChange: (next: string) => void;
   /** Injected in tests; defaults to the real lazy chunk. */
   loadEditor?: NoteEditorLoader;
+  /** The preferred code language (ADR 0015 D4): "Copy code" and the mode. */
+  language?: CodeLanguage;
+  /** Shows the Python | Go picker on the toolbar when given. */
+  onLanguageChange?: (next: CodeLanguage) => void;
+  /** A language change is being saved: the picker is disabled. */
+  languageBusy?: boolean;
 }): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'textarea' });
-  const [copyMsg, setCopyMsg] = useState('');
+  // Which copy button the message belongs to (each has its own "Copied").
+  const [copied, setCopied] = useState<{
+    readonly what: CopyTarget;
+    readonly ok: boolean;
+  } | null>(null);
+  const [editorMode, setEditorMode] = useState<NoteEditorMode>(() =>
+    noteEditorMode(value, language),
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const handleRef = useRef<NoteEditorHandle | null>(null);
   const pendingCursor = useRef<number | null>(null);
@@ -121,6 +153,14 @@ export function NoteContentField({
     [],
   );
 
+  // Recompute the editor mode once typing pauses (the textarea ignores it).
+  useEffect(() => {
+    const next = noteEditorMode(value, language);
+    if (next === editorMode) return;
+    const timer = setTimeout(() => setEditorMode(next), MODE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [value, language, editorMode]);
+
   // Textarea path: put the cursor inside a just-inserted block.
   useLayoutEffect(() => {
     const ta = textareaRef.current;
@@ -154,20 +194,28 @@ export function NoteContentField({
     onChange(next.text);
   };
 
-  const onCopy = async (): Promise<void> => {
+  /** "Copy note" copies the whole text; "Copy code" uses `extractCode`. */
+  const onCopy = async (what: CopyTarget, text: string): Promise<void> => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
     copyTimer.current = null;
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error('Clipboard API unavailable');
       }
-      await navigator.clipboard.writeText(value);
-      setCopyMsg('Copied');
-      copyTimer.current = setTimeout(() => setCopyMsg(''), COPIED_MS);
+      await navigator.clipboard.writeText(text);
+      setCopied({ what, ok: true });
+      copyTimer.current = setTimeout(() => setCopied(null), COPIED_MS);
     } catch {
-      setCopyMsg('Copy failed — select all and copy.');
+      setCopied({ what, ok: false });
     }
   };
+  const copyMsg = copied
+    ? copied.ok
+      ? COPIED_TEXT[copied.what]
+      : 'Copy failed — select all and copy.'
+    : '';
+  const isCopied = (what: CopyTarget): boolean =>
+    copied?.what === what && copied.ok;
 
   const editor = mode.kind === 'editor';
 
@@ -187,6 +235,32 @@ export function NoteContentField({
           aria-label="Note tools"
           className="flex flex-wrap items-center gap-2"
         >
+          {onLanguageChange && (
+            <div
+              role="group"
+              aria-label="Code language"
+              className="inline-flex overflow-hidden rounded-md border border-slate-700"
+            >
+              {(['python', 'go'] as const).map((lang) => (
+                <button
+                  key={lang}
+                  type="button"
+                  aria-pressed={language === lang}
+                  disabled={languageBusy}
+                  onClick={() => {
+                    if (lang !== language) onLanguageChange(lang);
+                  }}
+                  className={`px-2.5 py-1 text-xs font-medium transition-all duration-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${
+                    language === lang
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'text-slate-400 hover:text-emerald-400'
+                  }`}
+                >
+                  {LANGUAGE_LABEL[lang]}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             aria-label="Insert Python code block"
@@ -207,20 +281,32 @@ export function NoteContentField({
           </button>
           <button
             type="button"
-            onClick={() => void onCopy()}
+            onClick={() => void onCopy('note', value)}
             className={toolbarButton}
           >
-            {copyMsg === 'Copied' ? (
+            {isCopied('note') ? (
               <Check className="h-3.5 w-3.5" aria-hidden />
             ) : (
               <Copy className="h-3.5 w-3.5" aria-hidden />
             )}
             Copy note
           </button>
+          <button
+            type="button"
+            onClick={() => void onCopy('code', extractCode(value, language))}
+            className={toolbarButton}
+          >
+            {isCopied('code') ? (
+              <Check className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Copy className="h-3.5 w-3.5" aria-hidden />
+            )}
+            Copy code
+          </button>
           <span
             role="status"
             aria-live="polite"
-            className={`text-xs ${copyMsg === 'Copied' ? 'text-status-done' : 'text-status-blocked'}`}
+            className={`text-xs ${copied?.ok ? 'text-status-done' : 'text-status-blocked'}`}
           >
             {copyMsg}
           </span>
@@ -236,6 +322,7 @@ export function NoteContentField({
             labelId={LABEL_ID}
             describedById={HINT_ID}
             placeholder={NOTE_PLACEHOLDER}
+            mode={editorMode}
             autoFocus={mode.autoFocus}
             initialSelection={mode.initialSelection}
             onReady={onEditorReady}

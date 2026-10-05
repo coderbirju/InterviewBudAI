@@ -668,6 +668,8 @@ describe('Notes page mounts the coach', () => {
     };
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === '/api/settings') return json(200, settingsBody);
+      // ADR 0015: the statement is still loading, so no template is applied.
+      if (url.endsWith('/statement')) return new Promise<Response>(() => {});
       if (url === '/api/notes/two-sum' && !init?.method) {
         return json(200, saved);
       }
@@ -723,6 +725,8 @@ describe('Notes page mounts the coach', () => {
     };
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === '/api/settings') return json(200, settingsBody);
+      // ADR 0015: the statement is still loading, so no template is applied.
+      if (url.endsWith('/statement')) return new Promise<Response>(() => {});
       if (url === '/api/notes/two-sum' && !init?.method) {
         return json(200, saved);
       }

@@ -1,5 +1,11 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { Annotation, EditorSelection, EditorState } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+} from '@codemirror/state';
+import type { Extension } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import {
   defaultKeymap,
@@ -8,7 +14,10 @@ import {
   indentWithTab,
 } from '@codemirror/commands';
 import { indentOnInput, indentUnit } from '@codemirror/language';
+import { python } from '@codemirror/lang-python';
+import { go } from '@codemirror/lang-go';
 import { markdownLanguage } from '../lib/noteEditor/markdown';
+import type { NoteEditorMode } from '../lib/noteTemplate';
 import {
   noteEditorHighlighting,
   noteEditorTheme,
@@ -33,6 +42,13 @@ import type {
 
 /** Marks a transaction that mirrors an outside `value` (no `onChange`). */
 const External = Annotation.define<boolean>();
+
+/** ADR 0015 D3: a code-only note is edited as Python or Go, else Markdown. */
+const LANGUAGES: Readonly<Record<NoteEditorMode, Extension>> = {
+  markdown: markdownLanguage,
+  python: python(),
+  go: go(),
+};
 
 function clamp(n: number, len: number): number {
   return Math.max(0, Math.min(n, len));
@@ -59,6 +75,7 @@ function handleFor(view: EditorView): NoteEditorHandle {
 export default function NoteEditor(props: NoteEditorProps): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const language = useRef(new Compartment());
   // Latest callbacks without rebuilding the view.
   const latest = useRef(props);
   latest.current = props;
@@ -87,7 +104,7 @@ export default function NoteEditor(props: NoteEditorProps): JSX.Element {
             history(),
             indentUnit.of('    '),
             indentOnInput(),
-            markdownLanguage,
+            language.current.of(LANGUAGES[p.mode ?? 'markdown']),
             noteEditorHighlighting,
             noteEditorTheme,
             EditorView.lineWrapping,
@@ -120,6 +137,14 @@ export default function NoteEditor(props: NoteEditorProps): JSX.Element {
       view.destroy();
     };
   }, []);
+
+  // The mode follows the note text (Notes debounces it).
+  const mode = props.mode ?? 'markdown';
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: language.current.reconfigure(LANGUAGES[mode]),
+    });
+  }, [mode]);
 
   // An outside value (note load, save reconcile) replaces the doc only when it
   // differs, so typing never resets the cursor.
