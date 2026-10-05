@@ -1,0 +1,67 @@
+name: Release
+
+# ADR 0016 D2 (resolves ADR 0009 D5 PR D). The founder pushes a `vX.Y.Z` tag
+# by hand; agents never push tags. This builds the one-file server bundle,
+# zips it with the built SPA, smoke-tests the zip and creates the GitHub
+# Release with the zip as an uploaded asset (so GitHub counts its downloads).
+# Uses only the built-in GITHUB_TOKEN; no npm token.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build / smoke / publish release zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify (typecheck / lint / format / build / test)
+        run: npm run verify
+
+      # Fails (no release) unless the tag is vX.Y.Z and CHANGELOG.md has a
+      # `## [X.Y.Z]` section with a `### Breaking changes` heading (ADR 0009 D5).
+      - name: Check CHANGELOG section
+        run: node scripts/release/changelog.mjs check --tag "$TAG"
+
+      - name: Build the zip
+        run: node scripts/release/build-zip.mjs --tag "$TAG" --out "$RUNNER_TEMP/release"
+
+      - name: Smoke test the zip
+        run: node scripts/release/smoke-zip.mjs --zip "$RUNNER_TEMP/release/interviewbudai-$TAG.zip"
+
+      - name: Write release notes
+        run: node scripts/release/changelog.mjs notes --tag "$TAG" --out "$RUNNER_TEMP/release/notes.md"
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" "$RUNNER_TEMP/release/interviewbudai-$TAG.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/release/notes.md"

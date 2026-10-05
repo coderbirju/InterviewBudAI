@@ -95,6 +95,20 @@ and is listed there with what you need to do (ADR 0009 D4).
 - **Code language preference** (ADR 0015 D4): **Python | Go** on the Notes
   toolbar and **Code language** in Settings (default Python), saved in
   `<data folder>/preferences.json`.
+- **Release zip** (ADR 0016 D2, ADR 0009 D5). Pushing a `vX.Y.Z` tag builds
+  `interviewbudai-vX.Y.Z.zip` (one bundled server file plus the built web
+  app), smoke-tests it and attaches it to a GitHub Release. Run it with
+  `node interviewbudai-vX.Y.Z/dist/server.js` (Node ≥ 20.12); nothing is
+  installed or built. Inside the zip the server reads `.env` from the
+  unzipped folder; from a clone it still reads the repo-root `.env`. A
+  release whose CHANGELOG section is missing or has no `### Breaking changes`
+  heading fails. `esbuild` 0.21.5 (already in the tree through Vite) is now a
+  pinned root dev dependency. Breaking changes: none.
+- **Usage metrics, repo side only** (ADR 0016 D1). A nightly workflow copies
+  GitHub's clone and view counts and the release download counts to CSV files
+  on a data-only `metrics` branch, so the history outlives GitHub's 14 days.
+  The app sends nothing. Needs a founder-held `METRICS_TOKEN` (see README);
+  without it only downloads are recorded. Breaking changes: none.
 - **Code editor for notes** (ADR 0014 D2). The "Intuition & approach" box on
   the Notes page is now a CodeMirror 6 Markdown editor. Fenced ` ```python `
   (also `py`, `python3`) and ` ```go ` (also `golang`) blocks get syntax
@@ -301,6 +315,20 @@ and is listed there with what you need to do (ADR 0009 D4).
   existing note that does not contain the starter code's signature shows the
   starter code appended as a fenced block when opened. It is **not saved**
   unless you click Save; leaving discards it.
+- **Tidier Your data and Analytics pages** (founder feedback 2026-10-04).
+  On **Your data** (`/data`) the precedence of `--data-dir` /
+  `IBAI_DATA_DIR` / `config.json` / default, the how-to-unpin steps and the
+  Docker pinning details now sit in a collapsed **How this folder is chosen**
+  disclosure, and **Use an existing notes folder** is collapsed while your
+  folder has notes (it stays open when it has none, since it is then the way
+  to recover them). The folder path, source, note count, the "pinned, can't be
+  changed here" line, every warning, and the **Found previous data** prompt
+  are always visible. **Analytics** gets more room: more space between
+  sections, more padding in cards and tiles, plain section headings, larger
+  donuts and rings, topic tiles that wrap their labels and drop to fewer
+  columns on narrow screens instead of squeezing. No new data or charts; no
+  behavior changes. Breaking changes: none.
+
 - **Quiz prompt diet** (ADR 0012 D2). The grader prompt states each rule once
   and holds about half the fixed text (≈ 277 estimated tokens, was ≈ 497); the
   worst case incl. the retry is ≈ 1 979 (budget 2 000, was 3 000). After a
