@@ -22,7 +22,7 @@ import {
   noteEditorHighlighting,
   noteEditorTheme,
 } from '../lib/noteEditor/theme';
-import { fencedBlockEdit, minimalChange } from '../lib/noteEditor/fencedBlock';
+import { minimalChange } from '../lib/noteEditor/fencedBlock';
 import type {
   NoteEditorHandle,
   NoteEditorProps,
@@ -55,21 +55,7 @@ function clamp(n: number, len: number): number {
 }
 
 function handleFor(view: EditorView): NoteEditorHandle {
-  return {
-    focus: () => view.focus(),
-    insertFence: (lang) => {
-      const doc = view.state.doc.toString();
-      const { from, to } = view.state.selection.main;
-      const next = fencedBlockEdit(doc, from, to, lang);
-      view.dispatch({
-        changes: minimalChange(doc, next.text),
-        selection: { anchor: next.cursor },
-        scrollIntoView: true,
-        userEvent: 'input',
-      });
-      view.focus();
-    },
-  };
+  return { focus: () => view.focus() };
 }
 
 export default function NoteEditor(props: NoteEditorProps): JSX.Element {
