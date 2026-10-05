@@ -109,6 +109,12 @@ describe('Settings: Problems & code', () => {
     expect(toggle).not.toBeChecked();
     expect(toggle).toHaveAccessibleDescription(/Set by IBAI_LEETCODE_FETCH/);
     expect(s).toHaveTextContent('Set by IBAI_LEETCODE_FETCH.');
+    // The pinned state and both controls are at a glance, never collapsed.
+    expect(s.closest('details')).toBeNull();
+    expect(s.querySelector('details')).toBeNull();
+    expect(
+      within(s).getByText('IBAI_LEETCODE_FETCH').closest('details'),
+    ).toBeNull();
     // The language stays editable.
     expect(within(s).getByLabelText('Code language')).toBeEnabled();
   });

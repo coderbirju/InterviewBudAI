@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import {
   AlertTriangle,
   ChevronRight,
@@ -11,6 +10,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { CsvImport } from './CsvImport';
+import { CHEVRON, Disclosure, SUMMARY } from './Disclosure';
 import { DockerNotices } from './DockerNotices';
 import {
   ApiError,
@@ -74,39 +74,6 @@ const PRIMARY_BTN =
   'rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50';
 const SECONDARY_BTN =
   'rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-emerald-500 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50';
-
-/** Native `<summary>`: keyboard accessible (Enter/Space), custom chevron. */
-const SUMMARY =
-  'flex cursor-pointer list-none items-center gap-2 rounded-md transition-all duration-200 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 [&::-webkit-details-marker]:hidden';
-const CHEVRON =
-  'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-90';
-
-/**
- * A collapsed-by-default `<details>` for reference detail (env vars,
- * precedence, Docker pinning). Never used for warnings, errors or the
- * recovery prompt — those always stay visible.
- */
-function Disclosure({
-  testId,
-  summary,
-  children,
-}: {
-  testId: string;
-  summary: string;
-  children: ReactNode;
-}): JSX.Element {
-  return (
-    <details className="group mt-4" data-testid={testId}>
-      <summary className={`${SUMMARY} w-fit text-sm text-slate-400`}>
-        <ChevronRight className={CHEVRON} aria-hidden />
-        {summary}
-      </summary>
-      <div className="mt-3 space-y-2 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
-        {children}
-      </div>
-    </details>
-  );
-}
 
 export function DataPage(): JSX.Element {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
