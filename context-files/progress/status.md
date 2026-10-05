@@ -85,7 +85,7 @@ _Last updated: 2026-10-04. PRs #1–#97 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 Review follow-ups (this PR): Data page heading a11y, doc fixes (CHANGELOG, ADRs 0009/0015/0016), CI actions pinned by SHA (`feature/review-followups`).
+- 🟡 #98 Review follow-ups: Data page heading a11y, doc fixes (CHANGELOG, ADRs 0009/0015/0016), CI actions pinned by SHA (`feature/review-followups`).
 
 ## Next up
 1. **Docs pass.** On hold until the founder says go.
