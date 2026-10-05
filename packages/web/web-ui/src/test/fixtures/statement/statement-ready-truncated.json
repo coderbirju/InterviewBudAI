@@ -1,0 +1,188 @@
+{
+  "id": "lc-3",
+  "title": "Longest Substring Without Repeating Characters",
+  "difficulty": "medium",
+  "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
+  "custom": false,
+  "state": "ready",
+  "source": "leetcode",
+  "blocks": [
+    {
+      "t": "p",
+      "c": [
+        {
+          "t": "em",
+          "c": [
+            {
+              "t": "em",
+              "c": [
+                {
+                  "t": "em",
+                  "c": [
+                    {
+                      "t": "em",
+                      "c": [
+                        {
+                          "t": "em",
+                          "c": [
+                            {
+                              "t": "em",
+                              "c": [
+                                {
+                                  "t": "em",
+                                  "c": [
+                                    {
+                                      "t": "em",
+                                      "c": [
+                                        {
+                                          "t": "em",
+                                          "c": [
+                                            {
+                                              "t": "em",
+                                              "c": [
+                                                {
+                                                  "t": "em",
+                                                  "c": [
+                                                    {
+                                                      "t": "em",
+                                                      "c": [
+                                                        {
+                                                          "t": "em",
+                                                          "c": [
+                                                            {
+                                                              "t": "em",
+                                                              "c": [
+                                                                {
+                                                                  "t": "em",
+                                                                  "c": [
+                                                                    {
+                                                                      "t": "em",
+                                                                      "c": [
+                                                                        {
+                                                                          "t": "em",
+                                                                          "c": [
+                                                                            {
+                                                                              "t": "em",
+                                                                              "c": [
+                                                                                {
+                                                                                  "t": "em",
+                                                                                  "c": [
+                                                                                    {
+                                                                                      "t": "em",
+                                                                                      "c": [
+                                                                                        {
+                                                                                          "t": "em",
+                                                                                          "c": [
+                                                                                            {
+                                                                                              "t": "em",
+                                                                                              "c": [
+                                                                                                {
+                                                                                                  "t": "em",
+                                                                                                  "c": [
+                                                                                                    {
+                                                                                                      "t": "em",
+                                                                                                      "c": [
+                                                                                                        {
+                                                                                                          "t": "em",
+                                                                                                          "c": [
+                                                                                                            {
+                                                                                                              "t": "em",
+                                                                                                              "c": [
+                                                                                                                {
+                                                                                                                  "t": "em",
+                                                                                                                  "c": [
+                                                                                                                    {
+                                                                                                                      "t": "em",
+                                                                                                                      "c": [
+                                                                                                                        {
+                                                                                                                          "t": "em",
+                                                                                                                          "c": [
+                                                                                                                            {
+                                                                                                                              "t": "em",
+                                                                                                                              "c": [
+                                                                                                                                {
+                                                                                                                                  "t": "em",
+                                                                                                                                  "c": [
+                                                                                                                                    {
+                                                                                                                                      "t": "text",
+                                                                                                                                      "v": "Deeply nested text."
+                                                                                                                                    }
+                                                                                                                                  ]
+                                                                                                                                }
+                                                                                                                              ]
+                                                                                                                            }
+                                                                                                                          ]
+                                                                                                                        }
+                                                                                                                      ]
+                                                                                                                    }
+                                                                                                                  ]
+                                                                                                                }
+                                                                                                              ]
+                                                                                                            }
+                                                                                                          ]
+                                                                                                        }
+                                                                                                      ]
+                                                                                                    }
+                                                                                                  ]
+                                                                                                }
+                                                                                              ]
+                                                                                            }
+                                                                                          ]
+                                                                                        }
+                                                                                      ]
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "text": null,
+  "exampleTestcases": "\"abca\"\n\"bbbb\"",
+  "snippets": {
+    "python": "class Solution:\n    def longestRun(self, s: str) -> int:\n        ",
+    "go": "func longestRun(s string) int {\n    \n}"
+  },
+  "fetchedAt": "2026-10-04T12:00:00.000Z",
+  "truncated": true,
+  "cached": true,
+  "fetch": {
+    "enabled": true,
+    "pinned": false
+  }
+}

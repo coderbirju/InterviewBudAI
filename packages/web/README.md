@@ -152,11 +152,41 @@ Response shapes are exported as types from `@ibai/web` (`ApiCatalogResponse`,
 generic interview chat (`POST /api/chat`) was removed (ADR 0008 D4) — it now
 404s like any unknown `/api` path.
 
+### Problem statements + preferences (ADR 0015)
+
+The one optional, user-triggered network call besides the LLM: the local
+server fetches ONE catalog problem from `https://leetcode.com/graphql` (fixed
+URL, `POST`, slug from the catalog `url` only, `redirect: 'error'`, no cookies
+or auth, 10 s timeout, 1 MiB streamed cap, JSON + shape check, one fetch in
+flight and ≤ 10 per 10 minutes per process). `leetcode.ts` makes the request;
+`statement-sanitize.ts` (`htmlparser2` 10.1.0, server only) turns the HTML into
+the allowlisted node tree of `statement-tree.ts` (zero imports, shared with
+the SPA: `isStatementTree()`; linear time: input cut to 256 KiB, at most
+1 024 open tags, parsing stops at the first cap and sets `truncated`); `problem-cache.ts` stores it in
+`<dataDir>/problem-cache/<id>.json` (`^lc-[0-9]+$` ids only, 0700/0600,
+atomic, `.gitignore` = `*`, ≤ 512 KiB, untrusted on read). Turn it off in
+Settings or with `IBAI_LEETCODE_FETCH=off` (this pins it). The root README
+explains what is sent and stored, and the ToS note.
+
+| Route | Behaviour |
+|---|---|
+| `GET /api/problems/:id/statement` | Cache only, **never calls LeetCode**. `ApiProblemStatement`: `{ id, title, difficulty, url, custom, state: 'ready'\|'not-cached'\|'disabled'\|'premium'\|'unavailable', source: 'leetcode'\|'pasted'\|'custom'\|null, blocks, text, exampleTestcases, snippets: { python, go }, fetchedAt, truncated, cached, fetch: { enabled, pinned } }`. Pasted text wins over a fetched statement (its snippets are kept). Custom problems return their own `statement` (`source: 'custom'`, or `unavailable` without one). Unknown id → `404`. |
+| `POST /api/problems/:id/statement/fetch` | Body `{ refresh? }`. Catalog ids only (custom → `400`). A cached fetch without `refresh` → `200` from the cache, no request. Else one request → `200` (`ready` or `premium`, both cached). Errors: `403 fetch_disabled`; `404 not_found` (LeetCode has no such slug; cached, so a later GET is `unavailable`, and a later POST without `refresh` returns `200` from the cache with `state: 'unavailable'`, no request); `429 rate_limited` with `retryAfterMs` (also while another fetch is in flight); `502 fetch_failed`; `504 fetch_timeout`. Fixed error text; LeetCode's reply is never echoed. Read-only or missing folder → still `200`, `cached: false`. |
+| `PUT /api/problems/:id/statement` | Body `{ text }`, normalised (CRLF → LF, C0 controls except tab/newline removed, trimmed), ≤ 64 KiB, else `413`. Saves the paste; empty text clears it. Custom → `400`; no folder → `400`; read-only → `409`. |
+| `GET /api/preferences` | `{ language: 'python'\|'go', leetcodeFetch: { enabled, pinned } }` from `<dataDir>/preferences.json` (defaults `python` and on; `IBAI_LEETCODE_FETCH` pins). |
+| `PUT /api/preferences` | Body `{ language?, leetcodeFetch? }`; a bad value or unknown field → `400`; `leetcodeFetch` while pinned → `400 "Set by IBAI_LEETCODE_FETCH"`; unknown keys in the file are kept; atomic, 0600; no folder → `400`; read-only → `409`. |
+
+Every POST/PUT passes the usual prechecks (Host `421`, cross-site `403`,
+non-JSON `415`, 1 MiB body cap). Fixtures for every state and error body live
+in `web-ui/src/test/fixtures/statement/`; `statement-api.test.ts` checks they
+match what the routes return (regenerate with
+`IBAI_WRITE_STATEMENT_FIXTURES=1 npx vitest run packages/web/src/statement-api.test.ts`).
+
 ### Settings API (ADR 0008 Wave 2c-lite)
 
 | Route | Response |
 |---|---|
-| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the normalized base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the key that would be sent — `IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only for `https://api.openai.com`; otherwise Anthropic). `hint` explains a half-set/rejected config, or an OpenAI-compatible config ignored next to an active Anthropic/Ollama provider. Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT`, `IBAI_HOST_DATA_DIR` with `set` booleans — never values. `405` non-GET. |
+| `GET /api/settings` | `{ provider: { kind: 'anthropic'\|'openai'\|'ollama'\|'none', model, endpoint, keyConfigured, label?, hint? }, dataDir: { path, source, pinned }, app: { version, node }, envHelp: [{ var, purpose, set }] }`. `endpoint` is the Ollama / OpenAI-compatible origin (`scheme://host:port`; userinfo, path and query stripped), `null` otherwise. `label` (`openai` only) is `"Docker Model Runner (local)"` when the normalized base URL host is `model-runner.docker.internal`, or loopback / `172.17.0.1` on port `12434` under `/engines/`; else `"OpenAI-compatible"`. `keyConfigured` is the active provider's key (OpenAI-compatible: the key that would be sent — `IBAI_OPENAI_API_KEY`, or `OPENAI_API_KEY` only for `https://api.openai.com`; otherwise Anthropic). `hint` explains a half-set/rejected config, or an OpenAI-compatible config ignored next to an active Anthropic/Ollama provider. Secrets are checked for presence only; `envHelp` covers `ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_API_KEY`, `IBAI_ANTHROPIC_MODEL`, `IBAI_OPENAI_BASE_URL`, `IBAI_OPENAI_MODEL`, `IBAI_OPENAI_API_KEY`, `OPENAI_API_KEY`, `IBAI_OPENAI_TIMEOUT_MS`, `IBAI_OLLAMA_MODEL`, `IBAI_OLLAMA_URL`, `IBAI_DATA_DIR`, `IBAI_WEB_PORT`, `IBAI_LEETCODE_FETCH`, `IBAI_HOST_DATA_DIR` with `set` booleans — never values. `405` non-GET. |
 | `POST /api/settings/test-provider` | Same prechecks as every mutating `/api` route (Host 421, cross-site 403, non-JSON 415). Rate limited in-process: one test per 5 s (and one at a time) → else `429 { error }`. No provider → `400 { error: 'no model configured' }`. Ollama: `GET <IBAI_OLLAMA_URL>/api/tags` (5 s timeout), `ok` only if the configured model is pulled (`llama3` ≡ `llama3:latest`). OpenAI-compatible: `GET <base URL>/models` (Bearer only when a key is set; 5 s timeout), `ok` only if `data[].id` lists the configured model (`m` ≡ `m:latest`); "not listed" gets its own detail (DMR: a `docker model pull` hint). Anthropic: one `max_tokens: 1` messages call through `AnthropicProvider` (billable, 5 s timeout). `200 { ok, latencyMs, detail }`; `detail` is fixed, sanitized text (HTTP status class + a plain `error.type` identifier at most) — provider bodies, headers, keys and URL userinfo are never echoed. |
 
 ### Your data (`/data` — ADR 0009 D1)
