@@ -77,7 +77,7 @@ _Last updated: 2026-10-04. PRs #1–#96 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🔨 ADR 0018: usage metrics move to the private `coderbirju/repo-metrics` repo; this repo drops `metrics.yml`, `scripts/metrics/` and the `METRICS_TOKEN` text and keeps the release zip (`architect/metrics-move-out`).
+- 🟡 #97 ADR 0018: usage metrics move to the private `coderbirju/repo-metrics` repo; this repo drops `metrics.yml`, `scripts/metrics/` and the `METRICS_TOKEN` text and keeps the release zip (`architect/metrics-move-out`).
 - ✅ Merged: #92 (ADRs 0015–0017), #93 (Data/Analytics tidy), #94 (ADR 0016 metrics + release zip), #96 (ADR 0015 PR A, server), #95 (ADR 0015 PR B, UI).
 
 ## Next up
