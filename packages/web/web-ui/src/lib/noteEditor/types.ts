@@ -1,4 +1,3 @@
-import type { FenceLanguage } from './fencedBlock';
 import type { NoteEditorMode } from '../noteTemplate';
 
 /**
@@ -6,10 +5,9 @@ import type { NoteEditorMode } from '../noteTemplate';
  * (ADR 0014 D2). Types only, so the main chunk never imports CodeMirror.
  */
 
-/** What the toolbar and the label need from the mounted editor. */
+/** What the label needs from the mounted editor. */
 export interface NoteEditorHandle {
   focus(): void;
-  insertFence(lang: FenceLanguage): void;
 }
 
 export interface NoteEditorSelection {
