@@ -11,7 +11,11 @@ and only green, reviewed PRs get merged.** Do this once.
 2. **Target branch:** `main`.
 3. Enable:
    - ✅ **Require a pull request before merging**
-     - ✅ Require approvals: **1** (you are the approver).
+     - ✅ Require approvals: **1** (you are the approver). **Note (ADR 0017):**
+       agents act through your account, and GitHub does not let a PR's
+       author approve it, so this setting blocks Architect merges. Set it to
+       **0** if you want the Architect to merge; keep it at 1 to merge
+       everything yourself.
      - ✅ Dismiss stale approvals when new commits are pushed.
    - ✅ **Require status checks to pass before merging**
      - ✅ Require branches to be up to date before merging.
@@ -23,16 +27,17 @@ and only green, reviewed PRs get merged.** Do this once.
    - ✅ **Block force pushes** to `main`.
    - ✅ **Restrict deletions** of `main`.
 4. **Do NOT enable auto-merge** for the repo (Settings → General → Pull
-   Requests → leave "Allow auto-merge" unchecked). Merging is a deliberate
-   morning action.
+   Requests → leave "Allow auto-merge" unchecked).
 5. Save.
 
 ## Result
 
 - Agents can push only to feature branches and open PRs.
-- A PR can be merged only when CI is green **and** you approve it.
+- A PR can be merged only when CI is green (and, if approvals are required,
+  you approve it).
 - No direct pushes, force-pushes, or deletions of `main`.
-- You merge the PRs you approve each morning — nothing merges on its own.
+- The Architect may merge green PRs that passed an independent code review
+  (charter §2.5, ADR 0017); you can merge too. Nothing merges on its own.
 
 ## Note for agents
 
