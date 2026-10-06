@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 
-/** Native `<summary>`: keyboard accessible (Enter/Space), custom chevron. */
+/**
+ * Native `<summary>`: keyboard accessible (Enter/Space), custom chevron.
+ * Exported because DataPage's controlled `use-existing` `<details>` builds its
+ * own `<summary>` and must match this one's look.
+ */
 export const SUMMARY =
   'flex cursor-pointer list-none items-center gap-2 rounded-md transition-all duration-200 hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 [&::-webkit-details-marker]:hidden';
 export const CHEVRON =

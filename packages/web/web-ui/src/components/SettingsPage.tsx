@@ -139,7 +139,10 @@ function YesNo({
   );
 }
 
-/** The "Connection" row: derived from the last explicit test only. */
+/**
+ * The "Last test" row: derived from the last explicit test only, never a live
+ * probe, so the label says so and a stale "Reachable" is not read as live.
+ */
 function ConnectionStatus({ test }: { readonly test: Test }): JSX.Element {
   switch (test.kind) {
     case 'idle':
@@ -167,7 +170,7 @@ function ConnectionStatus({ test }: { readonly test: Test }): JSX.Element {
       return (
         <span className="inline-flex items-center gap-1 text-amber-200">
           <AlertTriangle className="h-4 w-4" aria-hidden />
-          Not tested — see below
+          {"Test didn't run — see below"}
         </span>
       );
   }
@@ -444,7 +447,7 @@ export function SettingsPage(): JSX.Element {
             />
           </Row>
           {configured && (
-            <Row label="Connection">
+            <Row label="Last test">
               <ConnectionStatus test={test} />
             </Row>
           )}

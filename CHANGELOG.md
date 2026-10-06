@@ -313,6 +313,10 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Settings: "Last test" row.** The AI provider's "Connection" row is now
+  labelled **Last test**, so a "Reachable" from an earlier test is not read
+  as a live status. When the test request itself fails, the row says
+  **"Test didn't run — see below"** (was "Not tested — see below").
 - **Notes toolbar trimmed** (founder feedback 2026-10-05, ADR 0014 D2
   amendment). The editor toolbar now shows only the **Python | Go** language
   picker and **Copy code**. The **Python block**, **Go block** and **Copy
