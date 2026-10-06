@@ -228,9 +228,10 @@ supports Node ≥ 20.12, so **10.1.0** (2026-01-21, no `engines` field) is
 pinned. Its transitive packages (`domhandler` 5, `domutils` 3,
 `domelementtype` 2, `entities` and `dom-serializer` 2, same author) are
 pinned by the lockfile. Licences: `htmlparser2` and `dom-serializer` are MIT;
-`domhandler`, `domutils`, `domelementtype` and `entities` 4.5.0 / 6.0.1 /
-7.0.1 are BSD-2-Clause. PR A adds a row to the ADR 0006 table. A later bump
-to 12.x waits for the Node floor to move.
+`domhandler`, `domutils`, `domelementtype` and `entities` 7.0.1 (under
+`htmlparser2`) and 4.5.0 (under `dom-serializer`) are BSD-2-Clause. PR A
+adds a row to the ADR 0006 table. A later bump to 12.x waits for the Node
+floor to move.
 
 **Module split (decided: one shared file, imported by relative path).**
 
