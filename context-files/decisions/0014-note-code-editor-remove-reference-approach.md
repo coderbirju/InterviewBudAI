@@ -309,7 +309,8 @@ fetched at runtime (§6.4).
     nested syntax tree has Python nodes (`FunctionDefinition`) and Go
     nodes (`FunctionDecl`) inside their fences;
   - Enter after `def f():` inside a Python fence indents;
-  - `fencedBlockEdit` cases (empty doc, mid-line, selection wrap);
+  - `fencedBlockEdit` cases (empty doc, mid-line, selection wrap)
+    (removed, see amendment 2026-10-05);
   - nonce extraction.
 - **Component** (jsdom, with `Range.prototype.getClientRects` and
   `getBoundingClientRect` polyfilled in the UI test setup):
