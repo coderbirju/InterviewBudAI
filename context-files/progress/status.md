@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-10-05. PRs #1–#98 are merged or closed (source: `gh pr list`). ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-05. PRs #1–#101 are merged or closed (source: `gh pr list`). ADR 0019, ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -29,6 +29,9 @@ _Last updated: 2026-10-05. PRs #1–#98 are merged or closed (source: `gh pr lis
 - ✅ #95 ADR 0015 PR B: split problem view, code-first notes, language picker
 - ✅ #97 ADR 0018: usage metrics move to the private `coderbirju/repo-metrics` repo; the release zip stays here
 - ✅ #98 Review follow-ups: Data page heading a11y, doc fixes, CI actions pinned by SHA
+- ✅ #99 Notes toolbar trimmed to the language picker and "Copy code" (ADR 0014 D2 amendment)
+- ✅ #100 ADR 0019: Node 24 LTS minimum (engines, CI, Docker, release zip; breaking)
+- ✅ #101 Settings page: simpler layout, config details in collapsed sections
 
 **Wave 2a: growth loop and topics**
 - ✅ #66 Frontmatter escaping fix (complexity round-trip)
@@ -86,16 +89,18 @@ _Last updated: 2026-10-05. PRs #1–#98 are merged or closed (source: `gh pr lis
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 ADR 0019: Node 24 LTS minimum (engines, CI, Docker, release zip; breaking) (`architect/node-24`).
+- 🟡 Cleanup: Settings "Last test" wording, ADR cross-references, status refresh (`feature/cleanup-2026-10-05`).
 
 ## Next up
-1. **Docs pass.** On hold until the founder says go.
-2. **Small follow-ups:**
-   - Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
-   - Pin the provider empty-response error text with a shared constant and a test.
-   - `htmlparser2` 11.x/12.x is now allowed by the Node 24 floor (ADR 0019 D4); bump in its own PR.
+1. `htmlparser2` 11.x/12.x bump, now allowed by the Node 24 floor (ADR 0019 D4; optional, own PR).
+2. Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
+3. Pin the provider empty-response error text with a shared constant and a test.
+4. **Docs pass.** On hold until the founder says go.
+5. `ubuntu-latest` moves to Ubuntu 26 on 2026-10-19; watch CI that week.
 
-Note: the private repo `coderbirju/repo-metrics` exists (ADR 0018); its `METRICS_TOKEN` is founder-owned. Its seed is the ref `493a711:scripts/metrics/`.
+## Founder actions
+- Create the `METRICS_TOKEN` secret in `coderbirju/repo-metrics` (ADR 0018). Its seed is the ref `493a711:scripts/metrics/`.
+- Push the first release tag (ADR 0016).
 
 ## Open founder decisions
 - System Design: whether it is in scope, and in what shape.

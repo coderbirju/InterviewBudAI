@@ -5,8 +5,9 @@
 - **Deciders:** Founder, Architect
 - **Amends:** ADR 0009 D5 (run the zip "with Node ≥ 20.12"), ADR 0011 D2
   (Docker image "major ≥ 20.12 LTS line"), ADR 0016 D2 ("Set up Node 20",
-  `--target=node20.12`, the release notes header). Everything else in those
-  ADRs stands.
+  `--target=node20.12`, the release notes header). It also relaxes the
+  rationale in ADR 0015 D2 and the ADR 0006 htmlparser2 row; the 10.1.0 pin
+  stands. Everything else in those ADRs stands.
 
 ## Context
 

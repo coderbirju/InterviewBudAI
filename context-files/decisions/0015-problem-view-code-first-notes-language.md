@@ -226,10 +226,11 @@ pin; from `npm view` on 2026-10-04):
 `12.0.0` and `11.0.0` declare `engines.node >= 20.19.0`, but the project
 supports Node ≥ 20.12, so **10.1.0** (2026-01-21, no `engines` field) is
 pinned. Its transitive packages (`domhandler` 5, `domutils` 3,
-`domelementtype` 2, `entities` 7 and `dom-serializer` 2, same author) are
+`domelementtype` 2, `entities` and `dom-serializer` 2, same author) are
 pinned by the lockfile. Licences: `htmlparser2` and `dom-serializer` are MIT;
-`domhandler`, `domutils`, `domelementtype` and `entities` are BSD-2-Clause. PR A adds a row to the ADR 0006 table. A later bump to 12.x waits
-for the Node floor to move.
+`domhandler`, `domutils`, `domelementtype` and `entities` 4.5.0 / 6.0.1 /
+7.0.1 are BSD-2-Clause. PR A adds a row to the ADR 0006 table. A later bump
+to 12.x waits for the Node floor to move.
 
 **Module split (decided: one shared file, imported by relative path).**
 
@@ -441,6 +442,7 @@ language's template. Otherwise the note is not changed now. The new language
 applies to the append rule the next time a note is opened.
 
 **Copy.** The toolbar keeps "Copy note" (whole text) and adds **"Copy code"**:
+_(Superseded by the ADR 0014 D2 amendment (2026-10-05): "Copy note" is removed.)_
 
 - code-only note (no fence line) → copies the whole note;
 - note with fences → copies the content of the **last** fence in the
@@ -449,6 +451,8 @@ applies to the append rule the next time a note is opened.
 
 It uses the same clipboard and `aria-live` messages as "Copy note"
 (ADR 0014 D2). The pure helper is `extractCode(text, preferred)`.
+_(Superseded by the ADR 0014 D2 amendment (2026-10-05): "Copy code" now has
+its own "Code copied" message.)_
 
 **Fence aliases are shared, not repeated.** A fence counts as Python or Go by
 ADR 0014's alias set (`python` / `py` / `python3` → Python, `go` / `golang` →

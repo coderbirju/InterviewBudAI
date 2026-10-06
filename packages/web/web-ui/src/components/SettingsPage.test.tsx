@@ -379,7 +379,7 @@ describe('SettingsPage layout (founder feedback 2026-10-05)', () => {
     expect(notConfigured).toHaveTextContent(/quiz master is off/i);
     expect(notConfigured.closest('details')).toBeNull();
     // No connection row when there is nothing to test.
-    expect(within(provider).queryByText('Connection')).toBeNull();
+    expect(within(provider).queryByText('Last test')).toBeNull();
     unmount();
 
     mockedApi.fetchSettings.mockResolvedValue({
@@ -413,6 +413,7 @@ describe('SettingsPage layout (founder feedback 2026-10-05)', () => {
       );
     render(<SettingsPage />);
     const provider = await screen.findByRole('region', { name: 'AI provider' });
+    expect(within(provider).getByText('Last test')).toBeInTheDocument();
     expect(within(provider).getByText('Not tested yet')).toBeInTheDocument();
     expect(mockedApi.testProviderConnection).not.toHaveBeenCalled();
 
@@ -445,7 +446,7 @@ describe('SettingsPage layout (founder feedback 2026-10-05)', () => {
     const err = await within(provider).findByText(/please wait 5 s/i);
     expect(err.closest('details')).toBeNull();
     expect(
-      within(provider).getByText('Not tested — see below'),
+      within(provider).getByText("Test didn't run — see below"),
     ).toBeInTheDocument();
     expect(mockedApi.testProviderConnection).toHaveBeenCalledTimes(3);
   });
