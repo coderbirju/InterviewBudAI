@@ -114,13 +114,14 @@ describe('App: Home filter survives a Notes round-trip', () => {
     expect(screen.getByText('1 of 3 problems')).toBeInTheDocument();
     expect(screen.queryByText('Stack')).not.toBeInTheDocument();
 
-    // Open the matching row's notes (client-side navigation).
+    // Clicking the row's title opens its notes (client-side navigation).
     const row = screen.getByText('Two Sum').closest('tr');
     expect(row).not.toBeNull();
+    expect(
+      within(row as HTMLElement).queryByRole('link', { name: /notes for/i }),
+    ).toBeNull();
     await user.click(
-      within(row as HTMLElement).getByRole('link', {
-        name: /open notes for two sum/i,
-      }),
+      within(row as HTMLElement).getByRole('link', { name: 'Two Sum' }),
     );
     expect(window.location.pathname).toBe('/notes/two-sum');
     // Notes loaded: the title links out to the problem.
