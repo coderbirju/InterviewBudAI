@@ -195,6 +195,10 @@ it off (PR A).
 prompts are unchanged (no budget changes). Custom problems keep their ADR 0013
 statement grounding. Using the fetched text in prompts needs a new ADR.
 
+_Pointer (2026-10-08): the quiz question card also shows this cached
+statement, display only, with the same GET-then-one-fetch flow (ADR 0007,
+"Amendment (2026-10-08)" under A8). It is still not sent to the model._
+
 ### D2 — Sanitize on the server into a node tree; React renders it
 
 LeetCode HTML is untrusted (§7.3).
