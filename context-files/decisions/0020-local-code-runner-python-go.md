@@ -140,8 +140,8 @@ together they are defense in depth.
      Vite dev server's copy are rejected), keeps it in a module variable,
      **removes the meta element** from the DOM, and sends it as the header
      **`X-IBAI-Run-Token`** on `POST /api/run`, `POST /api/run/detect` and on
-     a `PUT /api/preferences` that sets `codeRunner: true`. No token → Run and Run examples are hidden and
-     Settings explains "Open the app from the server (`npm start`) to use the
+     a `PUT /api/preferences` that sets `codeRunner: true`. No token → Run
+     and Run examples are hidden and Settings explains "Open the app from the server (`npm start`) to use the
      code runner."
    - **Server:** compares with the existing constant-time `tokensEqual`
      (`crypto.timingSafeEqual`; false on a missing header, a type or a length
@@ -323,7 +323,11 @@ new dependency):
 
 - Each run gets a **temp module**: the temp dir holds `go.mod`
   (`module ibairun` and `go <major>.<minor>` taken from the detected
-  `GOVERSION`, never below `1.21`) and the source files. The `go` line sets
+  `GOVERSION`, never below `1.21`) and the source files. Parsing: the
+  leading `go<major>.<minor>` is taken and any suffix dropped (`go1.22rc1`
+  → `1.22`, `go1.25.0` → `1.25`); a value that does not start that way (for
+  example `devel go1.26-abc…`) falls back to `1.21`, with one server log
+  line saying so. The `go` line sets
   the language version, so newer syntax such as `for i := range 3` (Go 1.22)
   builds; a fixed `go 1.21` would reject it. Nothing is shared
   between runs except the build cache.
@@ -347,7 +351,7 @@ new dependency):
 **Language specifics for Run mode.**
 
 - **Python.** The temp dir gets `solution.py` (the code as sent) and the
-  constant `run.py`, spawned as `[-I, -X, utf8, run.py]`. `run.py` executes
+  constant `run.py`, spawned as `[-I, -B, -u, -X, utf8, run.py]`. `run.py` executes
   `solution.py` with `exec(compile(src, 'solution.py', 'exec'), ns)` in a
   namespace with `__name__ = '__main__'` in Run mode (so an
   `if __name__ == "__main__":` block runs; in examples mode it is
@@ -372,13 +376,34 @@ new dependency):
   and it was not verified for this ADR; PR A checks it by hand on one
   problem and records the result in the README. So the server adds missing
   imports to the **temp `solution.go` only, never to the note**: for each
-  package in a fixed list (`sort`, `strings`, `strconv`, `math`,
-  `math/bits`, `container/heap`, `container/list`, `unicode`, `fmt`,
-  `slices`, `maps`, `bytes`, `errors`) whose name followed by `.` appears in
-  the code and that the code does not already import, it inserts an
-  `import` line after the `package` clause, plus `var _ = <pkg>.<symbol>`
-  so a false match cannot cause an "imported and not used" error. A
-  `//line solution.go:<n>` directive keeps the user's line numbers. The note
+  package in the fixed table below whose **name** (the last element of the
+  import path, for example `heap` for `container/heap`) followed by `.`
+  appears in the code, and that the code does not already import, it adds:
+  - an `import "<path>"` line **right after the `package` clause** (Go
+    requires imports before any other declaration; a second import
+    declaration after the user's own import block is legal), followed by a
+    `//line solution.go:<n>` directive so the user's line numbers are kept;
+  - a `var _ = <name>.<symbol>` line at the **end** of the temp
+    `solution.go`, so a false match cannot cause an "imported and not used"
+    error.
+
+  | Import path | Name | Symbol |
+  |---|---|---|
+  | `sort` | `sort` | `sort.Ints` |
+  | `strings` | `strings` | `strings.Contains` |
+  | `strconv` | `strconv` | `strconv.Itoa` |
+  | `math` | `math` | `math.Pi` |
+  | `math/bits` | `bits` | `bits.Len` |
+  | `container/heap` | `heap` | `heap.Init` |
+  | `container/list` | `list` | `list.New` |
+  | `unicode` | `unicode` | `unicode.IsDigit` |
+  | `fmt` | `fmt` | `fmt.Sprint` |
+  | `slices` | `slices` | `slices.Sort` |
+  | `maps` | `maps` | `maps.Keys` |
+  | `bytes` | `bytes` | `bytes.Equal` |
+  | `errors` | `errors` | `errors.New` |
+
+  `slices` and `maps` need Go ≥ 1.21, which is the minimum. The note
   stays exactly as the user wrote it, so it pastes back into LeetCode
   unchanged; an `import` block the user wrote also works on LeetCode. A
   package-level identifier of the user's with the same name as a listed
@@ -447,7 +472,7 @@ a new file next to it:
   either. A paste never touches the sidecar.
 - **A failed sidecar write** (the main file was written) is treated as
   `meta: null` for that reply: `runExamples` is
-  `{ state: 'unsupported', reason: 'not_cached' }`, with no refresh loop.
+  `{ state: 'unsupported', reason: 'needs_refresh' }`, with no refresh loop.
   The client starts the refresh-on-demand below at most **once per problem
   per page load**; if the state is still not `ready` after it, Run examples
   stays disabled with the reason and is not retried until the page is
@@ -516,7 +541,15 @@ wins, the pasted text.
 Equal when: same type and value for strings, booleans and `null`; numbers
 equal, or both finite with `|a − b| ≤ 1e-5` when either is not an integer;
 arrays with the same length and equal items in order; objects never occur in
-phase 1. The row label is **"expected (from the statement)"**, and the pane
+phase 1. **Big integers (decided: big-int-safe).** The server parses both the
+expected text and each `actual` result line with a JSON parser that keeps
+integers outside ±2^53 exactly (a small reviver over the raw text; numbers
+without `.`/`e` beyond `Number.MAX_SAFE_INTEGER` become `BigInt` and are
+compared as `BigInt`; Node 24's reviver `context.source` gives the raw
+text). `pass` is therefore exact. For display, each row also carries
+`expectedText` / `actualText`, the value's JSON text as received (≤ 2 000
+chars), and the UI shows those, so large integers are shown exactly too.
+`expected` / `actual` stay plain JSON values for programmatic use. The row label is **"expected (from the statement)"**, and the pane
 notes: "Some problems accept any order or any valid answer. A mismatch here
 is not a LeetCode verdict." (for example Longest Palindromic Substring's
 "aba" vs "bab").
@@ -651,7 +684,9 @@ type RunReason =
 interface ExampleResult {
   input: string;            // the example's input lines as in exampleTestcases, joined with '\n'
   expected?: unknown;       // parsed JSON, absent when not found (D5)
+  expectedText?: string;    // its JSON text as in the statement (shown in the UI; exact for big ints)
   actual?: unknown;         // parsed JSON, absent on error
+  actualText?: string;      // its JSON text as printed by the harness (shown in the UI)
   pass?: boolean | null;    // null when expected is absent or the example errored
   error?: string;           // ≤ 2 000 chars
 }
@@ -698,8 +733,8 @@ interface RunStatusReply {     // GET /api/run/status, POST /api/run/detect
 | `POST /api/run` | `RunRequest` → **200 `RunResponse`** for every outcome that reached the runner: `ok`, `error`, `timeout`, `disabled` (runner off; nothing spawned; empty output), `not_installed` (no usable interpreter; nothing spawned). **Rejections** (nothing spawned) use `{ error, code }`: 400 `bad_request` (shape, unknown field, bad `language` / `mode`, `problemId` missing for examples); 400 `examples_unavailable` with `reason: 'custom_problem' \| 'not_cached' \| 'needs_refresh' \| 'unsupported_type' \| 'unsupported_kind' \| 'bad_testcases' \| 'language'`; 403 `bad_run_token`; 403 `forbidden` (Origin missing or wrong, `Sec-Fetch-Site` not same-origin, non-loopback peer, read-only port; the existing rejections keep their current status and bodies: Host → 421, cross-site Origin → 403); 404 `not_found` (unknown `problemId`); 413 `code_too_large`; 415 (existing, not JSON); 429 `busy` / `rate_limited` with `retryAfterMs`. Error text is fixed. |
 | `GET /api/run/status` | 200 `RunStatusReply`. Read-only; no token (it reveals only versions and paths, which a cross-site page cannot read). **Never spawns** (D3): the cached detection, or `available: false` with `null` version and path. |
 | `POST /api/run/detect` | `{}` → 200 `RunStatusReply` after a fresh detection ("Check for Python and Go" / "Re-check"). Same-origin, JSON **and** `X-IBAI-Run-Token` (403 `bad_run_token`); works while the runner is off. 429 `busy` while a detection or run is in flight. |
-| `GET /api/preferences` | gains `codeRunner: { enabled: boolean, pinned: boolean, needsAck: boolean }` (additive; `enabled` is the stored or pinned value). |
-| `PUT /api/preferences` | accepts `codeRunner?: boolean` and `acknowledgeRunnerWarning?: true`. `codeRunner: true` needs `X-IBAI-Run-Token` (403 `bad_run_token`) and, when this machine has no acknowledgment, `acknowledgeRunnerWarning: true` (else 400 `ack_required`); the server then writes the acknowledgment (D8). While pinned → 400 "Set by IBAI_CODE_RUNNER". |
+| `GET /api/preferences` | gains `codeRunner: { stored: boolean, pinned: boolean, needsAck: boolean }` (additive). `stored` is the value in `preferences.json` (or the env value when `pinned`); it is **not** "the runner is on". Whether the runner is on is only `RunStatusReply.enabled` (stored or pinned on **and** acknowledged). |
+| `PUT /api/preferences` | accepts `codeRunner?: boolean` and `acknowledgeRunnerWarning?: true`. `codeRunner: true` needs `X-IBAI-Run-Token` (403 `bad_run_token`) and, when this machine has no acknowledgment, `acknowledgeRunnerWarning: true` (else 400 `ack_required`); the server then writes the acknowledgment (D8). `acknowledgeRunnerWarning: true` **without** `codeRunner: true` also needs the token, writes only the acknowledgment, changes no preference, and returns 200 (the same shape as GET). While pinned → 400 "Set by IBAI_CODE_RUNNER" for `codeRunner`. |
 | `GET /api/problems/:id/statement` | `ApiProblemStatement` gains `runExamples: RunExamplesInfo` (additive; `state: 'none'` with `reason: 'custom_problem'` for custom problems, or `'not_cached'` when nothing is cached). |
 | `GET /api/settings` | env list gains `IBAI_CODE_RUNNER` (set ✓/✗ only). |
 
@@ -709,9 +744,12 @@ interface RunStatusReply {     // GET /api/run/status, POST /api/run/detect
 `error` / `output_limit` (`truncated: true`), `timeout`, `disabled`,
 `not_installed`, and an `examples` reply with a pass, a fail, an
 `expected`-missing row and an errored row; every rejection body above;
-`RunStatusReply` enabled with both languages, disabled and pinned, and with
-Go missing, and with `needsAck: true`; and `ApiProblemStatement` with each
-`runExamples` state. They ship in **PR A0** with the shared types (below).
+`RunStatusReply` enabled with both languages, disabled and pinned, with Go
+missing, and with `needsAck: true` (`enabled: false`); `GET /api/preferences`
+with `codeRunner` `{ stored: false, pinned: false, needsAck: false }`,
+`{ stored: true, pinned: false, needsAck: true }` (a copied data folder) and
+`{ stored: true, pinned: true, needsAck: false }`; and `ApiProblemStatement`
+with each `runExamples` state. They ship in **PR A0** with the shared types (below).
 PR A's server test checks each fixture against what the live routes return
 (as in ADR 0015), so they cannot drift.
 
@@ -737,7 +775,8 @@ zero-import module that web-ui imports by relative path, like
   the **machine** config folder, **not** the data folder. So a data folder
   copied from another machine, with `codeRunner: true` in its
   `preferences.json`, does not turn the runner on: the server treats it as
-  off (`enabled: false`, `needsAck: true`) until the user confirms on this
+  off (`codeRunner.stored: true`, `needsAck: true`, and
+  `RunStatusReply.enabled: false`) until the user confirms on this
   machine. Under Docker, `<home>` is `/home/app` inside the container (the
   host's `~/.interviewbudai` is mounted read-only at `/host-config`), so the
   confirm is asked again after the container is recreated. Accepted. If the
@@ -846,7 +885,16 @@ zero-import module that web-ui imports by relative path, like
   - the boot sweep skips a symlink named `ibai-run-old` and a directory
     owned by another uid (where the test can create one);
   - a copied `preferences.json` with `codeRunner: true` and no
-    acknowledgment file leaves the runner off (`needsAck: true`).
+    acknowledgment file leaves the runner off (`stored: true`,
+    `needsAck: true`, `RunStatusReply.enabled: false`);
+  - `PUT /api/preferences` with only `acknowledgeRunnerWarning: true` (and
+    the token) writes the acknowledgment file, leaves `codeRunner`
+    unchanged, and returns 200;
+  - Go imports: user code with its **own import block** that also uses a
+    package it did not import (`import "strings"` plus a `sort.Ints` call)
+    still builds, and compiler line numbers still match the user's code;
+  - `GOVERSION` parsing: `go1.22rc1` → `1.22`, `go1.25.0` → `1.25`, and
+    `devel …` → `1.21` with the log line.
 - **Harness cases:** D5 list, including the malicious example input.
 - No test calls LeetCode (the fetch stays injected, ADR 0015).
 
