@@ -137,9 +137,10 @@ together they are defense in depth.
      runner is off, and enabling it needs the token too, below).
    - **Client:** reads the meta `content` once at startup, accepts it only if
      it matches `^[A-Za-z0-9_-]{43}$` (so the unreplaced placeholder and the
-     Vite dev server's copy are rejected), and sends it as the header
-     **`X-IBAI-Run-Token`** on `POST /api/run` and on a `PUT /api/preferences`
-     that sets `codeRunner`. No token → Run and Run examples are hidden and
+     Vite dev server's copy are rejected), keeps it in a module variable,
+     **removes the meta element** from the DOM, and sends it as the header
+     **`X-IBAI-Run-Token`** on `POST /api/run`, `POST /api/run/detect` and on
+     a `PUT /api/preferences` that sets `codeRunner: true`. No token → Run and Run examples are hidden and
      Settings explains "Open the app from the server (`npm start`) to use the
      code runner."
    - **Server:** compares with the existing constant-time `tokensEqual`
@@ -160,7 +161,8 @@ together they are defense in depth.
 6. **Enabling also needs the token.** `PUT /api/preferences` with
    `codeRunner: true` requires a valid `X-IBAI-Run-Token` (403
    `bad_run_token` otherwise), on top of the existing same-origin and JSON
-   checks. Turning it **off** does not need the token.
+   checks. Turning it **off** does not need the token. Enabling also needs
+   the per-machine acknowledgment (D8).
 7. **Loopback peer (non-Docker).** When `IBAI_CONTAINER` is not set, the
    route also requires `req.socket.remoteAddress` to be a loopback address
    (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`), else 403 `forbidden`. With the
@@ -195,6 +197,16 @@ together they are defense in depth.
   now: on an affected Engine a LAN client could read the token. The README
   states it next to the runner setting.
 
+**Threats out of scope** (recorded, not defended in code):
+
+- **Browser extensions** with host permissions for `localhost` /
+  `127.0.0.1` can read our pages, the token included, and send requests as
+  the page. An extension with those permissions already has full control of
+  the app's pages; the app cannot defend against it.
+- Malware already running as the user (it can run code anyway).
+- Other local accounts, and LAN exposure on affected Docker Engines (above):
+  documented, not enforced.
+
 **Tests (PR A, required):** a request without the token, with a wrong token,
 with a token of the wrong length, with a cross-site `Origin`, with no
 `Origin`, with `Sec-Fetch-Site: cross-site`, with a rebinding `Host`
@@ -224,27 +236,49 @@ confirm text the first time the toggle is turned on):
 > network. Only run code you wrote or trust. Do not turn this on on a shared
 > computer.
 
-Under Docker the second sentence reads "…inside the app container, where it
-can read and change your data folder."
+Under Docker the first two sentences read "Run executes your code inside the
+app container. It is not a sandbox: code can read, change or delete your data
+folder, read the read-only `/host-config` folder, and use the network the
+container can reach, including Docker Model Runner."
 
 **Executable discovery** (`packages/web/src/runner/detect.ts`):
 
 - Python: try `python3`, then `python` (on Windows: `py -3`, then
   `python`), found on the **server's** `PATH`. Go: `go`.
-- The candidate is asked for its real binary with a fixed argv and a
-  **detection env** (only `PATH` and `HOME`, plus `SystemRoot`, `PATHEXT`
-  and `USERPROFILE` on Windows, so shims work but no `IBAI_*` or provider key
-  reaches them), timeout 5 s:
+- The candidate is asked for its real binary with a fixed argv, timeout 5 s,
+  `cwd` = the user's home directory (so version managers pick the user's
+  global version, not one from wherever the server was started), and a
+  **detection env**: `PATH`, `HOME`, and, only when set, `MISE_*`,
+  `PYENV_ROOT`, `PYENV_VERSION`, `GOENV_ROOT`, `GOENV_VERSION`, `ASDF_*`
+  and `XDG_*` (plus `SystemRoot`, `PATHEXT` and `USERPROFILE` on Windows).
+  So shims work, but no `IBAI_*` or provider key reaches them. These
+  version-manager variables never reach a run's child (the run env is the
+  allowlist below):
   - Python: `[-c, "import sys,platform;print(sys.executable);print(platform.python_version())"]`.
     Accept only Python ≥ **3.9** (LeetCode snippets use `list[int]`).
   - Go: `[env, GOROOT, GOVERSION]`; the binary is `<GOROOT>/bin/go`
     (`go.exe` on Windows). Accept only Go ≥ **1.21** (for `GOTOOLCHAIN`).
-- The resolved absolute path (`fs.realpath`) is what every run spawns, so
-  runs do not depend on a shim or on `PATH`.
-- Detection runs lazily on `GET /api/run/status` and before the first run,
-  and its result is cached for 60 s (a "Re-check" button in Settings forces
-  it). It never takes user input. Settings shows the version and the path,
-  or "Not found: install Python 3.9+ (or Go 1.21+) and press Re-check."
+- What every run spawns: for Python, `sys.executable` **as printed, without
+  `realpath`** (a venv's `bin/python` is a symlink; resolving it would lose
+  the venv's site-packages, so the venv is kept); for Go, `<GOROOT>/bin/go`.
+  Both are absolute, so runs do not depend on a shim or on `PATH`. The
+  detected Go version also gives the temp `go.mod` its `go` line (below).
+- **When detection runs (decided: never on a GET).** `GET /api/run/status`
+  **never spawns anything**: it returns the cached result, or
+  `available: false` with `version` and `path` `null` when nothing is
+  cached. (Reason: a GET skips the same-origin check, so a cross-site
+  `<img src>` could otherwise make the server spawn processes; on macOS,
+  spawning the `/usr/bin/python3` stub without the developer tools opens
+  the "install command line developer tools" dialog.) Detection runs only:
+  - when the runner is on (enabled and acknowledged, or pinned on by env):
+    at boot, when the setting is turned on, and before a run if the cached
+    result is older than 60 s;
+  - on `POST /api/run/detect` ("Check for Python and Go" / "Re-check" in
+    Settings), which needs same-origin, JSON **and** the run token (D2), and
+    works while the runner is off so the user can see versions before
+    turning it on.
+  It never takes user input. Settings shows the version and the path, or
+  "Not found: install Python 3.9+ (or Go 1.21+) and press Re-check."
 
 **Spawn rules** (`packages/web/src/runner/spawn.ts`; Node `child_process`, no
 new dependency):
@@ -252,13 +286,14 @@ new dependency):
 | Rule | Value |
 |---|---|
 | Call | `spawn(absPath, argsArray, { shell: false, cwd: runDir, env: runEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: true (POSIX), windowsHide: true })`. **Never** a shell, never `exec`/`execFile` with a command string. |
-| Temp dir | `fs.mkdtemp(<os.tmpdir()>/ibai-run-)`, mode 0700, one per run, **never** inside the data folder (backups and git would pick it up). Deleted with `fs.rm(dir, { recursive: true, force: true })` in a `finally`, after the process group is dead. A boot sweep removes leftover `ibai-run-*` dirs older than 1 hour (a crash). |
+| Temp dir | `fs.mkdtemp(<os.tmpdir()>/ibai-run-)`, mode 0700, one per run, **never** inside the data folder (backups and git would pick it up). Deleted with `fs.rm(dir, { recursive: true, force: true })` in a `finally`, after the process group is dead. A boot sweep removes leftover `ibai-run-*` entries in `os.tmpdir()` older than 1 hour (a crash): it uses `lstat`, removes only **real directories** (never a symlink, never followed) **owned by the current uid** (POSIX), and `fs.rm` does not follow symlinks inside them. |
 | cwd | the temp dir |
 | stdin | **empty** (`'ignore'`, reads see EOF). LeetCode-style code does not read stdin. User-provided stdin is out of scope (a later ADR). |
 | Env | an **allowlist** (below), built from scratch. Nothing is inherited, so `IBAI_*`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `IBAI_OPENAI_API_KEY` and every other secret are absent. |
 | Wall clock | Python: **5 s** per run (all examples together). Go: **30 s** for `go build`, then **5 s** for the binary. On expiry the whole process group gets `SIGKILL` (`process.kill(-pid, 'SIGKILL')`); on Windows `taskkill /PID <pid> /T /F` (argv array). |
+| End of a run | A run ends when the **leader process exits** (or is killed). The server then kills the whole process group, waits at most **200 ms** for the pipes to drain, and **destroys** stdout/stderr without waiting for their `close` event. So a grandchild that called `setsid` and still holds the pipes cannot keep the run lock (D2 single flight) or the request open. Such an escaped grandchild may keep running: this is not a sandbox. |
 | Output cap | stdout and stderr: **64 KiB each** (UTF-8 bytes). Past the cap, the rest is dropped, `truncated: true`, and the process group is killed at once (`reason: 'output_limit'`), so `while True: print()` ends in milliseconds, not at the timeout. Output is decoded as UTF-8 with replacement; C0 controls other than `\t` `\n` `\r` are removed. |
-| Resource limits | Linux, when `/usr/bin/prlimit` (util-linux) exists: the child is spawned as `prlimit --cpu=<s> --as=<bytes> --fsize=16777216 --nofile=256 --core=0 -- <absPath> <args…>` (still an argv array). Python and the Go binary: `--cpu=5 --as=1073741824` (1 GiB). `go build`: `--cpu=60`, no `--as` (the compiler needs more). macOS and Windows: no rlimits; the wall clock, the output cap and the process-group kill are the limits. Documented as best-effort. |
+| Resource limits | Linux, when `/usr/bin/prlimit` (util-linux) exists: the child is spawned as `prlimit --cpu=<s> --as=<bytes> --fsize=16777216 --nofile=256 --core=0 -- <absPath> <args…>` (still an argv array). Python and the Go binary: `--cpu=5 --as=1073741824` (1 GiB). `go build`: `--cpu=60`, no `--as` (the compiler needs more). PR A runs a Go hello world under `prlimit` on CI; if the Go runtime fails under the 1 GiB `--as`, `--as` is dropped for Go (the other limits stay) and this row is updated. macOS and Windows: no rlimits; the wall clock, the output cap and the process-group kill are the limits. Documented as best-effort. |
 | Exit | `exitCode` and `signal` from the child. `status: 'ok'` when the exit code is 0 and nothing was cut; `'timeout'` on the wall clock; `'error'` otherwise (with `reason`, D7). |
 
 **Run env allowlist** (every value set by the server):
@@ -267,10 +302,16 @@ new dependency):
   (Windows: that directory plus `%SystemRoot%\System32`); `HOME`,
   `USERPROFILE`, `TMPDIR`, `TMP`, `TEMP` = the temp dir; `LANG=C.UTF-8`;
   Windows also `SystemRoot`.
-- Python: `PYTHONIOENCODING=utf-8`, `PYTHONDONTWRITEBYTECODE=1`. Python is
-  started with `-I` (isolated: ignores `PYTHON*` env vars and the user site
-  directory, and does not put the script's folder on `sys.path`) and `-X
-  utf8`. Site-packages stay on, so installed libraries can be imported.
+- Python: no `PYTHON*` variables (`-I` implies `-E`, which would ignore
+  them anyway). Python is spawned as **`[-I, -B, -u, -X, utf8, run.py]`**
+  (or `harness.py`): `-I` isolated mode (ignores `PYTHON*` env vars and the
+  user site directory, and does not put the script's folder on `sys.path`),
+  `-B` no `.pyc` files, `-u` unbuffered stdout/stderr (output printed before
+  a timeout or crash is not lost), `-X utf8` UTF-8 I/O. Site-packages stay
+  on, so installed libraries (and a venv's) can be imported.
+- Platform keys the OS or the runtime adds by itself are tolerated in the
+  child env and named in the test: `__CF_USER_TEXT_ENCODING` (macOS), and
+  `LC_CTYPE` set by Python's C-locale coercion (PEP 538).
 - Go: `GOCACHE=<cacheDir>/go-build`, `GOPATH=<cacheDir>/gopath`,
   `GOMODCACHE=<cacheDir>/gopath/pkg/mod`, `GOENV=off`, `GOFLAGS=`,
   `GOPROXY=off`, `GOSUMDB=off`, `GOTOOLCHAIN=local` (never download a
@@ -281,7 +322,10 @@ new dependency):
 **Go build cache: decided, persistent and app-owned.**
 
 - Each run gets a **temp module**: the temp dir holds `go.mod`
-  (`module ibairun` / `go 1.21`) and the source files. Nothing is shared
+  (`module ibairun` and `go <major>.<minor>` taken from the detected
+  `GOVERSION`, never below `1.21`) and the source files. The `go` line sets
+  the language version, so newer syntax such as `for i := range 3` (Go 1.22)
+  builds; a fixed `go 1.21` would reject it. Nothing is shared
   between runs except the build cache.
 - `<cacheDir>` is the OS cache folder plus `interviewbudai/`:
   `$XDG_CACHE_HOME` or `~/.cache` (Linux), `~/Library/Caches` (macOS),
@@ -305,8 +349,9 @@ new dependency):
 - **Python.** The temp dir gets `solution.py` (the code as sent) and the
   constant `run.py`, spawned as `[-I, -X, utf8, run.py]`. `run.py` executes
   `solution.py` with `exec(compile(src, 'solution.py', 'exec'), ns)` in a
-  namespace with `__name__ = '__main__'` (so an `if __name__ == "__main__":`
-  block runs), pre-filled with a **LeetCode-style prelude**: `from typing
+  namespace with `__name__ = '__main__'` in Run mode (so an
+  `if __name__ == "__main__":` block runs; in examples mode it is
+  `'solution'`, D5), pre-filled with a **LeetCode-style prelude**: `from typing
   import *`; `import collections, heapq, bisect, math, itertools, functools,
   string, re, random, operator`; `from collections import deque,
   defaultdict, Counter, OrderedDict`; `from functools import lru_cache,
@@ -319,8 +364,26 @@ new dependency):
   `//line solution.go:1`, so compiler errors keep the user's line numbers.
   `go build -o prog .` then `./prog`. Code without `func main` fails to build;
   the UI shows the hint "Run needs a main function. Use Run examples to call
-  your solution." Imports are not added automatically: the user writes them
-  (LeetCode accepts them too).
+  your solution."
+- **Go imports (decided: added to the temp file only).** LeetCode's Go
+  environment appears to add common standard-library imports by itself:
+  LeetCode Go solutions routinely call `sort.Ints` or `math.MaxInt` with no
+  `import` line. This is observed behaviour that LeetCode does not document,
+  and it was not verified for this ADR; PR A checks it by hand on one
+  problem and records the result in the README. So the server adds missing
+  imports to the **temp `solution.go` only, never to the note**: for each
+  package in a fixed list (`sort`, `strings`, `strconv`, `math`,
+  `math/bits`, `container/heap`, `container/list`, `unicode`, `fmt`,
+  `slices`, `maps`, `bytes`, `errors`) whose name followed by `.` appears in
+  the code and that the code does not already import, it inserts an
+  `import` line after the `package` clause, plus `var _ = <pkg>.<symbol>`
+  so a false match cannot cause an "imported and not used" error. A
+  `//line solution.go:<n>` directive keeps the user's line numbers. The note
+  stays exactly as the user wrote it, so it pastes back into LeetCode
+  unchanged; an `import` block the user wrote also works on LeetCode. A
+  package-level identifier of the user's with the same name as a listed
+  package (rare) can clash with the added import; the compiler error says
+  so.
 
 **Which code is sent.** The SPA sends the same code that "Copy code" copies
 (`extractCode(text, preferred)`, ADR 0015 D3): the whole note for a
@@ -382,6 +445,13 @@ a new file next to it:
 - Written in the same fetch that writes `<id>.json`. When the main file
   cannot be written (read-only folder, size cap) the sidecar is not written
   either. A paste never touches the sidecar.
+- **A failed sidecar write** (the main file was written) is treated as
+  `meta: null` for that reply: `runExamples` is
+  `{ state: 'unsupported', reason: 'not_cached' }`, with no refresh loop.
+  The client starts the refresh-on-demand below at most **once per problem
+  per page load**; if the state is still not `ready` after it, Run examples
+  stays disabled with the reason and is not retried until the page is
+  reloaded.
 
 **Old cache entries.** An `<id>.json` without a sidecar comes from an older
 build. The statement reply says `runExamples.state: 'needs-refresh'` (D7).
@@ -403,28 +473,44 @@ never calls the network.
    positive multiple of `params.length`; else Run examples is unavailable
    (`examples_unavailable`, reason `bad_testcases` or `unsupported_kind`).
 3. Each line must `JSON.parse` and must match its param's type (the type
-   table below). At most **20 examples**. A line that fails gives that
-   example `error: "Input is not valid JSON for <type>"` and it is not run.
-4. The parsed inputs are written to **`input.json`** in the temp dir. They
-   are never placed in program text.
+   table below). For `long`, the raw token is also checked with
+   `^-?[0-9]{1,19}$` and a `BigInt` range check (a `JSON.parse`d number
+   loses precision past 2^53). At most **20 examples**. A line that fails
+   gives that example `error: "Input is not valid JSON for <type>"` and it is
+   not run.
+4. **`input.json`** in the temp dir holds the **original line text** of each
+   argument, not the re-serialized value:
+   `{ "examples": [["[2,7,11,15]", "9"], …] }`. The harness decodes each
+   string itself (Python `json.loads`, which has exact big integers; Go
+   `json.Unmarshal` into the declared type, so an `int64` is exact). The
+   inputs are never placed in program text.
 
 **Expected outputs ("expected (from the statement)").** Parsed from the
 statement the user sees: the cached `blocks` (ADR 0015 D2) or, when a paste
 wins, the pasted text.
 
-- Flatten to lines: text nodes are concatenated, `br` and every block
-  boundary (`p`, `pre`, `li`) end a line.
+- Flatten to lines: text nodes are concatenated; `br`, every block boundary
+  (`p`, `pre`, `li`) **and every `\n` inside a text node** end a line. (In
+  LeetCode's `<pre>` examples, `Input:`, `Output:` and `Explanation:` share
+  one text node separated by `\n`; the newer `div.example-block` format is
+  sanitized to one `p` per line, ADR 0015 D2.)
+- **Required fixtures (PR C), synthetic text (§6.2):** a `<pre>` example
+  block and a `div.example-block` example block, each run through the
+  ADR 0015 D2 sanitizer, both giving the same expected values.
 - A line matching `^\s*Output\s*:\s*(.*)$` (case-sensitive `Output`) gives
   one expected value: the captured text, trimmed, or if it is empty, the next
   non-empty line. Values are collected in document order.
 - Each value is `JSON.parse`d after trimming. A value that does not parse
   (for example `2.00000` parses, `"bab"` parses, `[1,2] or [2,1]` does not)
-  → that example's `expected` is `null`.
+  → that example has **no `expected` key** (absent, never `null`, matching
+  D7 `expected?`).
 - **Alignment rule:** expected values are matched to examples by index
-  **only when the counts are equal**. If they differ, every `expected` is
-  `null`: the app does not guess.
-- When `expected` is `null`, the row shows the actual output only and
-  `pass: null` ("No expected output found in the statement").
+  **only when the counts are equal**. If they differ, **no** example has an
+  `expected` key: the app does not guess.
+- When `expected` is absent, the row shows the actual output only and
+  `pass: null` ("No expected output found in the statement"). (`null` is a
+  valid expected JSON value, for example a `TreeNode` answer in a later
+  phase, which is why "not found" is an absent key.)
 
 **Comparison (normalized JSON equality).** Both sides are JSON values.
 Equal when: same type and value for strings, booleans and `null`; numbers
@@ -457,7 +543,9 @@ into the temp dir; never generated, never templated):
 
 - Reads `meta.json` (`name`, `params` types, `outputParamIndex`, a per-run
   random `delimiter` of 16 bytes in hex) and `input.json`.
-- Executes `solution.py` like Run mode (same prelude), then gets
+- Executes `solution.py` like Run mode (same prelude), but with
+  `__name__ = 'solution'`, so the user's `if __name__ == "__main__":` test
+  block does not run in examples mode. Then it gets
   `Solution` from the namespace (missing → one `harness` error: "No class
   Solution found"), and `getattr(Solution(), name)` (missing → "Solution has
   no method <name>").
@@ -465,16 +553,24 @@ into the temp dir; never generated, never templated):
   instance, inside `try/except BaseException` (but `SystemExit` and
   `KeyboardInterrupt` stop the loop), and with `sys.setrecursionlimit(10000)`
   set once. A `void` problem reads `args[outputParamIndex]` after the call.
-  Tuples become lists; any value `json.dumps` cannot encode gives an
-  `error: "Return value is not JSON: <type name>"`.
-- Writes one line per example to the real stdout:
-  `IBAI-RESULT:<delimiter>:<json>` where `<json>` is
+  Tuples become lists. Results are encoded with
+  `json.dumps(value, allow_nan=False)`; any value it cannot encode (an
+  object, `NaN`, `inf`) gives an `error: "Return value is not JSON: <type
+  name>"`.
+- Writes one result per example to the real stdout as `"\n" +
+  "IBAI-RESULT:<delimiter>:<json>" + "\n"`, then calls `sys.stdout.flush()`.
+  The leading `\n` means a user's `print(..., end="")` cannot glue its text
+  onto the result line and hide it; the flush (with `-u`) means results
+  printed before a timeout survive. Here `<json>` is
   `{"i": n, "actual": <value>}` or `{"i": n, "error": "<exception type>:
   <message, ≤ 2 000 chars>"}` (`json.dumps`, so no raw newline can appear).
   The user's own prints go to the same stdout and stay visible in the output
   pane. The server takes only lines that start with the exact prefix and the
-  run's delimiter, removes them from the shown `stdout`, and ignores
-  malformed ones. An example with no result line gets `error: "No result
+  run's delimiter, removes each one from the shown `stdout` together with
+  the `\n` the harness added before it, and ignores malformed ones.
+- **The delimiter prevents accidental collisions; it is not a security
+  boundary.** User code can read `meta.json` and print a valid result line.
+  That only lets the user fool their own results, which is not a threat. An example with no result line gets `error: "No result
   (the run stopped early)"` (timeout, crash or output cap).
 
 **Go harness** (PR D; generated, but only from allowlisted values):
@@ -500,10 +596,10 @@ into the temp dir; never generated, never templated):
 
 **Tests (PR C / PR D):** Two Sum style pass, a wrong answer (`pass: false`),
 a `void` in-place problem, a statement with fewer "Output:" lines than
-examples (all `expected: null`), an `Output:` value that is not JSON, an
+examples (no `expected` key on any row), an `Output:` value that is not JSON (that row has no `expected`), the `<pre>` and `div.example-block` fixtures, an
 unsupported type (examples unavailable, Run works), a user print interleaved
 with results, a forged `IBAI-RESULT:` line printed by the user with a wrong
-delimiter (ignored), an exception in one example (the others still run), a
+delimiter (ignored), a user `print("x", end="")` right before a result (the result is still found), a `long` input above 2^53 (exact), an `if __name__ == "__main__":` block (not run in examples mode), a `NaN` result (error), an exception in one example (the others still run), a
 timeout midway (earlier results kept), and **a malicious example input**: an
 `exampleTestcases` line such as `"]); import os; os.system('touch pwned') #`
 and a valid JSON string containing Python or Go code. The test asserts the
@@ -572,14 +668,25 @@ interface RunResponse {
   examples?: ExampleResult[];      // mode 'examples' only
 }
 
-interface RunStatusReply {     // GET /api/run/status
-  enabled: boolean;
+type ExamplesUnavailableReason =
+  | 'custom_problem' | 'not_cached' | 'needs_refresh' | 'unsupported_type'
+  | 'unsupported_kind' | 'bad_testcases' | 'language';
+
+interface RunExamplesInfo {     // on ApiProblemStatement
+  state: 'ready' | 'needs-refresh' | 'unsupported' | 'none';
+  reason: ExamplesUnavailableReason | null; // null only when state is 'ready'
+}
+
+interface RunStatusReply {     // GET /api/run/status, POST /api/run/detect
+  enabled: boolean;            // setting (or env pin) on AND acknowledged (D8)
   pinned: boolean;             // set by IBAI_CODE_RUNNER
+  needsAck: boolean;           // setting on, but no acknowledgment on this machine (D8)
+  detectedAt: string | null;   // ISO time of the cached detection; null = never detected
   container: boolean;          // running under Docker (UI warning variant)
   languages: Record<RunLanguage, {
-    available: boolean;
+    available: boolean;        // false (with null version/path) until detected
     version: string | null;    // e.g. "3.11.8", "go1.25.0"
-    path: string | null;       // resolved binary
+    path: string | null;       // binary every run spawns
     examples: boolean;         // harness shipped for this language (Go: false until PR D)
   }>;
   goCacheDir: string | null;
@@ -589,11 +696,11 @@ interface RunStatusReply {     // GET /api/run/status
 | Method + path | Result |
 |---|---|
 | `POST /api/run` | `RunRequest` → **200 `RunResponse`** for every outcome that reached the runner: `ok`, `error`, `timeout`, `disabled` (runner off; nothing spawned; empty output), `not_installed` (no usable interpreter; nothing spawned). **Rejections** (nothing spawned) use `{ error, code }`: 400 `bad_request` (shape, unknown field, bad `language` / `mode`, `problemId` missing for examples); 400 `examples_unavailable` with `reason: 'custom_problem' \| 'not_cached' \| 'needs_refresh' \| 'unsupported_type' \| 'unsupported_kind' \| 'bad_testcases' \| 'language'`; 403 `bad_run_token`; 403 `forbidden` (Origin missing or wrong, `Sec-Fetch-Site` not same-origin, non-loopback peer, read-only port; the existing rejections keep their current status and bodies: Host → 421, cross-site Origin → 403); 404 `not_found` (unknown `problemId`); 413 `code_too_large`; 415 (existing, not JSON); 429 `busy` / `rate_limited` with `retryAfterMs`. Error text is fixed. |
-| `GET /api/run/status` | 200 `RunStatusReply`. Read-only; no token (it reveals only versions and paths, which a cross-site page cannot read). Detection is cached for 60 s. |
-| `POST /api/run/detect` | `{}` → 200 `RunStatusReply` after a fresh detection ("Re-check"). Same-origin and JSON; no token (fixed argv, no user input). |
-| `GET /api/preferences` | gains `codeRunner: { enabled: boolean, pinned: boolean }` (additive). |
-| `PUT /api/preferences` | accepts `codeRunner?: boolean`. `true` needs `X-IBAI-Run-Token` (403 `bad_run_token`). While pinned → 400 "Set by IBAI_CODE_RUNNER". |
-| `GET /api/problems/:id/statement` | `ApiProblemStatement` gains `runExamples: { state: 'ready' \| 'needs-refresh' \| 'unsupported' \| 'none'; reason: string \| null }` (additive; `none` for custom problems and when nothing is cached). |
+| `GET /api/run/status` | 200 `RunStatusReply`. Read-only; no token (it reveals only versions and paths, which a cross-site page cannot read). **Never spawns** (D3): the cached detection, or `available: false` with `null` version and path. |
+| `POST /api/run/detect` | `{}` → 200 `RunStatusReply` after a fresh detection ("Check for Python and Go" / "Re-check"). Same-origin, JSON **and** `X-IBAI-Run-Token` (403 `bad_run_token`); works while the runner is off. 429 `busy` while a detection or run is in flight. |
+| `GET /api/preferences` | gains `codeRunner: { enabled: boolean, pinned: boolean, needsAck: boolean }` (additive; `enabled` is the stored or pinned value). |
+| `PUT /api/preferences` | accepts `codeRunner?: boolean` and `acknowledgeRunnerWarning?: true`. `codeRunner: true` needs `X-IBAI-Run-Token` (403 `bad_run_token`) and, when this machine has no acknowledgment, `acknowledgeRunnerWarning: true` (else 400 `ack_required`); the server then writes the acknowledgment (D8). While pinned → 400 "Set by IBAI_CODE_RUNNER". |
+| `GET /api/problems/:id/statement` | `ApiProblemStatement` gains `runExamples: RunExamplesInfo` (additive; `state: 'none'` with `reason: 'custom_problem'` for custom problems, or `'not_cached'` when nothing is cached). |
 | `GET /api/settings` | env list gains `IBAI_CODE_RUNNER` (set ✓/✗ only). |
 
 **Fixtures (PR A):** `packages/web/web-ui/src/test/fixtures/run/`: a
@@ -603,8 +710,14 @@ interface RunStatusReply {     // GET /api/run/status
 `not_installed`, and an `examples` reply with a pass, a fail, an
 `expected`-missing row and an errored row; every rejection body above;
 `RunStatusReply` enabled with both languages, disabled and pinned, and with
-Go missing. A server test checks each fixture against what the routes return
-(as in ADR 0015).
+Go missing, and with `needsAck: true`; and `ApiProblemStatement` with each
+`runExamples` state. They ship in **PR A0** with the shared types (below).
+PR A's server test checks each fixture against what the live routes return
+(as in ADR 0015), so they cannot drift.
+
+**Shared types.** The D7 types live in `packages/web/src/run-types.ts`, a
+zero-import module that web-ui imports by relative path, like
+`statement-tree.ts` (ADR 0015 D2).
 
 ### D8 — Setting: `codeRunner`, off by default, `IBAI_CODE_RUNNER`
 
@@ -617,8 +730,21 @@ Go missing. A server test checks each fixture against what the routes return
   one boot warning. Same parser as `IBAI_LEETCODE_FETCH`. Added to
   `.env.example`, the Settings env list, and `compose.yaml`
   (`IBAI_CODE_RUNNER: ${IBAI_CODE_RUNNER:-}`).
-- Pinning on by env skips the first-time confirm in the UI; the warning stays
-  visible in Settings.
+- **First-enable acknowledgment, once per machine.** Turning the runner on
+  the first time on a machine shows the D3 warning as a confirm. Accepting
+  it writes `<home>/.interviewbudai/code-runner-ack.json`
+  (`{ "acknowledgedAt": "<ISO>", "appVersion": "<v>" }`, 0600, atomic), in
+  the **machine** config folder, **not** the data folder. So a data folder
+  copied from another machine, with `codeRunner: true` in its
+  `preferences.json`, does not turn the runner on: the server treats it as
+  off (`enabled: false`, `needsAck: true`) until the user confirms on this
+  machine. Under Docker, `<home>` is `/home/app` inside the container (the
+  host's `~/.interviewbudai` is mounted read-only at `/host-config`), so the
+  confirm is asked again after the container is recreated. Accepted. If the
+  file cannot be written, enabling fails with 409 and a fixed message.
+- Pinning **on** by env counts as the acknowledgment (it is an explicit act
+  on this machine) and skips the confirm; the warning stays visible in
+  Settings.
 - The setting lives in the data folder, like the fetch toggle, so switching
   data folders can switch it. Accepted.
 
@@ -696,15 +822,31 @@ Go missing. A server test checks each fixture against what the routes return
     ≤ 64 KiB;
   - temp-dir cleanup: the temp dir is gone after `ok`, `error`, `timeout` and
     `output_limit` runs, and the boot sweep removes an old `ibai-run-*` dir;
-  - env stripping: with `IBAI_TEST_SECRET`, `ANTHROPIC_API_KEY` and
-    `OPENAI_API_KEY` set in the server env, the child prints `os.environ`
-    and gets exactly the D3 allowlist keys (Python and Go);
+  - env stripping: with `IBAI_TEST_SECRET`, `ANTHROPIC_API_KEY`,
+    `OPENAI_API_KEY` and `MISE_TEST` set in the server env, the child prints
+    its environment and has **no key outside** the D3 allowlist plus the
+    documented platform keys (`__CF_USER_TEXT_ENCODING`, `LC_CTYPE`), for
+    Python and Go;
   - cwd is the temp dir and `HOME` is the temp dir;
   - the memory limit on Linux with `prlimit`: allocating 2 GiB fails;
   - every D2 rejection, with a spy spawner showing nothing ran;
   - Go: a compile error (`phase: 'compile'`, line numbers match the user's
     code), a run, and `GOTOOLCHAIN=local` / `GOPROXY=off` in the child env;
-  - stdin is empty (`input()` raises `EOFError`).
+  - stdin is empty (`input()` raises `EOFError`);
+  - output printed just before a timeout is in the reply (`-u`);
+  - a `setsid` grandchild that keeps the pipes open does not hold the run:
+    the reply arrives within the timeout plus about 200 ms and the next run
+    is accepted;
+  - **`GET /api/run/status` spawns nothing**, with the runner off and on
+    (spy spawner), and `POST /api/run/detect` without the token is 403;
+  - Go: `for i := range 3` builds (the `go.mod` line follows the detected
+    version; CI's Go is ≥ 1.22), a Go hello world runs under `prlimit` with
+    the D3 limits, and a missing std import (`sort.Ints` without an import)
+    is added to the temp file only;
+  - the boot sweep skips a symlink named `ibai-run-old` and a directory
+    owned by another uid (where the test can create one);
+  - a copied `preferences.json` with `codeRunner: true` and no
+    acknowledgment file leaves the runner off (`needsAck: true`).
 - **Harness cases:** D5 list, including the malicious example input.
 - No test calls LeetCode (the fetch stays injected, ADR 0015).
 
@@ -712,14 +854,15 @@ Go missing. A server test checks each fixture against what the routes return
 
 | PR | Scope | Depends on |
 |---|---|---|
-| **A — runner core** | `runner/detect.ts`, `runner/spawn.ts` (D3 rules, rlimits, kill, caps, temp dir and boot sweep, env allowlist, Go temp module and cache), `run.py`, the run token and its `index.html` placeholder (D2), `POST /api/run` (Run mode, Python and Go), `GET /api/run/status`, `POST /api/run/detect`, `codeRunner` preference and `IBAI_CODE_RUNNER` (config, `.env.example`, `compose.yaml`, Settings env list), the token rule on `PUT /api/preferences`, fixtures, D11 tests, README section (what it does, the not-a-sandbox warning, shared-computer and Docker notes), CHANGELOG `### Added`. | — |
-| **B — Notes UI** | Run button, output pane, Settings "Code runner" card with the warning, confirm, versions and Re-check, `runTarget`, token reading, `lib/api` clients, the restart message, tests against the PR A fixtures, CHANGELOG `### Added`. | Builds in parallel with A against the fixtures; merge after A. |
+| **A0 — shared types and fixtures** | `packages/web/src/run-types.ts` (the D7 types, zero imports), every D7 fixture under `web-ui/src/test/fixtures/run/`, a type-level test that each fixture matches its type. No routes, no user-visible change. CHANGELOG: none needed. | — |
+| **A — runner core** | `runner/detect.ts`, `runner/spawn.ts` (D3 rules, rlimits, kill, caps, temp dir and boot sweep, env allowlist, Go temp module and cache), `run.py`, the run token and its `index.html` placeholder (D2), `POST /api/run` (Run mode, Python and Go), `GET /api/run/status`, `POST /api/run/detect`, `codeRunner` preference, the per-machine acknowledgment and `IBAI_CODE_RUNNER` (config, `.env.example`, `compose.yaml`, Settings env list), the token and ack rules on `PUT /api/preferences`, the server test that validates the A0 fixtures against the live routes, D11 tests, README section (what it does, the not-a-sandbox warning, shared-computer and Docker notes), CHANGELOG `### Added`. | A0 |
+| **B — Notes UI** | Run button, output pane, Settings "Code runner" card with the warning, confirm, versions and Re-check, `runTarget`, token reading, `lib/api` clients, the restart message, tests against the A0 fixtures, CHANGELOG `### Added`. | A0. Builds in parallel with A against the fixtures; merge after A. |
 | **C — Python examples** | `metaData` in the fetch query, the sidecar (`problemMetaPath`, validation), `runExamples` on the statement reply, `examples.ts` (inputs, expected parser, comparison, type table), `harness.py`, Run examples button and rows, the refresh-on-demand flow, D5 tests, CHANGELOG `### Added`. | A and B. |
 | **D — Go examples** | The Go harness template and the Go column of the type table, `examples: true` for Go, D5 Go tests, CHANGELOG `### Added`. | C. |
 | **E — ListNode / TreeNode** | Converters for both harnesses (LeetCode's array forms), tests, CHANGELOG `### Added`. | C (Python), D (Go). |
 | **F — Docker** | `python3` in the runtime stage (pinned Debian version), the `IBAI_WITH_GO` build arg (pinned `golang` image), measured image sizes in README and CHANGELOG `### Changed`, a container smoke test of a Python run. | A. |
 
-PR A and PR B run in parallel against the fixtures.
+PR A0 lands first; then PR A and PR B run in parallel against its fixtures.
 
 ## Consequences
 

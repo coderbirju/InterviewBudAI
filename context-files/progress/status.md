@@ -95,7 +95,8 @@ _Last updated: 2026-10-08. PRs #1–#104 are merged or closed (source: `gh pr li
 - 🟡 ADR 0020: local code runner for Python and Go (Run, Run examples), opt-in, off by default (`architect/adr-0020-code-runner`; founder merges).
 
 ## Next up
-ADR 0020 roadmap (after the founder merges the ADR; A and B in parallel against fixtures):
+ADR 0020 roadmap (after the founder merges the ADR; A0 first, then A and B in parallel against its fixtures):
+- PR A0: shared run types (`run-types.ts`) and all the D7 fixtures.
 - PR A: runner core, run token + Host/Origin checks, Run mode for Python and Go, `codeRunner` setting / `IBAI_CODE_RUNNER`, detection.
 - PR B: Notes UI (Run, output pane) and the Settings "Code runner" card.
 - PR C: `metaData` sidecar cache + Python Run examples harness.
