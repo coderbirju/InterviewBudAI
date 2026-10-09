@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   Clock,
   ExternalLink,
   ListChecks,
@@ -39,6 +40,7 @@ import type {
 } from '../lib/api';
 import { homeHref, isPlainClick, navigate, settingsHref } from '../lib/router';
 import { DifficultyBadge } from './DifficultyBadge';
+import { QuizStatement } from './QuizStatement';
 
 /**
  * The Quickfire Quiz Master (ADR 0007 Q3). This SPA page at `/interview`
@@ -116,6 +118,9 @@ export function Interview(): JSX.Element {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The question card's "Hide problem" / "Show problem" choice, kept for the
+  // rest of the page's life (every question and session until reload).
+  const [statementOpen, setStatementOpen] = useState(true);
   // ADR 0011 D4: the model is starting / unreachable (503 model unavailable).
   // Shown as a friendly state with Retry; the question and draft are kept.
   const [unavailable, setUnavailable] = useState<{
@@ -663,7 +668,14 @@ export function Interview(): JSX.Element {
       {transcript.length > 0 && <TranscriptHistory entries={transcript} />}
 
       {/* Current question: the real problem from the catalog (JSX-escaped). */}
-      {question && <QuestionCard question={question} session={session} />}
+      {question && (
+        <QuestionCard
+          question={question}
+          session={session}
+          statementOpen={statementOpen}
+          onToggleStatement={() => setStatementOpen((open) => !open)}
+        />
+      )}
 
       {/* Verdict card for the most recent answered turn. */}
       {verdictCard && <VerdictBlock card={verdictCard} />}
@@ -745,15 +757,26 @@ export function Interview(): JSX.Element {
  * an external link to the problem (new tab, `rel="noopener noreferrer"`). The
  * title stays put across an `on_track` probe — the probe renders separately in
  * the verdict card. Falls back to `wrapped` for older payloads. JSX-escaped.
+ *
+ * Below the title sits the cached problem statement (ADR 0007 amendment
+ * 2026-10-08), shown by default behind a "Hide problem" / "Show problem"
+ * button. It is display only: the answer request is unchanged. The
+ * statement is keyed by problem id, so it stays (and is not refetched)
+ * across an `on_track` probe and is replaced when the question advances.
  */
 function QuestionCard({
   question,
   session,
+  statementOpen,
+  onToggleStatement,
 }: {
   readonly question: QuizQuestion;
   readonly session: QuizState | null;
+  readonly statementOpen: boolean;
+  readonly onToggleStatement: () => void;
 }): JSX.Element {
   const difficulty = normalizeDifficulty(question.difficulty);
+  const statementId = useId();
   return (
     <div
       className="rounded-xl border border-slate-800 bg-slate-800/60 p-5"
@@ -781,6 +804,36 @@ function QuestionCard({
           Open problem
         </a>
       )}
+      <div className="mt-3">
+        <button
+          type="button"
+          aria-expanded={statementOpen}
+          aria-controls={statementId}
+          onClick={onToggleStatement}
+          className="inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-slate-400 transition-all duration-200 hover:text-slate-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500"
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-all duration-200 ${
+              statementOpen ? '' : '-rotate-90'
+            }`}
+            aria-hidden
+          />
+          {statementOpen ? 'Hide problem' : 'Show problem'}
+        </button>
+        <div
+          id={statementId}
+          hidden={!statementOpen}
+          role="region"
+          aria-label="Problem statement"
+          tabIndex={0}
+          className="mt-2 max-h-80 overflow-auto rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2 focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500"
+        >
+          <QuizStatement
+            key={question.problemId}
+            problemId={question.problemId}
+          />
+        </div>
+      </div>
       <p className="mt-3 text-sm text-slate-400">
         Explain your approach — the pattern, the data structure, the key steps.
       </p>

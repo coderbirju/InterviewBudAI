@@ -452,6 +452,32 @@ model is used only for **verdicts**. Consequences:
 
 **Storage impact:** none (no `StorageAdapter` or `QuizSession` change).
 
+### Amendment (2026-10-08) — the quiz card shows the cached statement (refines A8)
+
+Founder request: the question card also shows the problem statement and its
+examples, under the title. It is the **ADR 0015 cached statement**, read with
+the same client flow and renderer as the Notes page (`useProblemStatement`,
+`StatementView`); no AI-generated summary.
+
+- Per question: `GET /api/problems/:id/statement`; when that says
+  `not-cached` and fetching is on, one `POST …/statement/fetch` (the same
+  single 429 retry, no loop). Reaching the question after starting the quiz
+  counts as user-triggered under ADR 0015 D1.
+- `disabled`, `premium`, `unavailable`, a fetch error or a failed GET: a short
+  reason, the card's existing LeetCode link, and "Add it from the Notes page"
+  (link to the Notes page; no paste box in the quiz). Pasted text and custom
+  statements render as plain text, as on Notes. Starter code is not shown.
+- Shown by default, behind a "Hide problem" / "Show problem" button
+  (`aria-expanded`); the choice is kept for the rest of the page's life. The
+  box has a capped height and scrolls, so the answer box stays reachable.
+- A new question shows its own statement (late replies for the previous one
+  are dropped); an `on_track` probe keeps the question and does not refetch.
+- **Display only.** The statement is never sent to the model: the
+  `POST /api/quiz/answer` body (`{ answer, problemId }`), the quiz prompt and
+  the grader are unchanged (ADR 0012 D2 prompt diet).
+
+**Storage / wire impact:** none (no new route, field or file).
+
 ## Amendment (w2a growth loop, 2026-09-26) — read-time guidance
 
 ADR 0008 Wave 2(a) asks for the growth loop in the web: use quiz results to
