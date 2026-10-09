@@ -141,8 +141,8 @@ together they are defense in depth.
      **removes the meta element** from the DOM, and sends it as the header
      **`X-IBAI-Run-Token`** on `POST /api/run`, `POST /api/run/detect` and on
      a `PUT /api/preferences` that sets `codeRunner: true`. No token → Run
-     and Run examples are hidden and Settings explains "Open the app from the server (`npm start`) to use the
-     code runner."
+     and Run examples are hidden and Settings explains "Open the app from
+     the server (`npm start`) to use the code runner."
    - **Server:** compares with the existing constant-time `tokensEqual`
      (`crypto.timingSafeEqual`; false on a missing header, a type or a length
      mismatch). Mismatch → 403 `bad_run_token`, nothing parsed further,
@@ -363,8 +363,10 @@ new dependency):
   import bisect_left, bisect_right, insort`; `from math import inf`. So
   `List[int]` annotations work as on LeetCode. Tracebacks keep the user's
   line numbers.
-- **Go.** The temp dir gets `solution.go`. If the code has no `package`
-  clause, the server prepends `package main` and a line directive
+- **Go.** The temp dir gets `solution.go`. The `package` clause is found by
+  scanning from the top and skipping blank lines, `//` comment lines and
+  `/* … */` comments. If the code has no `package` clause, the server
+  prepends `package main` and a line directive
   `//line solution.go:1`, so compiler errors keep the user's line numbers.
   `go build -o prog .` then `./prog`. Code without `func main` fails to build;
   the UI shows the hint "Run needs a main function. Use Run examples to call
@@ -377,15 +379,20 @@ new dependency):
   problem and records the result in the README. So the server adds missing
   imports to the **temp `solution.go` only, never to the note**: for each
   package in the fixed table below whose **name** (the last element of the
-  import path, for example `heap` for `container/heap`) followed by `.`
-  appears in the code, and that the code does not already import, it adds:
+  import path, for example `heap` for `container/heap`) matches
+  `(^|[^A-Za-z0-9_.])<name>\.` in the code (so `node.list.Next` does not
+  pull in `container/list`), and that the code does not already import, it
+  adds:
   - an `import "<path>"` line **right after the `package` clause** (Go
     requires imports before any other declaration; a second import
     declaration after the user's own import block is legal), followed by a
-    `//line solution.go:<n>` directive so the user's line numbers are kept;
-  - a `var _ = <name>.<symbol>` line at the **end** of the temp
-    `solution.go`, so a false match cannot cause an "imported and not used"
-    error.
+    `//line solution.go:<n>` directive so the user's line numbers are kept.
+    `<n>` is the line number of the user's package clause + 1, or `1` when
+    the server added `package main` itself;
+  - at the **end** of the temp `solution.go`, a `//line ibai_imports.go:1`
+    directive and then one `var _ = <symbol>` line per added package, so a
+    false match cannot cause an "imported and not used" error and errors in
+    these lines are never attributed to the user's code.
 
   | Import path | Name | Symbol |
   |---|---|---|
@@ -398,12 +405,14 @@ new dependency):
   | `container/list` | `list` | `list.New` |
   | `unicode` | `unicode` | `unicode.IsDigit` |
   | `fmt` | `fmt` | `fmt.Sprint` |
-  | `slices` | `slices` | `slices.Sort` |
-  | `maps` | `maps` | `maps.Keys` |
+  | `slices` | `slices` | `slices.Sort[[]int]` |
+  | `maps` | `maps` | `maps.Clone[map[int]int]` |
   | `bytes` | `bytes` | `bytes.Equal` |
   | `errors` | `errors` | `errors.New` |
 
-  `slices` and `maps` need Go ≥ 1.21, which is the minimum. The note
+  The `slices` and `maps` symbols are instantiated generics (a plain generic
+  name does not compile as a value); `maps.Clone` exists since Go 1.21. The
+  note
   stays exactly as the user wrote it, so it pastes back into LeetCode
   unchanged; an `import` block the user wrote also works on LeetCode. A
   package-level identifier of the user's with the same name as a listed
@@ -472,7 +481,8 @@ a new file next to it:
   either. A paste never touches the sidecar.
 - **A failed sidecar write** (the main file was written) is treated as
   `meta: null` for that reply: `runExamples` is
-  `{ state: 'unsupported', reason: 'needs_refresh' }`, with no refresh loop.
+  `{ state: 'needs-refresh', reason: 'needs_refresh' }`; the
+  once-per-page-load cap below prevents a refresh loop.
   The client starts the refresh-on-demand below at most **once per problem
   per page load**; if the state is still not `ready` after it, Run examples
   stays disabled with the reason and is not retried until the page is
@@ -541,15 +551,20 @@ wins, the pasted text.
 Equal when: same type and value for strings, booleans and `null`; numbers
 equal, or both finite with `|a − b| ≤ 1e-5` when either is not an integer;
 arrays with the same length and equal items in order; objects never occur in
-phase 1. **Big integers (decided: big-int-safe).** The server parses both the
-expected text and each `actual` result line with a JSON parser that keeps
-integers outside ±2^53 exactly (a small reviver over the raw text; numbers
-without `.`/`e` beyond `Number.MAX_SAFE_INTEGER` become `BigInt` and are
-compared as `BigInt`; Node 24's reviver `context.source` gives the raw
-text). `pass` is therefore exact. For display, each row also carries
-`expectedText` / `actualText`, the value's JSON text as received (≤ 2 000
-chars), and the UI shows those, so large integers are shown exactly too.
-`expected` / `actual` stay plain JSON values for programmatic use. The row label is **"expected (from the statement)"**, and the pane
+phase 1.
+
+**Big integers.** `BigInt` is used **only inside the server** to compute
+`pass`: for the comparison, the expected text and each `actual` result line
+are parsed with a reviver (Node 24's `context.source` gives the raw text)
+that turns integers beyond `Number.MAX_SAFE_INTEGER` (no `.` or `e`) into
+`BigInt`, so `pass` is exact. The reply's `expected` / `actual` are plain
+`JSON.parse` values and may be inexact past 2^53. For display, each row
+carries `expectedText` (present exactly when `expected` is) and
+`actualText` (present exactly when `actual` is): the value's JSON text as
+received. A text over 2 000 chars is cut and ends with `…`; `pass` is still
+computed on the full value. The UI shows the text field when present.
+
+The row label is **"expected (from the statement)"**, and the pane
 notes: "Some problems accept any order or any valid answer. A mismatch here
 is not a LeetCode verdict." (for example Longest Palindromic Substring's
 "aba" vs "bab").
@@ -628,7 +643,9 @@ into the temp dir; never generated, never templated):
 `metaData`: **Run only**. User-written examples are out of scope (later).
 
 **Tests (PR C / PR D):** Two Sum style pass, a wrong answer (`pass: false`),
-a `void` in-place problem, a statement with fewer "Output:" lines than
+a `void` in-place problem, two integers that differ only past 2^53
+(`pass: false`), an `actualText` over 2 000 chars (cut, ending with `…`), a
+statement with fewer "Output:" lines than
 examples (no `expected` key on any row), an `Output:` value that is not JSON (that row has no `expected`), the `<pre>` and `div.example-block` fixtures, an
 unsupported type (examples unavailable, Run works), a user print interleaved
 with results, a forged `IBAI-RESULT:` line printed by the user with a wrong
@@ -684,9 +701,9 @@ type RunReason =
 interface ExampleResult {
   input: string;            // the example's input lines as in exampleTestcases, joined with '\n'
   expected?: unknown;       // parsed JSON, absent when not found (D5)
-  expectedText?: string;    // its JSON text as in the statement (shown in the UI; exact for big ints)
+  expectedText?: string;    // present iff expected is; JSON text as in the statement, ≤ 2 000 chars (cut ends with '…')
   actual?: unknown;         // parsed JSON, absent on error
-  actualText?: string;      // its JSON text as printed by the harness (shown in the UI)
+  actualText?: string;      // present iff actual is; JSON text from the harness, ≤ 2 000 chars (cut ends with '…')
   pass?: boolean | null;    // null when expected is absent or the example errored
   error?: string;           // ≤ 2 000 chars
 }
@@ -743,7 +760,8 @@ interface RunStatusReply {     // GET /api/run/status, POST /api/run/detect
 (traceback in stderr), `error` / `compile_failed` (Go, `phase: 'compile'`),
 `error` / `output_limit` (`truncated: true`), `timeout`, `disabled`,
 `not_installed`, and an `examples` reply with a pass, a fail, an
-`expected`-missing row and an errored row; every rejection body above;
+`expected`-missing row, an errored row, and a big-integer row (a value past
+2^53 with `expectedText` / `actualText`); every rejection body above;
 `RunStatusReply` enabled with both languages, disabled and pinned, with Go
 missing, and with `needsAck: true` (`enabled: false`); `GET /api/preferences`
 with `codeRunner` `{ stored: false, pinned: false, needsAck: false }`,
@@ -890,7 +908,8 @@ zero-import module that web-ui imports by relative path, like
   - `PUT /api/preferences` with only `acknowledgeRunnerWarning: true` (and
     the token) writes the acknowledgment file, leaves `codeRunner`
     unchanged, and returns 200;
-  - Go imports: user code with its **own import block** that also uses a
+  - Go imports: a `slices.Sort` call with no import builds; `node.list.Next`
+    does not add `container/list`; user code with its **own import block** that also uses a
     package it did not import (`import "strings"` plus a `sort.Ints` call)
     still builds, and compiler line numbers still match the user's code;
   - `GOVERSION` parsing: `go1.22rc1` → `1.22`, `go1.25.0` → `1.25`, and
