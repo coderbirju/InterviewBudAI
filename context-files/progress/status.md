@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-10-05. PRs #1–#101 are merged or closed (source: `gh pr list`). ADR 0019, ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-08. PRs #1–#104 are merged or closed (source: `gh pr list`). ADR 0020 (local code runner) is proposed. ADR 0019, ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -32,6 +32,9 @@ _Last updated: 2026-10-05. PRs #1–#101 are merged or closed (source: `gh pr li
 - ✅ #99 Notes toolbar trimmed to the language picker and "Copy code" (ADR 0014 D2 amendment)
 - ✅ #100 ADR 0019: Node 24 LTS minimum (engines, CI, Docker, release zip; breaking)
 - ✅ #101 Settings page: simpler layout, config details in collapsed sections
+- ✅ #102 Cleanup: Settings "Last test" wording, ADR cross-references, status refresh
+- ✅ #103 Home problem titles open the Notes page; LeetCode via a small icon
+- ✅ #104 Quiz question card shows the cached problem statement (display only)
 
 **Wave 2a: growth loop and topics**
 - ✅ #66 Frontmatter escaping fix (complexity round-trip)
@@ -89,9 +92,19 @@ _Last updated: 2026-10-05. PRs #1–#101 are merged or closed (source: `gh pr li
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 Cleanup: Settings "Last test" wording, ADR cross-references, status refresh (`feature/cleanup-2026-10-05`).
+- 🟡 ADR 0020: local code runner for Python and Go (Run, Run examples), opt-in, off by default (`architect/adr-0020-code-runner`; founder merges).
 
 ## Next up
+ADR 0020 roadmap (after the founder merges the ADR; A0 first, then A and B in parallel against its fixtures):
+- PR A0: shared run types (`run-types.ts`) and all the D7 fixtures.
+- PR A: runner core, run token + Host/Origin checks, Run mode for Python and Go, `codeRunner` setting / `IBAI_CODE_RUNNER`, detection.
+- PR B: Notes UI (Run, output pane) and the Settings "Code runner" card.
+- PR C: `metaData` sidecar cache + Python Run examples harness.
+- PR D: Go Run examples harness.
+- PR E: ListNode / TreeNode converters.
+- PR F: Docker image adds `python3` (Go behind a build arg).
+
+Other:
 1. `htmlparser2` 11.x/12.x bump, now allowed by the Node 24 floor (ADR 0019 D4; optional, own PR).
 2. Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
 3. Pin the provider empty-response error text with a shared constant and a test.
@@ -103,6 +116,7 @@ _Last updated: 2026-10-05. PRs #1–#101 are merged or closed (source: `gh pr li
 - Push the first release tag (ADR 0016).
 
 ## Open founder decisions
+- ADR 0020 recommendations to confirm: run limits (Python 5 s; Go 30 s build + 5 s run; 64 KiB output per stream), Go in Docker behind a build arg (default off), "do not enable on shared computers" documented rather than enforced, empty stdin in phase 1.
 - System Design: whether it is in scope, and in what shape.
 - Backups: git-backed or export.
 - Coaching beyond the quiz and the Notes intuition check (ADR 0013): a free-form coach or plan in the web.

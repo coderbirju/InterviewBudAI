@@ -124,3 +124,10 @@ unchanged. See `decisions/0008-web-first-product-focus.md`.
 - [ ] No user progress data committed to the repo.
 - [ ] No mandatory network calls except to the user-configured LLM (the
       optional, user-triggered LeetCode fetch of ADR 0015 is the one exception).
+- [ ] No execution of untrusted content (model output, fetched content,
+      files). The one exception is the opt-in code runner of ADR 0020: only the
+      user's own editor code, only on an explicit click, only with the setting
+      on. Security checks for any change near it: the `/api/run` token, Host,
+      Origin and JSON checks hold; spawn uses an argv array (no shell), a
+      temp dir, the env allowlist, the time and output limits; fetched
+      examples go to the child as JSON data, never as code.
