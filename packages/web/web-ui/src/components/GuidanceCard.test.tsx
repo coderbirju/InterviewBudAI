@@ -144,23 +144,34 @@ describe('GuidanceCard — where you stand', () => {
 });
 
 describe('GuidanceCard — next up', () => {
-  it('renders ≤3 rows with external title link, badge, reason, kind icon, notes link', () => {
+  it('renders ≤3 rows with a Notes title link, LeetCode icon, badge, reason, kind icon', () => {
     const four = [...ready().nextUp, next('p4', 'start')];
     render(<GuidanceCard guidance={ready({ nextUp: four })} />);
 
-    const title = screen.getByRole('link', { name: /^Title p1/ });
-    expect(title).toHaveAttribute('href', 'https://leetcode.com/problems/p1/');
-    expect(title).toHaveAttribute('target', '_blank');
-    expect(title).toHaveAttribute('rel', 'noopener noreferrer');
+    // The title opens our own Notes page (same tab, no target).
+    const title = screen.getByRole('link', { name: 'Title p1' });
+    expect(title).toHaveAttribute('href', '/notes/p1');
+    expect(title).not.toHaveAttribute('target');
+    // A separate icon link opens LeetCode in a new tab; not nested in the title.
+    const icon = screen.getByRole('link', {
+      name: 'Open Title p1 on LeetCode',
+    });
+    expect(icon).toHaveAttribute('href', 'https://leetcode.com/problems/p1/');
+    expect(icon).toHaveAttribute('target', '_blank');
+    expect(icon).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(title.contains(icon)).toBe(false);
+    expect(icon.contains(title)).toBe(false);
     expect(screen.getByText('Reason p1')).toBeInTheDocument();
     expect(screen.getByText('Hard')).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: /^Notes for / })).toHaveLength(
+    expect(screen.getAllByRole('link', { name: /^Title p/ })).toHaveLength(
       MAX_NEXT_UP_ROWS,
     );
-    expect(
-      screen.getByRole('link', { name: 'Notes for Title p1' }),
-    ).toHaveAttribute('href', '/notes/p1');
+    expect(screen.getAllByRole('link', { name: /on LeetCode$/ })).toHaveLength(
+      MAX_NEXT_UP_ROWS,
+    );
+    // The separate "Notes" link is gone (the title is the Notes link now).
+    expect(screen.queryByRole('link', { name: /^Notes for / })).toBeNull();
     expect(screen.queryByText('Title p4')).not.toBeInTheDocument();
 
     const kinds = Array.from(document.querySelectorAll('[data-kind]')).map(
@@ -171,11 +182,33 @@ describe('GuidanceCard — next up', () => {
     expect(screen.getByText('Weak topic')).toHaveClass('sr-only');
   });
 
-  it('the Notes link navigates in-app on a plain click', async () => {
+  it('the title navigates in-app on a plain click', async () => {
+    window.history.pushState({}, '', '/');
     const user = userEvent.setup();
     render(<GuidanceCard guidance={ready()} />);
-    await user.click(screen.getByRole('link', { name: 'Notes for Title p2' }));
+    await user.click(screen.getByRole('link', { name: 'Title p2' }));
     expect(window.location.pathname).toBe('/notes/p2');
+  });
+
+  it('a modifier or middle click on the title is not intercepted', () => {
+    window.history.pushState({}, '', '/');
+    render(<GuidanceCard guidance={ready()} />);
+    const title = screen.getByRole('link', { name: 'Title p2' });
+    for (const init of [
+      { button: 0, ctrlKey: true },
+      { button: 0, metaKey: true },
+      { button: 0, shiftKey: true },
+      { button: 1 },
+    ]) {
+      const ev = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      title.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+      expect(window.location.pathname).toBe('/');
+    }
   });
 });
 
@@ -285,13 +318,15 @@ describe('GuidanceCard — untrusted text', () => {
 });
 
 describe('GuidanceCard — custom problem without a url', () => {
-  it('renders the next-up title as plain text (no anchor)', () => {
+  it('the title still opens Notes, and there is no external icon', () => {
     const custom: GuidanceNextUp = { ...next('u-book-abc123', 'continue') };
     delete (custom as { url?: string }).url;
     render(<GuidanceCard guidance={ready({ nextUp: [custom] })} />);
-    expect(screen.getByText('Title u-book-abc123')).toBeInTheDocument();
     expect(
-      screen.queryByRole('link', { name: 'Title u-book-abc123' }),
-    ).not.toBeInTheDocument();
+      screen.getByRole('link', { name: 'Title u-book-abc123' }),
+    ).toHaveAttribute('href', '/notes/u-book-abc123');
+    // The title is the only link in the row: no external icon, no dead anchor.
+    expect(screen.queryByRole('link', { name: /^Open / })).toBeNull();
+    expect(document.querySelector('a[target="_blank"]')).toBeNull();
   });
 });
