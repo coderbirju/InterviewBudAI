@@ -158,8 +158,14 @@ describe('Home guidance card', () => {
     render(<Home />);
     const card = await screen.findByRole('region', { name: 'Your guidance' });
     expect(screen.getByText('1 needs review')).toBeInTheDocument();
+    // Next-up title opens Notes; its icon opens LeetCode in a new tab.
     expect(
-      screen.getByRole('link', { name: /^Group Anagrams/ }),
+      within(card).getByRole('link', { name: 'Group Anagrams' }),
+    ).toHaveAttribute('href', '/notes/lc-49');
+    expect(
+      within(card).getByRole('link', {
+        name: 'Open Group Anagrams on LeetCode',
+      }),
     ).toHaveAttribute('target', '_blank');
     // Wire difficulty is lowercase; the badge shows display casing.
     expect(within(card).getByText('Medium')).toBeInTheDocument();
