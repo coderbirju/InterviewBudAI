@@ -313,6 +313,15 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Home: problem titles open the Notes page.** Clicking a problem title on
+  Home (catalog rows and the guidance card's **Next up** items) now opens
+  that problem's Notes page in the app, where you work on it, instead of
+  LeetCode. Ctrl/Cmd/Shift-click and middle-click still open it in a new tab
+  as usual. LeetCode is one click away through a small external-link icon
+  next to the title (new tab); a custom problem shows the icon only if it
+  has a link. The separate **Notes** column and the Next up **Notes** links
+  are gone, since the title does the same thing. No data or API change.
+  Breaking changes: none.
 - **Settings: "Last test" row.** The AI provider's "Connection" row is now
   labelled **Last test**, so a "Reachable" from an earlier test is not read
   as a live status. When the test request itself fails, the row says
