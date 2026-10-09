@@ -67,6 +67,16 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Problem statement on the quiz card** (ADR 0007, amendment 2026-10-08).
+  The Quickfire quiz question card now shows the problem statement and its
+  examples under the title, from the same cache as the Notes page (fetched
+  once from LeetCode when it is not cached yet and fetching is on). It is
+  shown by default; **Hide problem** / **Show problem** collapses it, and the
+  choice is kept until you reload. Premium, unavailable or fetch-off problems
+  show a short reason, the LeetCode link and a link to the Notes page, where
+  you can paste the problem. Starter code is not shown. Display only: the
+  statement is not sent to the model, and grading is unchanged. Breaking
+  changes: none. Nothing to do.
 - **Problem statement fetch, cache and preferences API** (ADR 0015 PR A,
   server side; the Notes view is the entry below). When you open a catalog
   problem, the local server can fetch that one problem's statement and

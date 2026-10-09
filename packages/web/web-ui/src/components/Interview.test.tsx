@@ -3,7 +3,9 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Interview } from './Interview';
 import * as api from '../lib/api';
+import disabledStatement from '../test/fixtures/statement/statement-disabled.json';
 import type {
+  ProblemStatement,
   QuizAnswerResult,
   QuizSessionResult,
   QuizSessionSummary,
@@ -24,6 +26,10 @@ vi.mock('../lib/api', async () => {
     endQuiz: vi.fn(),
     resumeQuiz: vi.fn(),
     deleteQuizSession: vi.fn(),
+    // The card's statement (ADR 0015): never hits the network here; the
+    // statement flow itself is covered by Interview.statement.test.tsx.
+    fetchStatement: vi.fn(),
+    fetchStatementFromLeetcode: vi.fn(),
   };
 });
 
@@ -85,6 +91,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedApi.getQuizSession.mockResolvedValue(NO_SESSION);
   mockedApi.listQuizSessions.mockResolvedValue({ sessions: [] });
+  mockedApi.fetchStatement.mockResolvedValue({
+    ...disabledStatement,
+    invalidTree: false,
+  } as ProblemStatement);
 });
 
 describe('Quickfire Quiz Master', () => {
