@@ -104,7 +104,6 @@ export function CategoryAccordion({
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium">Problem</th>
                 <th className="px-4 py-2 font-medium">Difficulty</th>
-                <th className="px-4 py-2 font-medium">Notes</th>
               </tr>
             </thead>
             <tbody>

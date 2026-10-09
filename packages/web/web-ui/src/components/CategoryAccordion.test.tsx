@@ -75,14 +75,37 @@ describe('CategoryAccordion', () => {
     expect(screen.getByText('Two Sum')).toBeInTheDocument();
     expect(screen.getByText('Group Anagrams')).toBeInTheDocument();
 
-    // Title links out to LeetCode in a new tab with noopener.
+    // Title opens the problem's Notes page; a separate icon opens LeetCode.
     const link = screen.getByRole('link', { name: 'Two Sum' });
-    expect(link).toHaveAttribute('href', topic.problems[0].url);
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(link).toHaveAttribute('href', '/notes/two-sum');
+    expect(link).not.toHaveAttribute('target');
+    const icon = screen.getByRole('link', { name: 'Open Two Sum on LeetCode' });
+    expect(icon).toHaveAttribute('href', topic.problems[0].url);
+    expect(icon).toHaveAttribute('target', '_blank');
+    expect(icon).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('renders a custom problem without a url as plain text (no anchor)', async () => {
+  it('has Status / Problem / Difficulty headers and no Notes column', async () => {
+    const user = userEvent.setup();
+    render(
+      <CategoryAccordion
+        topic={topic}
+        busyIds={new Set()}
+        onStatusChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
+    expect(
+      screen.getAllByRole('columnheader').map((h) => h.textContent),
+    ).toEqual(['Status', 'Problem', 'Difficulty']);
+    expect(screen.queryByRole('link', { name: /notes for/i })).toBeNull();
+    // Every row has as many cells as there are headers.
+    for (const row of screen.getAllByRole('row').slice(1)) {
+      expect(row.querySelectorAll('td')).toHaveLength(3);
+    }
+  });
+
+  it('a custom problem without a url: title opens Notes, no external icon', async () => {
     const user = userEvent.setup();
     render(
       <CategoryAccordion
@@ -103,9 +126,11 @@ describe('CategoryAccordion', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: /Arrays & Hashing/ }));
-    expect(screen.getByText('Book problem')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'Book problem' }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Book problem' })).toHaveAttribute(
+      'href',
+      '/notes/u-book-abc123',
+    );
+    expect(screen.queryByRole('link', { name: /^Open / })).toBeNull();
+    expect(document.querySelector('a[target="_blank"]')).toBeNull();
   });
 });

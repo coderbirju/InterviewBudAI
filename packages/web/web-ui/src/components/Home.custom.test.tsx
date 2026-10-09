@@ -151,14 +151,19 @@ describe('Home — custom problems', () => {
       within(notice).getByRole('link', { name: 'Open its notes' }),
     ).toHaveAttribute('href', `/notes/${CREATED.id}`);
 
-    // Its topic is expanded; the row shows the title as text + a Custom badge.
+    // Its topic is expanded; the row shows the title (as text) + a Custom badge.
     const panel = await screen.findByRole('row', {
       name: new RegExp('Custom'),
     });
     expect(within(panel).getByText(XSS)).toBeInTheDocument();
     expect(within(panel).getByText('Custom')).toBeInTheDocument();
-    // No url ⇒ no outbound link on the title; nothing injected.
-    expect(within(panel).queryByRole('link', { name: XSS })).toBeNull();
+    // The title opens Notes; no url ⇒ no outbound icon; nothing injected.
+    expect(within(panel).getByRole('link', { name: XSS })).toHaveAttribute(
+      'href',
+      `/notes/${CREATED.id}`,
+    );
+    expect(within(panel).getAllByRole('link')).toHaveLength(1);
+    expect(panel.querySelector('a[target="_blank"]')).toBeNull();
     expect(container.querySelector('img')).toBeNull();
   });
 
@@ -183,7 +188,7 @@ describe('Home — custom problems', () => {
     ).toHaveFocus();
   });
 
-  it('catalog rows keep their outbound link and get no badge', async () => {
+  it('catalog rows: title opens Notes, outbound LeetCode icon, no badge', async () => {
     const user = userEvent.setup();
     mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
     render(<Home />);
@@ -192,10 +197,29 @@ describe('Home — custom problems', () => {
     );
     const row = screen.getByRole('row', { name: /Two Sum/ });
     expect(within(row).getByRole('link', { name: 'Two Sum' })).toHaveAttribute(
-      'rel',
-      'noopener noreferrer',
+      'href',
+      '/notes/lc-1',
     );
+    expect(
+      within(row).getByRole('link', { name: 'Open Two Sum on LeetCode' }),
+    ).toHaveAttribute('rel', 'noopener noreferrer');
     expect(within(row).queryByText('Custom')).toBeNull();
+  });
+
+  it('a plain click on a catalog title opens its Notes page in-app', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/');
+    mockedApi.fetchCatalog.mockResolvedValue(CATALOG);
+    render(<Home />);
+    await user.click(
+      await screen.findByRole('button', { name: /^Arrays & Hashing/ }),
+    );
+    expect(
+      screen.getAllByRole('columnheader').map((h) => h.textContent),
+    ).not.toContain('Notes');
+    const row = screen.getByRole('row', { name: /Two Sum/ });
+    await user.click(within(row).getByRole('link', { name: 'Two Sum' }));
+    expect(window.location.pathname).toBe('/notes/lc-1');
   });
 
   it('shows a one-shot flash (e.g. after a delete on Notes) and lets it be dismissed', async () => {
