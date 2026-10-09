@@ -610,6 +610,9 @@ with the quiz sections.
 ### D6 — Out of scope
 
 - A code editor, running code, and in-app problem definitions or test cases.
+  _(The code editor is in scope since ADR 0014. Running code and running
+  LeetCode's sample cases are in scope since ADR 0020 (2026-10-08), opt-in
+  and local; hidden tests and judging stay out of scope.)_
 - Syntax or logic snippets (a later ring), chat threads or follow-up turns,
   and saved coach feedback.
 - Shipping any reference approach (§6.2), and showing the Reference approach

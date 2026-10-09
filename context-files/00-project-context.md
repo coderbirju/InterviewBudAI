@@ -36,6 +36,9 @@ competency map that any AI coaching session can read and build on.
    server, no telemetry. Cloud is an *optional future*, never a requirement.
    No mandatory network calls except the configured LLM; the optional,
    user-triggered LeetCode statement fetch (ADR 0015) can be turned off.
+   Untrusted content is never executed; the one exception is the opt-in,
+   off-by-default code runner (ADR 0020), which runs only the user's own
+   editor code, on the user's click, on the user's machine.
 2. **Bring-your-own-LLM.** The project is **not opinionated** about models. Any
    LLM works on day one — OpenAI, Anthropic, local Ollama, etc. — behind a
    pluggable interface. The project never requires a specific model, and

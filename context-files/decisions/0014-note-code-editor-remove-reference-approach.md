@@ -11,7 +11,8 @@
 - **Amends:** ADR 0012 D2 (the quiz budgets go back to ≤ 280 / ≤ 2 000),
   ADR 0013 D1 (coach budgets ≤ 250 / ≤ 1 500), ADR 0013 D6 (a **note**
   editor with syntax highlighting is now in scope; running code is still out
-  of scope), ADR 0006 (dependency table), ADR 0009 D2 (the CSV `reference`
+  of scope; _that clause is superseded by ADR 0020 (2026-10-08): opt-in local
+  Run and Run examples_), ADR 0006 (dependency table), ADR 0009 D2 (the CSV `reference`
   role is removed).
 
 ## Context

@@ -142,7 +142,11 @@ and maintained. Unusual or possibly typosquatted names **MUST** be flagged.
 `.env.example` and read config from the environment.
 
 7.3. Inputs from files, model outputs, and the network are **untrusted**.
-Validate and handle errors; never execute untrusted content.
+Validate and handle errors; never execute untrusted content. *Amended by
+ADR 0020:* the one exception is the **user's own editor code**, executed only
+on an explicit **Run** / **Run examples** click, only when the opt-in code
+runner setting is on. Model output and fetched content are still never
+executed; fetched examples reach the child process as JSON data only.
 
 ## 8. Communication & handoff
 
