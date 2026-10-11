@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   SettingsPage,
@@ -255,11 +255,9 @@ describe('SettingsPage', () => {
   });
 
   it('test button: after 3 s of waiting it says the test can take up to 30 s', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Fully fake timers (no shouldAdvanceTime): only the test moves the clock.
+    vi.useFakeTimers();
     try {
-      const user = userEvent.setup({
-        advanceTimers: vi.advanceTimersByTime.bind(vi),
-      });
       mockedApi.fetchSettings.mockResolvedValue(ANTHROPIC);
       let resolveTest: (r: api.ProviderTestResult) => void = () => undefined;
       mockedApi.testProviderConnection.mockReturnValue(
@@ -268,22 +266,24 @@ describe('SettingsPage', () => {
         }),
       );
       render(<SettingsPage />);
-      await user.click(
-        await screen.findByRole('button', { name: /test connection/i }),
-      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
       const result = screen.getByTestId('test-result');
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(TEST_SLOW_HINT_MS - 100);
+        await vi.advanceTimersByTimeAsync(TEST_SLOW_HINT_MS - 1);
       });
       expect(result).not.toHaveTextContent(TEST_SLOW_HINT);
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(200);
+        await vi.advanceTimersByTimeAsync(1);
       });
       expect(result).toHaveTextContent('This can take up to 30 seconds.');
       await act(async () => {
         resolveTest({ ok: true, latencyMs: 12_000, detail: 'Anthropic ok.' });
+        await vi.advanceTimersByTimeAsync(0);
       });
-      expect(await screen.findByText(/connected in 12000 ms/i)).toBeVisible();
+      expect(screen.getByText(/connected in 12000 ms/i)).toBeVisible();
       expect(result).not.toHaveTextContent(TEST_SLOW_HINT);
     } finally {
       vi.useRealTimers();

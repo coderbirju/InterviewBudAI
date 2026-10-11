@@ -35,7 +35,7 @@ import {
 export interface AnthropicProviderConfig {
   /** REQUIRED user-supplied key. Never hardcoded/committed. */
   readonly apiKey: string;
-  /** REQUIRED user-supplied model (e.g. 'claude-3-5-sonnet-20241022'). No hardcoded-only default. */
+  /** REQUIRED user-supplied model (`<model-name>`). No hardcoded-only default. */
   readonly model: string;
   /** Endpoint. Default 'https://api.anthropic.com/v1/messages'. */
   readonly endpoint?: string;
@@ -106,7 +106,7 @@ export const ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE =
 
 /** Fixed text: a 400 that says the model does not take `effort`. */
 export const ANTHROPIC_EFFORT_REJECTED_MESSAGE =
-  'This model does not accept IBAI_ANTHROPIC_EFFORT. Unset it.';
+  'This model does not accept this IBAI_ANTHROPIC_EFFORT value. Try `low`, or unset it.';
 
 /** Fixed text for a refusal (the model's own text is never shown). */
 const REFUSAL_MESSAGE = 'The model declined to answer this request';

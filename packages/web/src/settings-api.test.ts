@@ -29,6 +29,7 @@ import type {
 import {
   OLLAMA_USERINFO_DETAIL,
   openAICompatibleLabel,
+  TEST_IN_FLIGHT_ERROR,
   TEST_TIMEOUT_MS,
   createProviderTester,
   sanitizeEndpoint,
@@ -583,6 +584,32 @@ describe('POST /api/settings/test-provider', () => {
 
   it('the test deadline is 30 s for every provider', () => {
     expect(TEST_TIMEOUT_MS).toBe(30_000);
+  });
+
+  it('a test while one is running → 429 "already running" (not the 5 s text)', async () => {
+    let release: (r: Response) => void = () => undefined;
+    const fake = fakeFetch(
+      () =>
+        new Promise<Response>((r) => {
+          release = r;
+        }),
+    );
+    let t = 0;
+    const test = createProviderTester({
+      env: { IBAI_OLLAMA_MODEL: 'llama3' },
+      fetchImpl: fake.fetchImpl,
+      clock: () => t,
+    });
+    const first = test();
+    t = 10_000; // past the 5 s gap: only the running test blocks
+    const second = await test();
+    expect(second).toEqual({
+      status: 429,
+      body: { error: TEST_IN_FLIGHT_ERROR },
+    });
+    expect(TEST_IN_FLIGHT_ERROR).toBe('A connection test is already running.');
+    release(jsonResponse(200, { models: [{ name: 'llama3' }] }));
+    expect((await first).status).toBe(200);
   });
 
   it('rate limit: a second test within 5 s → 429, allowed again after', async () => {
