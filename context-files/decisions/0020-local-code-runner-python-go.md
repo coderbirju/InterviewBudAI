@@ -966,3 +966,9 @@ reviewing this PR.
 4. **stdin:** empty in phase 1; user-provided stdin later.
 
 Any change to these decisions requires a new ADR.
+
+## Amendment (docs layout, 2026-10-10)
+
+Wherever this ADR says "record in the README" or "README section", the
+code-runner details go in a new `docs/code-runner.md`; the root README gets
+at most a link to it (PR #106 moved details out of the README).

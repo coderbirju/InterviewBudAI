@@ -4,7 +4,7 @@
 > starts and finishes a unit of work. One line per item: PR # + what.
 > Detail belongs in PRs and ADRs, not here.
 
-_Last updated: 2026-10-08. PRs #1–#104 are merged or closed (source: `gh pr list`). ADR 0020 (local code runner) is proposed. ADR 0019, ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
+_Last updated: 2026-10-10. PRs #1–#104 are merged or closed (source: `gh pr list`). ADR 0020 (local code runner) is proposed. ADR 0019, ADR 0014, ADR 0013 and ADR 0012 have shipped. ADR 0011 (local AI via Docker) has shipped. ADR 0004 was deleted with founder approval._
 
 **Legend:** ✅ merged · 🟡 PR open · 🔨 in progress · ⏸ deferred · ✖ closed unmerged
 
@@ -92,8 +92,9 @@ _Last updated: 2026-10-08. PRs #1–#104 are merged or closed (source: `gh pr li
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
-- 🟡 Fix: Anthropic adapter works with always-thinking models (16000 output-token floor, optional `IBAI_ANTHROPIC_EFFORT`, clear refusal / budget / effort errors) (`fix/anthropic-thinking-budget`; untested against the live API: founder runs Settings → Test connection and one quiz answer with a real key; #106 must pick up the docs text from the PR body).
+- 🟡 Fix: Anthropic adapter works with always-thinking models (16000 output-token floor, optional `IBAI_ANTHROPIC_EFFORT`, clear refusal / budget / effort errors) (`fix/anthropic-thinking-budget`; untested against the live API: founder runs Settings → Test connection and one quiz answer with a real key; docs/providers.md and docs/configuration.md updated after #106 merged).
 - 🟡 ADR 0020: local code runner for Python and Go (Run, Run examples), opt-in, off by default (`architect/adr-0020-code-runner`; founder merges).
+- 🔨 [#106](https://github.com/coderbirju/InterviewBudAI/pull/106) Docs pass: short README (intro, quick start with Claude, local AI); details moved to `docs/` (`architect/docs-readme-rewrite`).
 
 ## Next up
 ADR 0020 roadmap (after the founder merges the ADR; A0 first, then A and B in parallel against its fixtures):
@@ -109,8 +110,9 @@ Other:
 1. `htmlparser2` 11.x/12.x bump, now allowed by the Node 24 floor (ADR 0019 D4; optional, own PR).
 2. Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
 3. Pin the provider empty-response error text with a shared constant and a test.
-4. **Docs pass.** On hold until the founder says go.
+4. **Docs pass.** 🔨 In progress in [#106](https://github.com/coderbirju/InterviewBudAI/pull/106): short README and focused `docs/` pages (`architect/docs-readme-rewrite`).
 5. `ubuntu-latest` moves to Ubuntu 26 on 2026-10-19; watch CI that week.
+6. **Must land before the first release tag:** the release zip must ship `docs/` (or a zip-specific README); ADR 0016 D2 layout change.
 
 ## Founder actions
 - Create the `METRICS_TOKEN` secret in `coderbirju/repo-metrics` (ADR 0018). Its seed is the ref `493a711:scripts/metrics/`.
