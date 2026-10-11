@@ -93,6 +93,7 @@ _Last updated: 2026-10-08. PRs #1–#104 are merged or closed (source: `gh pr li
 
 ## In progress
 - 🟡 ADR 0020: local code runner for Python and Go (Run, Run examples), opt-in, off by default (`architect/adr-0020-code-runner`; founder merges).
+- 🔨 Docs pass: short README (intro, quick start with Claude, local AI); details moved to `docs/` (`architect/docs-readme-rewrite`).
 
 ## Next up
 ADR 0020 roadmap (after the founder merges the ADR; A0 first, then A and B in parallel against its fixtures):
@@ -108,7 +109,7 @@ Other:
 1. `htmlparser2` 11.x/12.x bump, now allowed by the Node 24 floor (ADR 0019 D4; optional, own PR).
 2. Notes without `lastUpdated` currently read as "today" (fix in the storage adapter).
 3. Pin the provider empty-response error text with a shared constant and a test.
-4. **Docs pass.** On hold until the founder says go.
+4. **Docs pass.** 🔨 In progress: short README and focused `docs/` pages (`architect/docs-readme-rewrite`).
 5. `ubuntu-latest` moves to Ubuntu 26 on 2026-10-19; watch CI that week.
 
 ## Founder actions

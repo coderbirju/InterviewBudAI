@@ -88,8 +88,8 @@ and is listed there with what you need to do (ADR 0009 D4).
   Premium or missing problems fall back to the link plus a pasted statement.
   Your code language (Python or Go) and the fetch setting are stored in
   `<data folder>/preferences.json`. **To turn the fetch off:** Settings, or
-  `IBAI_LEETCODE_FETCH=off` (pins it; see the README section "Problem
-  statements from LeetCode"). New routes: `GET`/`PUT
+  `IBAI_LEETCODE_FETCH=off` (pins it; see
+  [docs/problem-statements.md](docs/problem-statements.md)). New routes: `GET`/`PUT
   /api/problems/:id/statement`, `POST /api/problems/:id/statement/fetch`,
   `GET`/`PUT /api/preferences`. Additive: new optional files only, no format
   change, no migration (ADR 0015 D6). Nothing to do.
@@ -323,6 +323,11 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- **Documentation reorganized.** The README is now short: an introduction, a
+  quick start with Claude, other providers, and local AI with Docker. The
+  details moved to focused pages under `docs/`: AI providers, configuration,
+  your data, problem statements, Docker, releases and development. Nothing
+  changes in the app. Breaking changes: none.
 - **Home: problem titles open the Notes page.** Clicking a problem title on
   Home (catalog rows and the guidance card's **Next up** items) now opens
   that problem's Notes page in the app, where you work on it, instead of
