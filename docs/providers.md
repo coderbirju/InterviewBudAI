@@ -34,8 +34,8 @@ Runner.
 - `IBAI_OPENAI_TIMEOUT_MS`: optional request timeout in milliseconds
   (default 120000, kept between 5000 and 600000).
 
-With a key, the base URL must be `https`, or `http` to `localhost` /
-`127.0.0.1`. Otherwise the provider is skipped and Settings shows why. Do not
+With a key, the base URL must be `https`, or `http` to a loopback address
+(localhost, 127.x, ::1). Otherwise the provider is skipped and Settings shows why. Do not
 put a username or password in the URL.
 
 OpenAI:
