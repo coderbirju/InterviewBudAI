@@ -316,6 +316,9 @@ export function buildSettingsResponse(input: {
 // POST /api/settings/test-provider
 // ---------------------------------------------------------------------------
 
+/** 429 text while a test is still running (the 5 s gap text is for the cooldown). */
+export const TEST_IN_FLIGHT_ERROR = 'A connection test is already running.';
+
 /** Minimum gap between two tests (in-process). */
 export const TEST_MIN_INTERVAL_MS = 5_000;
 /**
@@ -481,9 +484,12 @@ export function createProviderTester(
       return { status: 400, body: { error: 'no model configured' } };
     }
     const startedAt = clock();
+    if (inFlight) {
+      return { status: 429, body: { error: TEST_IN_FLIGHT_ERROR } };
+    }
     if (
-      inFlight ||
-      (lastStartedAt !== undefined && startedAt - lastStartedAt < minIntervalMs)
+      lastStartedAt !== undefined &&
+      startedAt - lastStartedAt < minIntervalMs
     ) {
       return {
         status: 429,
