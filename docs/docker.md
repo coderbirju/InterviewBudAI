@@ -6,16 +6,18 @@ Runner (ADR 0011). No account and no key. The short version is in the
 
 ## Requirements
 
-- Docker Desktop with **Model Runner enabled**: Settings → AI → Enable
-  Docker Model Runner.
+- Docker Desktop with **Model Runner enabled**. Model Runner is off by
+  default in recent Docker Desktop versions. To turn it on: open Docker
+  Desktop, go to Settings → AI, check "Enable Docker Model Runner", then
+  click Apply.
 - Docker Compose **2.38 or later** (`docker compose version`).
 - Supported hardware: an Apple silicon Mac, or Windows with an NVIDIA
   (driver 576.57 or later) or Qualcomm Adreno GPU. On Linux, Docker Engine
   with `docker-model-plugin` (below). Intel Macs are probably not supported.
 - About 8 GB of RAM. The default model needs about 3.5 GB (an estimate,
   not measured).
-- Disk: the default model is a 2.5 GB download (Docker Hub); the app image
-  adds a few hundred MB (an estimate).
+- About 4 GB of free disk space. The default model is a 2.5 GB download
+  (Docker Hub); the app image and its build add about 1 GB (an estimate).
 
 ## Start and stop
 

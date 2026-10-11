@@ -1,7 +1,8 @@
 # Configuration reference
 
-All settings come from environment variables. No setting holds a key in the
-app itself.
+Startup settings come from environment variables and command-line flags.
+Keys are only ever read from the environment, never stored by the app. The
+frozen CLI also reads the data folder, Anthropic and Ollama variables.
 
 ## Where settings come from
 
@@ -11,7 +12,8 @@ app itself.
   warning and the app starts without it.
 - **Your shell:** variables you `export` win over `.env`.
 - **Command-line flags** (when you run the server directly) win over both:
-  `node packages/web/dist/server-bin.js --data-dir=/path --port=8080`.
+  `node packages/web/dist/server-bin.js --data-dir=/path --port=8080`
+  (after `npm start` or `npm run build`).
 - **Docker:** Compose reads `.env` only to fill in `compose.yaml`. The file
   is never passed into the container. See [Docker](docker.md).
 

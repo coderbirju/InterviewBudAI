@@ -9,7 +9,8 @@ only, never answers.
 - **Catalog:** curated problems by topic, with search and filters.
 - **Notes:** your own notes and code per problem, next to the problem
   statement.
-- **Quiz:** a quick quiz on the problems you have solved.
+- **Quiz** (the Interview tab): a quick quiz on the problems you have
+  solved.
 - **Intuition check:** ask the AI if your approach is on track, without
   getting the answer.
 - **Analytics:** your progress, weak topics, and what to focus on next.
@@ -60,15 +61,19 @@ Runner. You need no account and no key.
 
 You need:
 
+- git.
 - Docker Desktop with **Model Runner turned on**: in Docker Desktop, open
   Settings, then AI, then check "Enable Docker Model Runner".
+- Docker Compose **2.38 or later** (check with `docker compose version`).
 - About **8 GB of RAM**. The default model uses about 3.5 GB (an estimate).
 - About **4 GB of free disk space**. The default model is a 2.5 GB download,
-  and the app image adds a few hundred MB.
+  and the app image and its build add about 1 GB (an estimate).
 
-Then run this in the `InterviewBudAI` folder:
+Then run:
 
 ```bash
+git clone https://github.com/coderbirju/InterviewBudAI.git
+cd InterviewBudAI
 docker compose up
 ```
 
