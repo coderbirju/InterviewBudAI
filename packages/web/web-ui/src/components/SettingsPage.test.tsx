@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SettingsPage, ENV_SNIPPET } from './SettingsPage';
+import {
+  SettingsPage,
+  ENV_SNIPPET,
+  TEST_SLOW_HINT,
+  TEST_SLOW_HINT_MS,
+} from './SettingsPage';
 import App from '../App';
 import * as api from '../lib/api';
 import { ApiError } from '../lib/api';
@@ -247,6 +252,42 @@ describe('SettingsPage', () => {
       'Ollama is reachable.',
     );
     expect(mockedApi.testProviderConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('test button: after 3 s of waiting it says the test can take up to 30 s', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({
+        advanceTimers: vi.advanceTimersByTime.bind(vi),
+      });
+      mockedApi.fetchSettings.mockResolvedValue(ANTHROPIC);
+      let resolveTest: (r: api.ProviderTestResult) => void = () => undefined;
+      mockedApi.testProviderConnection.mockReturnValue(
+        new Promise((r) => {
+          resolveTest = r;
+        }),
+      );
+      render(<SettingsPage />);
+      await user.click(
+        await screen.findByRole('button', { name: /test connection/i }),
+      );
+      const result = screen.getByTestId('test-result');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TEST_SLOW_HINT_MS - 100);
+      });
+      expect(result).not.toHaveTextContent(TEST_SLOW_HINT);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(result).toHaveTextContent('This can take up to 30 seconds.');
+      await act(async () => {
+        resolveTest({ ok: true, latencyMs: 12_000, detail: 'Anthropic ok.' });
+      });
+      expect(await screen.findByText(/connected in 12000 ms/i)).toBeVisible();
+      expect(result).not.toHaveTextContent(TEST_SLOW_HINT);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('test button: failure detail and a 429 message are shown', async () => {
