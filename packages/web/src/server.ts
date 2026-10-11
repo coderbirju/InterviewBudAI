@@ -13,7 +13,9 @@ import {
   resolvePort,
   resolveHost,
   resolveOllamaUrl,
+  anthropicEffortOption,
   resolveAnthropicApiKey,
+  resolveAnthropicEffort,
   resolveOpenAIApiKey,
   resolveOpenAIBaseUrl,
   resolveOpenAITimeoutMs,
@@ -119,6 +121,7 @@ export function selectProvider(env: NodeJS.ProcessEnv): {
         provider: new AnthropicProvider({
           apiKey: resolveAnthropicApiKey(env) ?? '',
           model: status.model,
+          ...anthropicEffortOption(env),
         }),
         label: `Using Anthropic: ${status.model}`,
       };
@@ -245,6 +248,11 @@ export async function startServer(
   const leetcodeFetchEnv = resolveLeetCodeFetchEnv(env);
   if (leetcodeFetchEnv.warning !== undefined) {
     log(`Warning: ${leetcodeFetchEnv.warning}`);
+  }
+  // IBAI_ANTHROPIC_EFFORT: an invalid value is ignored with one boot warning.
+  const anthropicEffortEnv = resolveAnthropicEffort(env);
+  if (anthropicEffortEnv.warning !== undefined) {
+    log(`Warning: ${anthropicEffortEnv.warning}`);
   }
   const port = resolvePort(env, argv);
   // Refuses to start on a non-loopback bind outside the container (ADR 0011 D2).

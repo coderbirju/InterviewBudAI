@@ -21,10 +21,12 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   AnthropicProvider,
+  ProviderReplyError,
   isLoopbackHostname,
   normalizeOpenAIBaseUrl,
 } from '@ibai/providers';
 import {
+  anthropicEffortOption,
   resolveAnthropicApiKey,
   resolveAnthropicModel,
   resolveOllamaUrl,
@@ -110,6 +112,11 @@ const ENV_VARS: readonly { readonly name: string; readonly purpose: string }[] =
     {
       name: 'IBAI_ANTHROPIC_MODEL',
       purpose: 'Anthropic model name (needed with a key)',
+    },
+    {
+      name: 'IBAI_ANTHROPIC_EFFORT',
+      purpose:
+        'Anthropic effort: low/medium/high/xhigh/max, optional (low suits this app; leave unset for models that do not accept it)',
     },
     {
       name: 'IBAI_OPENAI_BASE_URL',
@@ -598,11 +605,18 @@ export function createProviderTester(
             );
       }
 
-      // Anthropic: one minimal, billable 1-token call through the same adapter
-      // the quiz uses (same endpoint + headers).
+      // Anthropic: one minimal, billable call through the same adapter and
+      // settings the quiz uses (same endpoint, headers and effort). It asks
+      // for 1 token; the adapter raises that to its floor so a model that
+      // thinks first can still answer, and bills only the tokens used.
       const apiKey = resolveAnthropicApiKey(env) ?? '';
       const model = resolveAnthropicModel(env) ?? '';
-      const client = new AnthropicProvider({ apiKey, model, fetchImpl });
+      const client = new AnthropicProvider({
+        apiKey,
+        model,
+        fetchImpl,
+        ...anthropicEffortOption(env),
+      });
       await client.complete({
         messages: [{ role: 'user', content: 'ping' }],
         options: { maxTokens: 1 },
@@ -618,6 +632,11 @@ export function createProviderTester(
           false,
           `${label} did not answer within ${Math.round(timeoutMs / 1000)} s.`,
         );
+      }
+      // Fixed adapter text (refusal, budget used up, effort rejected): safe
+      // to show as is, and more useful than the status mapping.
+      if (error instanceof ProviderReplyError) {
+        return done(false, error.message);
       }
       if (
         seen.status !== undefined &&
