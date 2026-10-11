@@ -581,6 +581,10 @@ describe('POST /api/settings/test-provider', () => {
     assertNoSecrets(res);
   });
 
+  it('the test deadline is 30 s for every provider', () => {
+    expect(TEST_TIMEOUT_MS).toBe(30_000);
+  });
+
   it('rate limit: a second test within 5 s → 429, allowed again after', async () => {
     let t = 0;
     const fake = fakeFetch(() =>
@@ -1053,7 +1057,7 @@ describe('POST /api/settings/test-provider — openai', () => {
     assertNoSecrets(res);
   });
 
-  it('timeout → "did not answer" at the shared 5 s deadline', async () => {
+  it('timeout → "did not answer" at the shared 30 s deadline', async () => {
     vi.useFakeTimers();
     try {
       const fake = fakeFetch(

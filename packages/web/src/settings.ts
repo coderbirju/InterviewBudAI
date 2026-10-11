@@ -318,8 +318,12 @@ export function buildSettingsResponse(input: {
 
 /** Minimum gap between two tests (in-process). */
 export const TEST_MIN_INTERVAL_MS = 5_000;
-/** Deadline for a whole provider test (request AND body read). */
-export const TEST_TIMEOUT_MS = 5_000;
+/**
+ * Deadline for a whole provider test (request AND body read), every
+ * provider. 30 s: a model that thinks before answering (at its default
+ * effort) and a small local model on a cold start can both be slow.
+ */
+export const TEST_TIMEOUT_MS = 30_000;
 
 export interface ProviderTesterOptions {
   readonly env: NodeJS.ProcessEnv;
