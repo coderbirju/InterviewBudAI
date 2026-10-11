@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { AnthropicProvider } from './anthropic.js';
+import {
+  ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+  ANTHROPIC_EFFORT_REJECTED_MESSAGE,
+  ANTHROPIC_MIN_MAX_TOKENS,
+  AnthropicProvider,
+} from './anthropic.js';
+import { HttpProviderError, ProviderReplyError } from './http-provider.js';
 import type { CompletionRequest } from './index.js';
 
 describe('AnthropicProvider', () => {
@@ -51,7 +57,7 @@ describe('AnthropicProvider', () => {
         ],
         options: {
           temperature: 0.7,
-          maxTokens: 2000,
+          maxTokens: 20000,
           topP: 0.9,
           stop: ['\n\n'],
         },
@@ -78,7 +84,7 @@ describe('AnthropicProvider', () => {
         { role: 'user', content: 'Hi there' },
         { role: 'assistant', content: 'Hello!' },
       ]);
-      expect(body.max_tokens).toBe(2000);
+      expect(body.max_tokens).toBe(20000);
       expect(body.temperature).toBe(0.7);
       expect(body.top_p).toBe(0.9);
       expect(body.stop_sequences).toEqual(['\n\n']);
@@ -96,7 +102,7 @@ describe('AnthropicProvider', () => {
       });
     });
 
-    it('uses DEFAULT_MAX_TOKENS (1024) when no options provided', async () => {
+    it('raises the default (1024) to the floor when no options provided', async () => {
       const anthropicResponse = {
         content: [{ type: 'text', text: 'Response' }],
       };
@@ -115,10 +121,10 @@ describe('AnthropicProvider', () => {
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
-      expect(body.max_tokens).toBe(1024);
+      expect(body.max_tokens).toBe(ANTHROPIC_MIN_MAX_TOKENS);
     });
 
-    it('uses DEFAULT_MAX_TOKENS when options provided but maxTokens missing', async () => {
+    it('raises the default to the floor when options provided but maxTokens missing', async () => {
       const anthropicResponse = {
         content: [{ type: 'text', text: 'Response' }],
       };
@@ -138,7 +144,7 @@ describe('AnthropicProvider', () => {
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
-      expect(body.max_tokens).toBe(1024);
+      expect(body.max_tokens).toBe(ANTHROPIC_MIN_MAX_TOKENS);
       expect(body.temperature).toBe(0.5);
     });
 
@@ -293,7 +299,7 @@ describe('AnthropicProvider', () => {
         model: 'claude-3',
         defaultOptions: {
           temperature: 0.5,
-          maxTokens: 500,
+          maxTokens: 20000,
         },
         fetchImpl: mockFetch,
       });
@@ -310,7 +316,7 @@ describe('AnthropicProvider', () => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
 
       expect(body.temperature).toBe(0.9); // Overridden
-      expect(body.max_tokens).toBe(500); // From default
+      expect(body.max_tokens).toBe(20000); // From default
       expect(body.top_p).toBe(0.8); // New
     });
 
@@ -326,7 +332,7 @@ describe('AnthropicProvider', () => {
         model: 'claude-3',
         defaultOptions: {
           temperature: 0.5,
-          maxTokens: 800,
+          maxTokens: 18000,
         },
         fetchImpl: mockFetch,
       });
@@ -339,7 +345,7 @@ describe('AnthropicProvider', () => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
 
       expect(body.temperature).toBe(0.5);
-      expect(body.max_tokens).toBe(800);
+      expect(body.max_tokens).toBe(18000);
     });
   });
 
@@ -578,7 +584,209 @@ describe('AnthropicProvider — responseFormat (additive JSON hint)', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       model: 'm',
       messages: [{ role: 'user', content: 'x' }],
-      max_tokens: 1024,
+      max_tokens: ANTHROPIC_MIN_MAX_TOKENS,
     });
+  });
+});
+
+describe('AnthropicProvider — models that think before answering', () => {
+  /** A fetch fake that records the body and answers `reply`. */
+  function fake(reply: unknown, status = 200) {
+    return vi.fn(async () => new Response(JSON.stringify(reply), { status }));
+  }
+  function sentBody(fetchImpl: ReturnType<typeof fake>) {
+    const init = (
+      fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    )[1];
+    return JSON.parse(String(init.body)) as Record<string, unknown>;
+  }
+  async function failure(
+    reply: unknown,
+    status = 200,
+    effort?: 'low' | 'high',
+  ): Promise<unknown> {
+    const fetchImpl = fake(reply, status);
+    return new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl,
+      ...(effort !== undefined && { effort }),
+    })
+      .complete(ask)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+  }
+  const textReply = { content: [{ type: 'text', text: 'ok' }] };
+  const ask = { messages: [{ role: 'user' as const, content: 'x' }] };
+
+  it('the floor is 16000', () => {
+    expect(ANTHROPIC_MIN_MAX_TOKENS).toBe(16_000);
+  });
+
+  it('raises a requested 1 token to the floor (16000)', async () => {
+    const fetchImpl = fake(textReply);
+    await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl,
+    }).complete({ ...ask, options: { maxTokens: 1 } });
+    expect(sentBody(fetchImpl).max_tokens).toBe(16_000);
+  });
+
+  it('keeps a request above the floor (20000)', async () => {
+    const fetchImpl = fake(textReply);
+    await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl,
+    }).complete({ ...ask, options: { maxTokens: 20_000 } });
+    expect(sentBody(fetchImpl).max_tokens).toBe(20_000);
+  });
+
+  it('sends no output_config when effort is unset', async () => {
+    const fetchImpl = fake(textReply);
+    await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl,
+    }).complete(ask);
+    expect(sentBody(fetchImpl)).not.toHaveProperty('output_config');
+  });
+
+  it('sends output_config.effort when effort is set', async () => {
+    const fetchImpl = fake(textReply);
+    await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      effort: 'low',
+      fetchImpl,
+    }).complete(ask);
+    expect(sentBody(fetchImpl).output_config).toEqual({ effort: 'low' });
+  });
+
+  it('never sends a thinking param', async () => {
+    const fetchImpl = fake(textReply);
+    await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      effort: 'max',
+      fetchImpl,
+    }).complete(ask);
+    expect(sentBody(fetchImpl)).not.toHaveProperty('thinking');
+  });
+
+  it('returns only the text blocks (thinking / redacted_thinking ignored)', async () => {
+    const fetchImpl = fake({
+      content: [
+        { type: 'thinking', thinking: '', signature: 'sig' },
+        { type: 'redacted_thinking', data: 'opaque' },
+        { type: 'text', text: '{"verdict":' },
+        { type: 'text', text: '"correct"}' },
+      ],
+      stop_reason: 'end_turn',
+    });
+    const res = await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl,
+    }).complete(ask);
+    expect(res.content).toBe('{"verdict":"correct"}');
+  });
+
+  it('max_tokens with no text throws the clear budget error', async () => {
+    const err = await failure({
+      content: [{ type: 'thinking', thinking: '', signature: 'sig' }],
+      stop_reason: 'max_tokens',
+    });
+    expect(err).toBeInstanceOf(ProviderReplyError);
+    expect((err as ProviderReplyError).kind).toBe('budget_exhausted');
+    expect((err as Error).message).toBe(ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE);
+    expect((err as Error).message).toContain('IBAI_ANTHROPIC_EFFORT=low');
+  });
+
+  it('max_tokens WITH text is returned (the caller validates it)', async () => {
+    const fetchImpl = fake({
+      content: [{ type: 'text', text: 'partial' }],
+      stop_reason: 'max_tokens',
+    });
+    const res = await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl,
+    }).complete(ask);
+    expect(res.content).toBe('partial');
+  });
+
+  it('a refusal throws a typed error with the category, never the model text', async () => {
+    const err = await failure({
+      content: [{ type: 'text', text: 'SECRET MODEL TEXT' }],
+      stop_reason: 'refusal',
+      stop_details: { category: 'cyber', explanation: 'SECRET EXPLANATION' },
+    });
+    expect(err).toBeInstanceOf(ProviderReplyError);
+    const e = err as ProviderReplyError;
+    expect(e.kind).toBe('refusal');
+    expect(e.category).toBe('cyber');
+    expect(e.message).toContain('cyber');
+    expect(e.message).not.toContain('SECRET');
+  });
+
+  it('a refusal with an unsafe category drops the category', async () => {
+    const err = (await failure({
+      content: [],
+      stop_reason: 'refusal',
+      stop_details: { category: '<b>Bad Category</b>' },
+    })) as ProviderReplyError;
+    expect(err.kind).toBe('refusal');
+    expect(err.category).toBeUndefined();
+    expect(err.message).not.toContain('Bad');
+  });
+
+  it('a 400 about effort, with effort set, throws the clear unset error (no retry)', async () => {
+    const fetchImpl = fake(
+      {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'This model does not support the effort parameter.',
+        },
+      },
+      400,
+    );
+    const err = await new AnthropicProvider({
+      apiKey: 'k',
+      model: 'm',
+      effort: 'low',
+      fetchImpl,
+    })
+      .complete(ask)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(err).toBeInstanceOf(ProviderReplyError);
+    expect((err as ProviderReplyError).kind).toBe('option_rejected');
+    expect((err as Error).message).toBe(ANTHROPIC_EFFORT_REJECTED_MESSAGE);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 400 about effort WITHOUT effort set stays the plain HTTP error', async () => {
+    const err = await failure(
+      { error: { type: 'invalid_request_error', message: 'effort' } },
+      400,
+    );
+    expect(err).toBeInstanceOf(HttpProviderError);
+    expect(err).not.toBeInstanceOf(ProviderReplyError);
+  });
+
+  it('another 400 with effort set stays the plain HTTP error', async () => {
+    const err = await failure(
+      { error: { type: 'invalid_request_error', message: 'bad model' } },
+      400,
+      'high',
+    );
+    expect(err).toBeInstanceOf(HttpProviderError);
   });
 });

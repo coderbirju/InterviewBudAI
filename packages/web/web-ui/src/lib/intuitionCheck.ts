@@ -54,7 +54,12 @@ export type IntuitionCheckErrorCode =
   | 'invalid_body'
   | 'no_provider'
   | 'rate_limited'
-  | 'model_unavailable';
+  | 'model_unavailable'
+  // A provider's fixed explanation (refusal, token budget used up, a
+  // rejected option): the server's `error` text is shown as is.
+  | 'refusal'
+  | 'budget_exhausted'
+  | 'option_rejected';
 
 const ERROR_CODES: readonly IntuitionCheckErrorCode[] = [
   'empty_note',
@@ -62,6 +67,9 @@ const ERROR_CODES: readonly IntuitionCheckErrorCode[] = [
   'no_provider',
   'rate_limited',
   'model_unavailable',
+  'refusal',
+  'budget_exhausted',
+  'option_rejected',
 ];
 
 /**

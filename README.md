@@ -136,6 +136,7 @@ work without one. Copy `.env.example` to `.env` at the repo root and fill it in
 # Anthropic
 export ANTHROPIC_API_KEY=sk-ant-...        # or IBAI_ANTHROPIC_API_KEY
 export IBAI_ANTHROPIC_MODEL=<model-name>
+export IBAI_ANTHROPIC_EFFORT=low           # optional; leave unset if the model rejects it
 
 # or any OpenAI-compatible server, e.g. Docker Model Runner (local)
 export IBAI_OPENAI_BASE_URL=http://localhost:12434/engines/v1
@@ -156,6 +157,7 @@ and Settings shows a hint.
 |---|---|---|
 | `ANTHROPIC_API_KEY` (or `IBAI_ANTHROPIC_API_KEY`) | Anthropic API key — never commit | — |
 | `IBAI_ANTHROPIC_MODEL` | Anthropic model name | — |
+| `IBAI_ANTHROPIC_EFFORT` | Optional Anthropic effort: `low`, `medium`, `high`, `xhigh` or `max`. `low` is recommended for this app's short grading and coaching replies. Unset sends nothing (for models that do not accept it); an invalid value is ignored with a startup warning | unset |
 | `IBAI_OPENAI_BASE_URL` | OpenAI-compatible base URL (ends in `/v1`, e.g. `http://localhost:12434/engines/v1` for Docker Model Runner) | — |
 | `IBAI_OPENAI_MODEL` | OpenAI-compatible model id | — |
 | `IBAI_OPENAI_API_KEY` (or `OPENAI_API_KEY`, used only for `https://api.openai.com`) | Optional OpenAI-compatible bearer key — never commit | — |

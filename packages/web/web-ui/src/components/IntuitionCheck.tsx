@@ -219,6 +219,12 @@ export function IntuitionCheck(props: IntuitionCheckProps): JSX.Element {
         setState({ kind: 'error', message: RATE_LIMITED_TEXT });
       } else if (err.code === 'empty_note') {
         setState({ kind: 'error', message: EMPTY_NOTE_HINT });
+      } else if (
+        err.code === 'refusal' ||
+        err.code === 'budget_exhausted' ||
+        err.code === 'option_rejected'
+      ) {
+        setState({ kind: 'error', message: err.message });
       } else if (err.status === 502) {
         setState({ kind: 'error', message: MALFORMED_TEXT });
       } else {

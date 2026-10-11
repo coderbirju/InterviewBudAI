@@ -89,6 +89,8 @@ export const ENV_SNIPPET = `# InterviewBudAI — put this in the repo-root .env 
 # Option A — Anthropic
 ANTHROPIC_API_KEY=<your-anthropic-api-key>
 IBAI_ANTHROPIC_MODEL=<anthropic-model-name>
+# Optional: low suits this app's short replies; leave unset if the model rejects it.
+# IBAI_ANTHROPIC_EFFORT=low
 
 # Option B — OpenAI-compatible server, e.g. Docker Model Runner (local):
 #   base URL like http://localhost:12434/engines/v1
