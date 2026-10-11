@@ -167,8 +167,9 @@ the SPA: `isStatementTree()`; linear time: input cut to 256 KiB, at most
 1 024 open tags, parsing stops at the first cap and sets `truncated`); `problem-cache.ts` stores it in
 `<dataDir>/problem-cache/<id>.json` (`^lc-[0-9]+$` ids only, 0700/0600,
 atomic, `.gitignore` = `*`, ≤ 512 KiB, untrusted on read). Turn it off in
-Settings or with `IBAI_LEETCODE_FETCH=off` (this pins it). The root README
-explains what is sent and stored, and the ToS note.
+Settings or with `IBAI_LEETCODE_FETCH=off` (this pins it).
+[docs/problem-statements.md](../../docs/problem-statements.md) explains what
+is sent and stored, and the ToS note.
 
 | Route | Behaviour |
 |---|---|
@@ -369,29 +370,13 @@ curl -s -X POST http://127.0.0.1:4173/api/notes/lc-3 \
 
 ## Provider Required
 
-The Quiz Master **requires a configured LLM provider**. Everything else is local-first; the only outbound call is to your configured provider.
+The Quiz Master and the Notes intuition check **require a configured LLM
+provider**. Everything else works without one. The env vars for each
+provider, the precedence and `.env` examples are in
+[docs/providers.md](../../docs/providers.md).
 
-### Option 1: Anthropic (Claude)
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export IBAI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
-```
-
-### Option 2: OpenAI-compatible server (e.g. Docker Model Runner)
-
-Any server that speaks the OpenAI Chat Completions API: Docker Model Runner,
-llama.cpp, vLLM, LM Studio, Ollama's `/v1`, or a hosted OpenAI-style API.
-
-```bash
-# Docker Model Runner on the host (enable host-side TCP support; Linux: port 12434)
-export IBAI_OPENAI_BASE_URL=http://localhost:12434/engines/v1
-export IBAI_OPENAI_MODEL=<model-id>        # as the server names it, e.g. an ai/... tag
-export IBAI_OPENAI_API_KEY=...             # optional; OPENAI_API_KEY only for https://api.openai.com
-export IBAI_OPENAI_TIMEOUT_MS=120000       # optional (clamped 5000–600000)
-```
-
-The base URL is the one ending in `/v1`: trailing slashes are dropped, a bare
+**OpenAI-compatible base URL handling** (server detail): the base URL is the
+one ending in `/v1`: trailing slashes are dropped, a bare
 origin gets `/v1` appended, `/engines` or `/engines/<engine>` gets `/v1`, a
 bare Docker Model Runner host (`model-runner.docker.internal`, or loopback /
 `172.17.0.1` on `:12434`) becomes `…/engines/v1`, a pasted
@@ -408,22 +393,6 @@ appears in logs, errors or `/api/settings`.
 **Precedence** (first match wins; `resolveProviderStatus` / `selectProvider`):
 Anthropic (key + model) → OpenAI-compatible (base URL + model) → Ollama
 (model) → none.
-
-### Option 3: Ollama (Local)
-
-```bash
-# Start Ollama
-ollama serve
-
-# Pull a model
-ollama pull llama2
-
-# Configure
-export IBAI_OLLAMA_MODEL=llama2
-
-# Optionally set a custom URL (default: http://127.0.0.1:11434)
-export IBAI_OLLAMA_URL=http://127.0.0.1:11434
-```
 
 ## Quick Start
 
