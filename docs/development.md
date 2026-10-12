@@ -39,6 +39,6 @@ data folder and the provider (never a key).
 
 ## Contributing
 
-Project context, architecture and ADRs are in
-[`context-files/`](../context-files/). Current status:
-[`context-files/progress/status.md`](../context-files/progress/status.md).
+Project context, architecture notes, ADRs and current status are kept as
+local maintainer notes and are not published in this repository. ADR numbers
+cited in the docs and code (for example "ADR 0015") refer to those notes.
