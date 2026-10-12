@@ -1,7 +1,7 @@
 /**
  * @ibai/core — the stateless engine.
  *
- * Responsibilities (see context-files/01-architecture.md): session
+ * Responsibilities (see the architecture notes): session
  * orchestration and the three jobs — Assess, Plan, Coach. It depends only on
  * the storage and LLM provider *interfaces*, never on a concrete adapter.
  */

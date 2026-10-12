@@ -18,3 +18,9 @@ coverage/
 *.log
 # Local agent tooling (never commit)
 .kiro/
+
+# Maintainer notes (ADRs, charter, skills, status, decision logs): local only,
+# not published (founder decision 2026-10-11)
+context-files/
+# Local Claude Code settings and agent worktrees (never commit)
+.claude/
