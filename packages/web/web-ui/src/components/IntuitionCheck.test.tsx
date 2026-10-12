@@ -435,6 +435,22 @@ describe('IntuitionCheck', () => {
     );
   });
 
+  it('shows the server text on a 502 provider reply error (budget, effort, refusal)', async () => {
+    const user = userEvent.setup();
+    checkHandler = () =>
+      json(502, {
+        error:
+          'The model used its whole token budget thinking. Set IBAI_ANTHROPIC_EFFORT=low.',
+        code: 'budget_exhausted',
+      });
+    render(<Harness />);
+    await settle();
+    await user.click(checkButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Set IBAI_ANTHROPIC_EFFORT=low.',
+    );
+  });
+
   it('shows other errors inline (server text, network failure)', async () => {
     const user = userEvent.setup();
     checkHandler = () => json(404, { error: 'unknown problem' });

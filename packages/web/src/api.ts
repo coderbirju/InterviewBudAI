@@ -85,6 +85,7 @@ import type { CoachLimiter } from './coach-routes.js';
 import { canonicalTopicId, compareTopics, topicLabel } from '@ibai/curriculum';
 import { deriveGuidance } from '@ibai/core';
 import type { NextUpItem, QuizHint, TopicStanding } from '@ibai/core';
+import { ProviderReplyError } from '@ibai/providers';
 import type { LlmProvider, PromptMessage } from '@ibai/providers';
 import {
   QUIZ_VERDICT_MAX_TOKENS,
@@ -604,6 +605,11 @@ function providerErrorResponse(
   error: unknown,
   dmr: boolean = false,
 ): HandlerResponse {
+  // Fixed adapter text (refusal, budget used up, a rejected option): shown as
+  // is; it never carries model or response text.
+  if (error instanceof ProviderReplyError) {
+    return json(502, { error: error.message, code: error.kind });
+  }
   if (isModelUnavailableError(error)) {
     return json(503, {
       error: MODEL_UNAVAILABLE_ERROR,

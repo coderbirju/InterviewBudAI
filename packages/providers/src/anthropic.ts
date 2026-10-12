@@ -8,6 +8,9 @@
  *  - API key and model are user-supplied configuration — never baked in.
  *  - Lazy network: importing this module performs no I/O; only complete() touches the network.
  *  - Treat all HTTP responses as untrusted; validate before mapping.
+ *  - Behaviour and configuration only: no model is named or special-cased
+ *    (charter §6.3). Models that think before answering are handled by the
+ *    output-token floor and the optional `effort` setting, for every model.
  */
 
 import type {
@@ -18,7 +21,11 @@ import type {
   LlmProvider,
   PromptMessage,
 } from './index.js';
-import { postJson } from './http-provider.js';
+import {
+  HttpProviderError,
+  ProviderReplyError,
+  postJson,
+} from './http-provider.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -28,7 +35,7 @@ import { postJson } from './http-provider.js';
 export interface AnthropicProviderConfig {
   /** REQUIRED user-supplied key. Never hardcoded/committed. */
   readonly apiKey: string;
-  /** REQUIRED user-supplied model (e.g. 'claude-3-5-sonnet-20241022'). No hardcoded-only default. */
+  /** REQUIRED user-supplied model (`<model-name>`). No hardcoded-only default. */
   readonly model: string;
   /** Endpoint. Default 'https://api.anthropic.com/v1/messages'. */
   readonly endpoint?: string;
@@ -38,6 +45,32 @@ export interface AnthropicProviderConfig {
   readonly defaultOptions?: CompletionOptions;
   /** Optional fetch injection for testing; defaults to global fetch (resolved lazily in complete()). */
   readonly fetchImpl?: typeof fetch;
+  /**
+   * OPTIONAL effort level, sent as `output_config: { effort }` only when set
+   * (user configuration, `IBAI_ANTHROPIC_EFFORT`). Unset sends nothing, so
+   * models that reject the parameter keep working.
+   */
+  readonly effort?: AnthropicEffort;
+}
+
+/** The effort levels the Messages API accepts in `output_config.effort`. */
+export const ANTHROPIC_EFFORT_LEVELS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+
+/** One of {@link ANTHROPIC_EFFORT_LEVELS}. */
+export type AnthropicEffort = (typeof ANTHROPIC_EFFORT_LEVELS)[number];
+
+/** True when `value` is one of {@link ANTHROPIC_EFFORT_LEVELS}. */
+export function isAnthropicEffort(value: unknown): value is AnthropicEffort {
+  return (
+    typeof value === 'string' &&
+    (ANTHROPIC_EFFORT_LEVELS as readonly string[]).includes(value)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +80,39 @@ export interface AnthropicProviderConfig {
 const DEFAULT_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MAX_TOKENS = 1024;
+
+/**
+ * Lowest `max_tokens` this adapter ever sends:
+ * `max_tokens = max(requested ?? default, ANTHROPIC_MIN_MAX_TOKENS)`.
+ *
+ * Why: some models served by the Messages API always think before they
+ * answer, and the thinking tokens count toward `max_tokens`. With the app's
+ * small budgets (Settings "Test connection" asks for 1 token; the quiz and
+ * the coach ask for a few hundred) the thinking can use the whole budget, so
+ * the reply has no text at all. The app's small budgets exist to keep
+ * replies short on small local models; that stays true for the other
+ * adapters. Here the prompts' own length rules keep the replies short.
+ *
+ * Cost: the call is non-streaming and the model stops when it is done, so
+ * billing follows the tokens actually used, not this ceiling. 16000 leaves
+ * room for thinking plus a short reply while staying modest for a
+ * non-streaming call. A larger request (e.g. 20000) is sent unchanged.
+ */
+export const ANTHROPIC_MIN_MAX_TOKENS = 16_000;
+
+/** Fixed text: the reply hit `max_tokens` with no text (all thinking). */
+export const ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE =
+  'The model used its whole token budget thinking. Set IBAI_ANTHROPIC_EFFORT=low.';
+
+/** Fixed text: a 400 that says the model does not take `effort`. */
+export const ANTHROPIC_EFFORT_REJECTED_MESSAGE =
+  'This model does not accept this IBAI_ANTHROPIC_EFFORT value. Try `low`, or unset it.';
+
+/** Fixed text for a refusal (the model's own text is never shown). */
+const REFUSAL_MESSAGE = 'The model declined to answer this request';
+
+/** A refusal category is shown only if it is a plain identifier. */
+const SAFE_CATEGORY = /^[a-z_]{1,40}$/;
 
 // ---------------------------------------------------------------------------
 // Anthropic API Types (internal, for response validation)
@@ -68,6 +134,8 @@ interface AnthropicUsage {
 interface AnthropicResponse {
   content: AnthropicContentBlock[];
   stop_reason?: string;
+  /** Set on `stop_reason: 'refusal'` (UNTRUSTED). */
+  stop_details?: { category?: unknown; explanation?: unknown };
   model?: string;
   usage?: AnthropicUsage;
 }
@@ -116,6 +184,7 @@ interface AnthropicRequestBody {
   temperature?: number;
   top_p?: number;
   stop_sequences?: string[];
+  output_config?: { effort: AnthropicEffort };
 }
 
 /** Build the Anthropic Messages API request body. */
@@ -123,6 +192,7 @@ function buildRequestBody(
   model: string,
   messages: readonly PromptMessage[],
   options?: CompletionOptions,
+  effort?: AnthropicEffort,
 ): string {
   // Extract system messages and join with '\n\n'
   const systemMessages = messages.filter((m) => m.role === 'system');
@@ -133,8 +203,11 @@ function buildRequestBody(
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role, content: m.content }));
 
-  // Determine max_tokens: use provided or default
-  const maxTokens = options?.maxTokens ?? DEFAULT_MAX_TOKENS;
+  // Requested (or default), never below the floor (see ANTHROPIC_MIN_MAX_TOKENS).
+  const maxTokens = Math.max(
+    options?.maxTokens ?? DEFAULT_MAX_TOKENS,
+    ANTHROPIC_MIN_MAX_TOKENS,
+  );
 
   const body: AnthropicRequestBody = {
     model,
@@ -157,6 +230,10 @@ function buildRequestBody(
   if (options?.stop !== undefined) {
     body.stop_sequences = [...options.stop];
   }
+  // Only when configured: models that do not take `effort` reject it.
+  if (effort !== undefined) {
+    body.output_config = { effort };
+  }
 
   return JSON.stringify(body);
 }
@@ -167,7 +244,21 @@ function buildRequestBody(
 
 /** Map validated Anthropic response to CompletionResponse. */
 function mapResponse(data: AnthropicResponse): CompletionResponse {
-  // Concatenate text from all text blocks
+  if (data.stop_reason === 'refusal') {
+    const raw = data.stop_details?.category;
+    const category =
+      typeof raw === 'string' && SAFE_CATEGORY.test(raw) ? raw : undefined;
+    throw new ProviderReplyError(
+      category !== undefined
+        ? `${REFUSAL_MESSAGE} (refusal category: ${category}).`
+        : `${REFUSAL_MESSAGE}.`,
+      'refusal',
+      category !== undefined ? { category } : {},
+    );
+  }
+
+  // Concatenate ONLY text blocks: `thinking` / `redacted_thinking` (and any
+  // other block type) are never part of the reply.
   const content = data.content
     .filter(
       (block): block is AnthropicContentBlock & { text: string } =>
@@ -175,6 +266,13 @@ function mapResponse(data: AnthropicResponse): CompletionResponse {
     )
     .map((block) => block.text)
     .join('');
+
+  if (data.stop_reason === 'max_tokens' && content.trim() === '') {
+    throw new ProviderReplyError(
+      ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+      'budget_exhausted',
+    );
+  }
 
   // Build usage if present
   let usage: CompletionUsage | undefined;
@@ -244,6 +342,7 @@ export class AnthropicProvider implements LlmProvider {
   private readonly anthropicVersion: string;
   private readonly defaultOptions?: CompletionOptions;
   private readonly fetchImpl?: typeof fetch;
+  private readonly effort?: AnthropicEffort;
 
   constructor(config: AnthropicProviderConfig) {
     this.endpoint = config.endpoint ?? DEFAULT_ENDPOINT;
@@ -254,11 +353,17 @@ export class AnthropicProvider implements LlmProvider {
     this.defaultOptions = config.defaultOptions;
     // Store fetchImpl for lazy resolution in complete()
     this.fetchImpl = config.fetchImpl;
+    this.effort = config.effort;
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const mergedOptions = mergeOptions(this.defaultOptions, request.options);
-    const body = buildRequestBody(this.model, request.messages, mergedOptions);
+    const body = buildRequestBody(
+      this.model,
+      request.messages,
+      mergedOptions,
+      this.effort,
+    );
 
     const headers: Record<string, string> = {
       'x-api-key': this.apiKey,
@@ -269,13 +374,32 @@ export class AnthropicProvider implements LlmProvider {
     // Resolve fetch lazily (use injected or global)
     const fetchFn = this.fetchImpl ?? globalThis.fetch;
 
-    const data = await postJson({
-      url: this.endpoint,
-      headers,
-      body,
-      fetchImpl: fetchFn,
-      providerName: 'Anthropic',
-    });
+    let data: unknown;
+    try {
+      data = await postJson({
+        url: this.endpoint,
+        headers,
+        body,
+        fetchImpl: fetchFn,
+        providerName: 'Anthropic',
+      });
+    } catch (error) {
+      // A 400 about `effort` while we sent one: the model does not take it.
+      // Say so plainly; never retry without it silently.
+      if (
+        this.effort !== undefined &&
+        error instanceof HttpProviderError &&
+        error.kind === 'http' &&
+        error.status === 400 &&
+        /effort/i.test(error.bodySnippet ?? '')
+      ) {
+        throw new ProviderReplyError(
+          ANTHROPIC_EFFORT_REJECTED_MESSAGE,
+          'option_rejected',
+        );
+      }
+      throw error;
+    }
 
     if (!isValidAnthropicResponse(data)) {
       throw new Error('Anthropic response has invalid content array shape');

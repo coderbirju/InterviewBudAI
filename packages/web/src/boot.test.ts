@@ -203,6 +203,30 @@ describe('startServer boot', () => {
     }
   });
 
+  it('warns once at boot on an invalid IBAI_ANTHROPIC_EFFORT (value not echoed)', async () => {
+    const port = await freePort();
+    const lines: string[] = [];
+    const handle = await startServer({
+      env: {
+        ANTHROPIC_API_KEY: 'sk-ant-test',
+        IBAI_ANTHROPIC_MODEL: 'claude-test',
+        IBAI_ANTHROPIC_EFFORT: 'warp-speed',
+      },
+      argv: [`--port=${port}`],
+      homeDir: tmpHome,
+      log: (line) => lines.push(line),
+    });
+    try {
+      const warnings = lines.filter((l) =>
+        l.startsWith('Warning: ignoring IBAI_ANTHROPIC_EFFORT'),
+      );
+      expect(warnings).toHaveLength(1);
+      expect(lines.join('\n')).not.toContain('warp-speed');
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('prints the no-model message when no provider is configured', async () => {
     const port = await freePort();
     const lines: string[] = [];

@@ -35,6 +35,7 @@ You need [Node.js 24 LTS](https://nodejs.org/) or newer, and git.
    ```bash
    ANTHROPIC_API_KEY=sk-ant-your-key-here
    IBAI_ANTHROPIC_MODEL=claude-opus-5-5
+   # optional: IBAI_ANTHROPIC_EFFORT=low (see docs/providers.md)
    ```
 
 3. Start the app:
@@ -63,13 +64,13 @@ You need:
 
 - git.
 - Docker Desktop with **Model Runner turned on**: in Docker Desktop, open
-  Settings, then AI, then check "Enable Docker Model Runner".
+  Settings, then AI, then check "Enable Docker Model Runner", then Apply.
 - Docker Compose **2.38 or later** (check with `docker compose version`).
 - About **8 GB of RAM**. The default model uses about 3.5 GB (an estimate).
 - About **4 GB of free disk space**. The default model is a 2.5 GB download,
   and the app image and its build add about 1 GB (an estimate).
 
-Then run:
+Then run (skip the first two lines if you already have the code):
 
 ```bash
 git clone https://github.com/coderbirju/InterviewBudAI.git

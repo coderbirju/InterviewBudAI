@@ -16,6 +16,7 @@ import {
   OPENAI_INSECURE_KEY_HINT,
   OPENAI_USERINFO_HINT,
   isOfficialOpenAIBaseUrl,
+  resolveAnthropicEffort,
   resolveOpenAIApiKey,
   resolveOpenAITimeoutMs,
   resolveProviderStatus,
@@ -308,5 +309,67 @@ describe('startup banner', () => {
       `Provider: Anthropic (model: claude-x) (${OPENAI_IGNORED_HINT})`,
     );
     expect(text).not.toContain(KEY);
+  });
+});
+
+/** Body the selected Anthropic provider sends (fake global fetch, no network). */
+async function sentAnthropicBody(
+  env: NodeJS.ProcessEnv,
+): Promise<Record<string, unknown>> {
+  let body: Record<string, unknown> = {};
+  const fetchImpl = (async (_input: unknown, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+  const original = globalThis.fetch;
+  globalThis.fetch = fetchImpl;
+  try {
+    const { provider } = selectProvider(env);
+    expect(provider).toBeInstanceOf(AnthropicProvider);
+    await provider?.complete({ messages: [{ role: 'user', content: 'hi' }] });
+  } finally {
+    globalThis.fetch = original;
+  }
+  return body;
+}
+
+describe('IBAI_ANTHROPIC_EFFORT', () => {
+  it('parses the five levels (trimmed, case-insensitive)', () => {
+    for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) {
+      expect(resolveAnthropicEffort({ IBAI_ANTHROPIC_EFFORT: level })).toEqual({
+        effort: level,
+      });
+    }
+    expect(resolveAnthropicEffort({ IBAI_ANTHROPIC_EFFORT: '  LOW ' })).toEqual(
+      { effort: 'low' },
+    );
+  });
+
+  it('unset or blank → nothing, no warning', () => {
+    expect(resolveAnthropicEffort({})).toEqual({});
+    expect(resolveAnthropicEffort({ IBAI_ANTHROPIC_EFFORT: '  ' })).toEqual({});
+  });
+
+  it('an invalid value is ignored with one warning that never echoes it', () => {
+    const r = resolveAnthropicEffort({ IBAI_ANTHROPIC_EFFORT: 'turbo-9000' });
+    expect(r.effort).toBeUndefined();
+    expect(r.warning).toMatch(/^ignoring IBAI_ANTHROPIC_EFFORT/);
+    expect(r.warning).not.toContain('turbo');
+  });
+
+  it('selectProvider sends output_config only when the effort is valid', async () => {
+    expect(
+      (await sentAnthropicBody({ ...ANTHROPIC, IBAI_ANTHROPIC_EFFORT: 'low' }))
+        .output_config,
+    ).toEqual({ effort: 'low' });
+    expect(await sentAnthropicBody(ANTHROPIC)).not.toHaveProperty(
+      'output_config',
+    );
+    expect(
+      await sentAnthropicBody({ ...ANTHROPIC, IBAI_ANTHROPIC_EFFORT: 'nope' }),
+    ).not.toHaveProperty('output_config');
   });
 });

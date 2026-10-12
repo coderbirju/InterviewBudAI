@@ -13,12 +13,26 @@ win over the file. Restart the app after a change. Never commit your `.env`.
 ```bash
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 IBAI_ANTHROPIC_MODEL=claude-opus-5-5
+# IBAI_ANTHROPIC_EFFORT=low
 ```
 
 - `ANTHROPIC_API_KEY` or `IBAI_ANTHROPIC_API_KEY`: your key. If both are
   set, `IBAI_ANTHROPIC_API_KEY` is used.
 - `IBAI_ANTHROPIC_MODEL`: the model name. It is required; there is no
   default.
+- `IBAI_ANTHROPIC_EFFORT` (optional): how much the model thinks before it
+  answers: `low`, `medium`, `high`, `xhigh` or `max`. **`low` is recommended
+  for this app's short grading and coaching replies.** When it is unset, the
+  app sends no effort setting. Some older models do not accept it; if yours
+  does not, the app says "This model does not accept this
+  IBAI_ANTHROPIC_EFFORT value. Try `low`, or unset it." An invalid value is
+  ignored with a warning at startup.
+
+Some Claude models always think before they answer, and the thinking counts
+toward the reply's token limit. The app therefore asks Anthropic for at least
+16000 output tokens. You pay only for the tokens the model uses. If you see
+"The model used its whole token budget thinking", set
+`IBAI_ANTHROPIC_EFFORT=low`.
 
 ## OpenAI-compatible servers
 
@@ -35,8 +49,8 @@ Runner.
   (default 120000, kept between 5000 and 600000).
 
 With a key, the base URL must be `https`, or `http` to a loopback address
-(localhost, 127.x, ::1). Otherwise the provider is skipped and Settings shows why. Do not
-put a username or password in the URL.
+(localhost, 127.x, ::1). Otherwise the provider is skipped and Settings
+shows why. Do not put a username or password in the URL.
 
 OpenAI:
 
@@ -96,6 +110,7 @@ the startup message.
 
 Open **Settings** in the app. The **AI provider** card shows the provider,
 the model, and whether a key is set (never the key itself). Click **Test
-connection** to check that the model answers. For Anthropic this makes one
-tiny call that is billed. The startup message in your terminal also names
+connection** to check that the model answers. It waits up to 30 seconds.
+For Anthropic this makes one short call that is billed for the tokens the
+model uses. The startup message in your terminal also names
 the provider and model.

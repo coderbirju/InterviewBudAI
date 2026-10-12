@@ -13,6 +13,10 @@ import type { ApiDeps } from './api.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
 import type { IsoTimestamp } from '@ibai/storage';
+import {
+  ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+  ProviderReplyError,
+} from '@ibai/providers';
 import type {
   LlmProvider,
   CompletionRequest,
@@ -509,6 +513,35 @@ describe('POST /api/quiz/answer', () => {
       expect(res.status).toBe(200);
       expect(provider.requests).toHaveLength(2);
     });
+  });
+
+  it('provider reply error (all-thinking budget) → 502 with the fixed message, one call, no writes', async () => {
+    await seedDone(DONE_IDS);
+    const provider = new FakeQuizProvider({
+      rejectWith: new ProviderReplyError(
+        ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+        'budget_exhausted',
+      ),
+    });
+    const deps = makeQuizDeps(provider);
+    await start(provider);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'x' }),
+    );
+    expect(res.status).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({
+      error: ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+      code: 'budget_exhausted',
+    });
+    // Never retried: a second call would burn the same budget.
+    expect(provider.calls).toBe(1);
+    const active = await new LocalFileStorageAdapter(
+      tmpDir,
+    ).readActiveQuizSession();
+    expect(active?.answered).toHaveLength(0);
   });
 
   it('provider connection error → 503 model unavailable, one call, no writes', async () => {
