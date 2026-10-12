@@ -14,6 +14,11 @@ import {
   PRACTICE_SIGNALS_FILE,
 } from '@ibai/storage';
 import type { IsoTimestamp, StorageAdapter } from '@ibai/storage';
+import {
+  ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+  ANTHROPIC_EFFORT_REJECTED_MESSAGE,
+  ProviderReplyError,
+} from '@ibai/providers';
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -113,6 +118,30 @@ async function practice(d: ApiDeps = deps()): Promise<ApiPracticeResponse> {
 
 const filesUnder = (dir: string): string[] =>
   fs.readdirSync(dir, { recursive: true }).map(String).sort();
+
+describe('POST /api/notes/:id/check — provider reply errors', () => {
+  for (const [kind, message] of [
+    ['budget_exhausted', ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE],
+    ['option_rejected', ANTHROPIC_EFFORT_REJECTED_MESSAGE],
+    ['refusal', 'The model declined to answer this request.'],
+  ] as const) {
+    it(`${kind}: 502 with the fixed message and code, no retry, nothing stored`, async () => {
+      const provider = new FakeProvider([
+        new ProviderReplyError(message, kind),
+      ]);
+      const { status, body } = await check(
+        { content: 'two pointers from both ends' },
+        deps({ provider }),
+      );
+      expect(status).toBe(502);
+      expect(body).toEqual({ error: message, code: kind });
+      expect(provider.requests).toHaveLength(1);
+      expect(fs.existsSync(path.join(tmpDir, PRACTICE_SIGNALS_FILE))).toBe(
+        false,
+      );
+    });
+  }
+});
 
 describe('POST /api/notes/:id/check (ADR 0013 D2)', () => {
   it('200: the D2 shape; unsaved content is checked; nothing but the outcome is stored', async () => {

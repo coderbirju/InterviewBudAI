@@ -63,6 +63,11 @@ carries the request to whatever model the user configured. The contract:
   user-supplied configuration handed to the adapter, never baked into the
   contract and never committed.
 - Uses a small role-tagged message shape so any chat-style backend can map it.
+- *Additive note (2026-10-11, PR #107):* `ProviderReplyError` (`@ibai/providers`;
+  kinds `refusal` / `budget_exhausted` / `option_rejected`, fixed messages
+  only, safe to show) is part of the provider contract the web layer depends
+  on: adapters reject with it when the backend answered but gave no usable
+  reply. `LlmProvider` itself is unchanged.
 
 ### D4 — Types only; verify stays green
 

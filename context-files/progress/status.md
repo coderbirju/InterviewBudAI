@@ -92,6 +92,7 @@ _Last updated: 2026-10-10. PRs #1–#104 are merged or closed (source: `gh pr li
 - ✖ Closed unmerged as superseded duplicates: #5, #8, #23, #25
 
 ## In progress
+- 🟡 Fix: Anthropic adapter works with always-thinking models (16000 output-token floor, optional `IBAI_ANTHROPIC_EFFORT`, clear refusal / budget / effort errors) (`fix/anthropic-thinking-budget`; untested against the live API: founder runs Settings → Test connection and one quiz answer with a real key; docs/providers.md and docs/configuration.md updated after #106 merged).
 - 🟡 ADR 0020: local code runner for Python and Go (Run, Run examples), opt-in, off by default (`architect/adr-0020-code-runner`; founder merges).
 - 🔨 [#106](https://github.com/coderbirju/InterviewBudAI/pull/106) Docs pass: short README (intro, quick start with Claude, local AI); details moved to `docs/` (`architect/docs-readme-rewrite`).
 

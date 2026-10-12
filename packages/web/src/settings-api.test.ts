@@ -10,6 +10,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createCatalogSource } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
+import {
+  ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+  ANTHROPIC_EFFORT_REJECTED_MESSAGE,
+  ANTHROPIC_MIN_MAX_TOKENS,
+} from '@ibai/providers';
 import { createCoachHandler } from './handler.js';
 import {
   OPENAI_IGNORED_HINT,
@@ -24,6 +29,7 @@ import type {
 import {
   OLLAMA_USERINFO_DETAIL,
   openAICompatibleLabel,
+  TEST_IN_FLIGHT_ERROR,
   TEST_TIMEOUT_MS,
   createProviderTester,
   sanitizeEndpoint,
@@ -211,6 +217,7 @@ describe('GET /api/settings', () => {
       'ANTHROPIC_API_KEY',
       'IBAI_ANTHROPIC_API_KEY',
       'IBAI_ANTHROPIC_MODEL',
+      'IBAI_ANTHROPIC_EFFORT',
       'IBAI_OPENAI_BASE_URL',
       'IBAI_OPENAI_MODEL',
       'IBAI_OPENAI_API_KEY',
@@ -228,6 +235,7 @@ describe('GET /api/settings', () => {
       ANTHROPIC_API_KEY: true,
       IBAI_ANTHROPIC_API_KEY: true,
       IBAI_ANTHROPIC_MODEL: true,
+      IBAI_ANTHROPIC_EFFORT: false,
       IBAI_OPENAI_BASE_URL: false,
       IBAI_OPENAI_MODEL: false,
       IBAI_OPENAI_API_KEY: false,
@@ -396,7 +404,7 @@ describe('POST /api/settings/test-provider', () => {
     expect(body.detail).toMatch(/^Ollama did not answer within \d+ s\.$/);
   });
 
-  it('anthropic success: one 1-token messages call through the adapter', async () => {
+  it('anthropic success: one messages call through the adapter (1 token raised to the floor)', async () => {
     const fake = fakeFetch(() =>
       jsonResponse(200, {
         content: [{ type: 'text', text: 'Hi' }],
@@ -414,9 +422,113 @@ describe('POST /api/settings/test-provider', () => {
       max_tokens: number;
       model: string;
     };
-    expect(sent.max_tokens).toBe(1);
+    expect(sent.max_tokens).toBe(ANTHROPIC_MIN_MAX_TOKENS);
     expect(sent.model).toBe('claude-test-model');
+    expect(sent).not.toHaveProperty('output_config');
     assertNoSecrets(res);
+  });
+
+  it('anthropic end to end: thinking + text reply → ok, effort from env sent', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, {
+        content: [
+          { type: 'thinking', thinking: '', signature: 'sig' },
+          { type: 'text', text: 'pong' },
+        ],
+        stop_reason: 'end_turn',
+      }),
+    );
+    const res = await postTest(
+      makeHandler(
+        { ...ANTHROPIC_ENV, IBAI_ANTHROPIC_EFFORT: 'low' },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(true);
+    expect(body.detail).toBe(
+      'Anthropic accepted the key and the model "claude-test-model".',
+    );
+    const sent = JSON.parse(String(fake.calls[0]?.init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(sent.max_tokens).toBe(ANTHROPIC_MIN_MAX_TOKENS);
+    expect(sent.output_config).toEqual({ effort: 'low' });
+    expect(sent).not.toHaveProperty('thinking');
+    assertNoSecrets(res);
+  });
+
+  it('anthropic: an invalid IBAI_ANTHROPIC_EFFORT is ignored (nothing sent)', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, { content: [{ type: 'text', text: 'pong' }] }),
+    );
+    const res = await postTest(
+      makeHandler(
+        { ...ANTHROPIC_ENV, IBAI_ANTHROPIC_EFFORT: 'turbo' },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    expect((JSON.parse(res.body) as ApiProviderTestResponse).ok).toBe(true);
+    const sent = JSON.parse(String(fake.calls[0]?.init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(sent).not.toHaveProperty('output_config');
+  });
+
+  it('anthropic: all-thinking max_tokens reply → the budget message', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, {
+        content: [{ type: 'thinking', thinking: '', signature: 'sig' }],
+        stop_reason: 'max_tokens',
+      }),
+    );
+    const res = await postTest(
+      makeHandler(ANTHROPIC_ENV, { fetchImpl: fake.fetchImpl }),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe(ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE);
+  });
+
+  it('anthropic: a 400 rejecting effort → the "unset it" message', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(400, {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'effort: this model does not support effort',
+        },
+      }),
+    );
+    const res = await postTest(
+      makeHandler(
+        { ...ANTHROPIC_ENV, IBAI_ANTHROPIC_EFFORT: 'low' },
+        { fetchImpl: fake.fetchImpl },
+      ),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe(ANTHROPIC_EFFORT_REJECTED_MESSAGE);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('anthropic: a refusal → fixed text with the category, never the model text', async () => {
+    const fake = fakeFetch(() =>
+      jsonResponse(200, {
+        content: [{ type: 'text', text: 'MODEL SAYS NO' }],
+        stop_reason: 'refusal',
+        stop_details: { category: 'cyber', explanation: 'MODEL EXPLAINS' },
+      }),
+    );
+    const res = await postTest(
+      makeHandler(ANTHROPIC_ENV, { fetchImpl: fake.fetchImpl }),
+    );
+    const body = JSON.parse(res.body) as ApiProviderTestResponse;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toContain('cyber');
+    expect(body.detail).not.toContain('MODEL');
   });
 
   it('anthropic 401 → sanitized "rejected the API key"; body/headers never echoed', async () => {
@@ -468,6 +580,36 @@ describe('POST /api/settings/test-provider', () => {
       'Could not reach Anthropic. Check your network connection.',
     );
     assertNoSecrets(res);
+  });
+
+  it('the test deadline is 30 s for every provider', () => {
+    expect(TEST_TIMEOUT_MS).toBe(30_000);
+  });
+
+  it('a test while one is running → 429 "already running" (not the 5 s text)', async () => {
+    let release: (r: Response) => void = () => undefined;
+    const fake = fakeFetch(
+      () =>
+        new Promise<Response>((r) => {
+          release = r;
+        }),
+    );
+    let t = 0;
+    const test = createProviderTester({
+      env: { IBAI_OLLAMA_MODEL: 'llama3' },
+      fetchImpl: fake.fetchImpl,
+      clock: () => t,
+    });
+    const first = test();
+    t = 10_000; // past the 5 s gap: only the running test blocks
+    const second = await test();
+    expect(second).toEqual({
+      status: 429,
+      body: { error: TEST_IN_FLIGHT_ERROR },
+    });
+    expect(TEST_IN_FLIGHT_ERROR).toBe('A connection test is already running.');
+    release(jsonResponse(200, { models: [{ name: 'llama3' }] }));
+    expect((await first).status).toBe(200);
   });
 
   it('rate limit: a second test within 5 s → 429, allowed again after', async () => {
@@ -942,7 +1084,7 @@ describe('POST /api/settings/test-provider — openai', () => {
     assertNoSecrets(res);
   });
 
-  it('timeout → "did not answer" at the shared 5 s deadline', async () => {
+  it('timeout → "did not answer" at the shared 30 s deadline', async () => {
     vi.useFakeTimers();
     try {
       const fake = fakeFetch(

@@ -58,6 +58,41 @@ export class HttpProviderError extends Error {
   }
 }
 
+/**
+ * Why a provider answered (HTTP 2xx, or a 400 it explains) but gave no usable
+ * reply. Additive, vendor-neutral:
+ *  - `refusal` — the model declined to answer (`category` set when known);
+ *  - `budget_exhausted` — the reply hit the token limit with no text at all;
+ *  - `option_rejected` — the backend refused an optional setting the user
+ *    configured (the message names the setting to unset).
+ */
+export type ProviderReplyErrorKind =
+  | 'refusal'
+  | 'budget_exhausted'
+  | 'option_rejected';
+
+/**
+ * A provider-level failure whose `message` is FIXED adapter text (never model
+ * or response text), so callers MAY show it to the user as is. Never retried
+ * by the adapter.
+ */
+export class ProviderReplyError extends Error {
+  readonly kind: ProviderReplyErrorKind;
+  /** Sanitized category (`[a-z_]`, ≤ 40 chars) for `refusal`, when given. */
+  readonly category?: string;
+
+  constructor(
+    message: string,
+    kind: ProviderReplyErrorKind,
+    extra: { category?: string } = {},
+  ) {
+    super(message);
+    this.name = 'ProviderReplyError';
+    this.kind = kind;
+    if (extra.category !== undefined) this.category = extra.category;
+  }
+}
+
 /** Configuration for an HTTP POST request to an LLM provider. */
 export interface HttpProviderRequest {
   /** Full URL to POST to. */

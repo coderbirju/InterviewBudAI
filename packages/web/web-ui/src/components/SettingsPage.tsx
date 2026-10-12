@@ -82,6 +82,12 @@ const SOURCE_LABEL: Record<DataDirSource, string> = {
   default: 'Default location',
 };
 
+/** After this long, a running test says it can take a while. */
+export const TEST_SLOW_HINT_MS = 3_000;
+
+/** Shown while a test runs past {@link TEST_SLOW_HINT_MS} (server deadline: 30 s). */
+export const TEST_SLOW_HINT = 'This can take up to 30 seconds.';
+
 /** Placeholders only — never a real value. */
 export const ENV_SNIPPET = `# InterviewBudAI — put this in the repo-root .env (or your shell).
 # Placeholders only: never commit a real key.
@@ -89,6 +95,8 @@ export const ENV_SNIPPET = `# InterviewBudAI — put this in the repo-root .env 
 # Option A — Anthropic
 ANTHROPIC_API_KEY=<your-anthropic-api-key>
 IBAI_ANTHROPIC_MODEL=<anthropic-model-name>
+# Optional: low suits this app's short replies; leave unset if the model rejects it.
+# IBAI_ANTHROPIC_EFFORT=low
 
 # Option B — OpenAI-compatible server, e.g. Docker Model Runner (local):
 #   base URL like http://localhost:12434/engines/v1
@@ -321,6 +329,7 @@ function Row({
 export function SettingsPage(): JSX.Element {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [test, setTest] = useState<Test>({ kind: 'idle' });
+  const [testSlow, setTestSlow] = useState(false);
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -353,6 +362,16 @@ export function SettingsPage(): JSX.Element {
       });
     }
   }, []);
+
+  // A thinking model or a cold local model can take a while: after a short
+  // wait, say so (the server's deadline is 30 s).
+  const testRunning = test.kind === 'running';
+  useEffect(() => {
+    setTestSlow(false);
+    if (!testRunning) return undefined;
+    const timer = setTimeout(() => setTestSlow(true), TEST_SLOW_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [testRunning]);
 
   const onCopy = useCallback(async (): Promise<void> => {
     try {
@@ -458,8 +477,8 @@ export function SettingsPage(): JSX.Element {
             {provider.kind === 'anthropic' && (
               <p className="mb-3 flex items-start gap-2 text-sm text-slate-400">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                Testing sends one tiny request (1 output token) to Anthropic
-                with your key — a billable call of a fraction of a cent.
+                Testing sends one short request to Anthropic with your key — a
+                billable call; you pay only for the tokens the model uses.
               </p>
             )}
             <button
@@ -476,6 +495,12 @@ export function SettingsPage(): JSX.Element {
               {test.kind === 'running' ? 'Testing…' : 'Test connection'}
             </button>
             <div className="mt-3" aria-live="polite" data-testid="test-result">
+              {test.kind === 'running' && testSlow && (
+                <p className="flex items-start gap-2 text-sm text-slate-400">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <span>{TEST_SLOW_HINT}</span>
+                </p>
+              )}
               {test.kind === 'done' &&
                 (test.result.ok ? (
                   <p className="flex items-start gap-2 text-sm text-emerald-300">

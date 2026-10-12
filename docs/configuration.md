@@ -26,6 +26,7 @@ the variables the server reads and which ones are set (never their values).
 |---|---|---|
 | `ANTHROPIC_API_KEY` / `IBAI_ANTHROPIC_API_KEY` | Anthropic API key (the `IBAI_` one wins). Never commit it. | none |
 | `IBAI_ANTHROPIC_MODEL` | Anthropic model name. Required with a key. | none |
+| `IBAI_ANTHROPIC_EFFORT` | Optional Anthropic effort: `low`, `medium`, `high`, `xhigh` or `max`. `low` is recommended for this app's short grading and coaching replies. Unset sends nothing (for models that do not accept it). An invalid value is ignored with a startup warning. See [AI providers](providers.md#anthropic-claude). | unset |
 | `IBAI_OPENAI_BASE_URL` | OpenAI-compatible base URL, ending in `/v1`. | none |
 | `IBAI_OPENAI_MODEL` | OpenAI-compatible model id. | none |
 | `IBAI_OPENAI_API_KEY` | Optional key, sent to any OpenAI-compatible base URL. | none |

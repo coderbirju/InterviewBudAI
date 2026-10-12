@@ -124,8 +124,15 @@ export interface LlmProvider {
 export { OllamaProvider } from './ollama.js';
 export type { OllamaProviderConfig } from './ollama.js';
 
-export { AnthropicProvider } from './anthropic.js';
-export type { AnthropicProviderConfig } from './anthropic.js';
+export {
+  AnthropicProvider,
+  ANTHROPIC_EFFORT_LEVELS,
+  ANTHROPIC_MIN_MAX_TOKENS,
+  ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
+  ANTHROPIC_EFFORT_REJECTED_MESSAGE,
+  isAnthropicEffort,
+} from './anthropic.js';
+export type { AnthropicEffort, AnthropicProviderConfig } from './anthropic.js';
 
 export {
   OpenAICompatibleProvider,
@@ -136,5 +143,8 @@ export {
 } from './openai-compatible.js';
 export type { OpenAICompatibleProviderConfig } from './openai-compatible.js';
 
-export { HttpProviderError } from './http-provider.js';
-export type { HttpProviderErrorKind } from './http-provider.js';
+export { HttpProviderError, ProviderReplyError } from './http-provider.js';
+export type {
+  HttpProviderErrorKind,
+  ProviderReplyErrorKind,
+} from './http-provider.js';

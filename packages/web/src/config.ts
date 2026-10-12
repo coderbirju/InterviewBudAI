@@ -4,10 +4,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ANTHROPIC_EFFORT_LEVELS,
   OPENAI_DEFAULT_TIMEOUT_MS,
+  isAnthropicEffort,
   normalizeOpenAIBaseUrl,
   openAIKeyTransportAllowed,
 } from '@ibai/providers';
+import type { AnthropicEffort } from '@ibai/providers';
 
 /**
  * Resolve the data directory path.
@@ -752,6 +755,38 @@ export function resolveAnthropicModel(
     return env.IBAI_ANTHROPIC_MODEL;
   }
   return undefined;
+}
+
+/** The env var that sets the optional Anthropic effort level. */
+export const ANTHROPIC_EFFORT_ENV = 'IBAI_ANTHROPIC_EFFORT';
+
+/**
+ * Parse `IBAI_ANTHROPIC_EFFORT` (low|medium|high|xhigh|max, case-insensitive).
+ * Unset or blank → no effort (nothing is sent). Any other value is ignored
+ * with a one-line `warning` for the boot log (the value is never echoed).
+ */
+export function resolveAnthropicEffort(env: NodeJS.ProcessEnv = process.env): {
+  readonly effort?: AnthropicEffort;
+  readonly warning?: string;
+} {
+  const raw = env[ANTHROPIC_EFFORT_ENV]?.trim().toLowerCase();
+  if (!raw) return {};
+  if (isAnthropicEffort(raw)) return { effort: raw };
+  return {
+    warning: `ignoring ${ANTHROPIC_EFFORT_ENV} (use ${ANTHROPIC_EFFORT_LEVELS.join('/')}); no effort is sent`,
+  };
+}
+
+/**
+ * `{ effort }` for the AnthropicProvider config when a valid effort is set,
+ * else `{}` (so nothing is sent). Shared by the server and Settings, so the
+ * connection test sends exactly what the quiz and the coach send.
+ */
+export function anthropicEffortOption(env: NodeJS.ProcessEnv = process.env): {
+  readonly effort?: AnthropicEffort;
+} {
+  const { effort } = resolveAnthropicEffort(env);
+  return effort !== undefined ? { effort } : {};
 }
 
 export type SetupPathResult =
