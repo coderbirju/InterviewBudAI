@@ -41,7 +41,7 @@ jobs:
 
       # The repo starts before any code is scaffolded. Until package.json
       # exists, CI passes as a no-op so the foundation PR is green. Once the
-      # monorepo is scaffolded (see progress/status.md), the steps below run
+      # monorepo is scaffolded, the steps below run
       # the real checks. Agents MUST NOT weaken these checks to pass (charter §3).
       - name: Detect project
         id: detect

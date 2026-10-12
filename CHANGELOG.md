@@ -13,6 +13,10 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Breaking changes
 
+- **The repository history is being rewritten to remove `context-files/`.**
+  If you cloned before 2026-10-11, re-clone, or run
+  `git fetch origin && git reset --hard origin/main` (this discards local
+  commits).
 - **Node.js 24 LTS is now required** (was ≥ 20.12; ADR 0019). Node 20 reached
   end of life in April 2026. `npm start` from a clone and the release zip
   need Node 24 or newer: install Node 24 LTS (for example `nvm install 24`,
@@ -323,6 +327,8 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Changed
 
+- Maintainer notes (`context-files/`) are no longer published in the
+  repository.
 - **Documentation reorganized.** The README is now short: an introduction, a
   quick start with Claude, other providers, and local AI with Docker. The
   details moved to focused pages under `docs/`: AI providers, configuration,

@@ -42,8 +42,8 @@ and only green, reviewed PRs get merged.** Do this once.
 ## Note for agents
 
 Until this is enabled, the platform does not enforce these rules; the charter
-still does. This item is tracked as **blocked (founder action)** in
-`context-files/progress/status.md`.
+still does. This item is tracked as **blocked (founder action)** in the
+maintainer status notes (local).
 
 ## Availability (checked 2026-09-25)
 

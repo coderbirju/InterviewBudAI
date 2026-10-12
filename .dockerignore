@@ -8,6 +8,7 @@
 .github
 .claude
 .kiro
+context-files
 .idea
 .vscode
 .DS_Store

@@ -17,11 +17,11 @@
 ## Checklist (charter Definition of Done §4)
 - [ ] Typecheck, lint, build, and tests pass locally (`npm run verify`)
 - [ ] New behavior has tests / bug fixes have a regression test
-- [ ] Relevant docs updated (README / package README / context files)
-- [ ] `context-files/progress/status.md` updated
+- [ ] Relevant docs updated (README / package README / maintainer notes)
+- [ ] Maintainer status notes (local) updated
 - [ ] No secrets, user progress data, or shipped answers committed
 - [ ] No new dependency cycles; `core` depends on interfaces only
-- [ ] Architectural changes recorded as an ADR in `context-files/decisions/`
+- [ ] Architectural changes recorded as an ADR in the maintainer notes (local)
 
 ## Blocked / deferred
 <!-- Anything not finished, and what would unblock it. Write "None" if nothing. -->

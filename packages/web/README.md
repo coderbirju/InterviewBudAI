@@ -4,11 +4,11 @@ Locally-hosted web front-end for InterviewBudAI: problem catalog, notes, analyti
 
 ## Overview
 
-This package provides a thin, localhost-only Node server that serves a React SPA and a same-origin JSON API. It does not currently expose `assess`/`plan` (CLI-only since M6), and the Quiz Master engine lives in this package rather than `core`, so the CLI has no quiz — both are tracked parity gaps in `context-files/progress/status.md`.
+This package provides a thin, localhost-only Node server that serves a React SPA and a same-origin JSON API. It does not currently expose `assess`/`plan` (CLI-only since M6), and the Quiz Master engine lives in this package rather than `core`, so the CLI has no quiz — both are tracked parity gaps in the maintainer status notes.
 
 ## React SPA (ADR 0006) — the app
 
-The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, served at the **site root (`/`)** by the existing localhost-only Node server. It was migrated in incremental milestones (M0–M6, see `context-files/decisions/0006-web-react-toolchain.md`); **M6 completed the migration** — the SPA is now the whole UI and the old server-rendered HTML pages were retired.
+The web UI is a **React + Vite + Tailwind + lucide-react** single-page app, served at the **site root (`/`)** by the existing localhost-only Node server. It was migrated in incremental milestones (M0–M6, see ADR 0006, maintainer notes); **M6 completed the migration** — the SPA is now the whole UI and the old server-rendered HTML pages were retired.
 
 ### Server surface (M6)
 
