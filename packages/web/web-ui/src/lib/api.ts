@@ -803,6 +803,17 @@ export interface QuizTranscriptEntry {
   readonly at: string;
 }
 
+// Mirrors server QUESTION_COUNT_OPTIONS / MIN_INTERVIEW_SOLVED in packages/web/src/quiz.ts.
+export const QUESTION_COUNT_OPTIONS = [5, 10, 15, 20] as const;
+export type QuestionCount = (typeof QUESTION_COUNT_OPTIONS)[number];
+export const MIN_INTERVIEW_SOLVED = 5;
+
+function countBody(
+  count?: QuestionCount,
+): { count: QuestionCount } | undefined {
+  return count === undefined ? undefined : { count };
+}
+
 /**
  * GET /api/quiz/session result. Either no active session, or an active session
  * with its current question (catalog-built; `null` only when there is
@@ -907,8 +918,8 @@ export function getQuizSession(): Promise<QuizSessionResult> {
  * when the model is starting or unreachable, or `ApiError(502)` on another
  * provider failure.
  */
-export function startQuiz(): Promise<QuizStartResult> {
-  return postJson<QuizStartResult>('/api/quiz/start');
+export function startQuiz(count?: QuestionCount): Promise<QuizStartResult> {
+  return postJson<QuizStartResult>('/api/quiz/start', countBody(count));
 }
 
 /**
@@ -916,8 +927,8 @@ export function startQuiz(): Promise<QuizStartResult> {
  * restart the flow (discarding any active session). Same result shape and error
  * modes as `startQuiz`.
  */
-export function newQuiz(): Promise<QuizStartResult> {
-  return postJson<QuizStartResult>('/api/quiz/new');
+export function newQuiz(count?: QuestionCount): Promise<QuizStartResult> {
+  return postJson<QuizStartResult>('/api/quiz/new', countBody(count));
 }
 
 /**

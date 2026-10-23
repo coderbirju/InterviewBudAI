@@ -22,15 +22,19 @@ import {
   answerQuiz,
   deleteQuizSession,
   endQuiz,
+  fetchProgress,
   getQuizSession,
   isModelUnavailable,
   listQuizSessions,
+  MIN_INTERVIEW_SOLVED,
   newQuiz,
   normalizeDifficulty,
+  QUESTION_COUNT_OPTIONS,
   resumeQuiz,
   startQuiz,
 } from '../lib/api';
 import type {
+  QuestionCount,
   QuizAnswerResult,
   QuizQuestion,
   QuizSessionSummary,
@@ -97,6 +101,16 @@ interface ResultTally {
   readonly revisit: number;
 }
 
+/** Largest option <= 10 the user has solved enough for, else null. */
+export function defaultQuestionCount(completed: number): QuestionCount | null {
+  if (completed < MIN_INTERVIEW_SOLVED) return null;
+  let best: QuestionCount | null = null;
+  for (const n of QUESTION_COUNT_OPTIONS) {
+    if (n <= 10 && n <= completed) best = n;
+  }
+  return best;
+}
+
 /** The page phase (a small explicit state machine). */
 type Phase =
   | { readonly kind: 'loading' }
@@ -133,6 +147,11 @@ export function Interview(): JSX.Element {
   const [sessions, setSessions] = useState<readonly QuizSessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+
+  // Solved count gates the question-count picker in idle / complete views.
+  const [completed, setCompleted] = useState<number | null>(null);
+  const [progressError, setProgressError] = useState<string | null>(null);
+  const [count, setCount] = useState<QuestionCount | null>(null);
 
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
@@ -214,17 +233,53 @@ export function Interview(): JSX.Element {
     }
   }, [phase, refreshSessions]);
 
+  // Re-read the solved count on each idle / complete entry; keep the last value while loading.
+  useEffect(() => {
+    if (phase.kind !== 'idle' && phase.kind !== 'complete') {
+      return;
+    }
+    let cancelled = false;
+    fetchProgress()
+      .then((progress) => {
+        if (cancelled) return;
+        setCompleted(progress.completed);
+        setProgressError(null);
+        setCount((prev) =>
+          prev !== null && prev <= progress.completed
+            ? prev
+            : defaultQuestionCount(progress.completed),
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCompleted(null);
+        setCount(null);
+        setProgressError(
+          'Could not load your solved count. Reload the page to try again.',
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase.kind]);
+
+  const canBegin =
+    completed !== null &&
+    completed >= MIN_INTERVIEW_SOLVED &&
+    count !== null &&
+    count <= completed;
+
   /** Start (or restart) a quiz via the given loader (startQuiz | newQuiz). */
   const beginQuiz = useCallback(
     async (loader: typeof startQuiz): Promise<void> => {
-      if (busy) {
+      if (busy || count === null) {
         return;
       }
       setBusy(true);
       setError(null);
       setUnavailable(null);
       try {
-        const result = await loader();
+        const result = await loader(count);
         if (result.empty) {
           setPhase({ kind: 'empty', message: result.message });
           return;
@@ -243,7 +298,7 @@ export function Interview(): JSX.Element {
         setBusy(false);
       }
     },
-    [busy, describeError],
+    [busy, count, describeError],
   );
 
   const onSubmit = useCallback(async (): Promise<void> => {
@@ -535,10 +590,17 @@ export function Interview(): JSX.Element {
             be shown each real problem and asked to explain your approach, then
             get a direction check. No answers handed over.
           </p>
+          <QuestionCountPicker
+            completed={completed}
+            error={progressError}
+            selected={count}
+            disabled={busy}
+            onSelect={setCount}
+          />
           <button
             type="button"
             onClick={() => void beginQuiz(startQuiz)}
-            disabled={busy}
+            disabled={busy || !canBegin}
             className="mt-5 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? (
@@ -592,10 +654,17 @@ export function Interview(): JSX.Element {
               </div>
             </div>
           </div>
+          <QuestionCountPicker
+            completed={completed}
+            error={progressError}
+            selected={count}
+            disabled={busy}
+            onSelect={setCount}
+          />
           <button
             type="button"
             onClick={() => void beginQuiz(newQuiz)}
-            disabled={busy}
+            disabled={busy || !canBegin}
             className="mt-6 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? (
@@ -1155,4 +1224,64 @@ function formatCreatedAt(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+/** 5/10/15/20 toggle buttons; an option needs at least that many solved problems. */
+function QuestionCountPicker({
+  completed,
+  error,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  readonly completed: number | null;
+  readonly error: string | null;
+  readonly selected: QuestionCount | null;
+  readonly disabled: boolean;
+  readonly onSelect: (count: QuestionCount) => void;
+}): JSX.Element {
+  const tooFew = completed !== null && completed < MIN_INTERVIEW_SOLVED;
+  return (
+    <div className="mt-5">
+      <div
+        role="group"
+        aria-label="Number of questions"
+        className="inline-flex items-center gap-2"
+      >
+        <span className="text-xs uppercase tracking-wide text-slate-400">
+          Questions
+        </span>
+        {QUESTION_COUNT_OPTIONS.map((n) => {
+          const pressed = selected === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={pressed}
+              disabled={disabled || completed === null || completed < n}
+              onClick={() => onSelect(n)}
+              className={`rounded-md border px-3 py-1 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+                pressed
+                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
+                  : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-600'
+              }`}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      {tooFew && (
+        <p className="mt-2 text-xs text-slate-400">
+          Mark at least {MIN_INTERVIEW_SOLVED} problems Done to start an
+          interview ({completed} so far).
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-status-revisit">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
