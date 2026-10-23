@@ -210,6 +210,71 @@ export function shuffleDeck<T>(items: readonly T[], random: RandomSource): T[] {
   return out;
 }
 
+export const QUESTION_COUNT_OPTIONS = [5, 10, 15, 20] as const;
+export type QuestionCount = (typeof QUESTION_COUNT_OPTIONS)[number];
+export const MIN_INTERVIEW_SOLVED = 5;
+
+export function isQuestionCount(value: unknown): value is QuestionCount {
+  return (
+    typeof value === 'number' &&
+    (QUESTION_COUNT_OPTIONS as readonly number[]).includes(value)
+  );
+}
+
+// When an id was last asked: session createdAt ms, then deck index within it.
+export interface AskedKey {
+  readonly at: number;
+  readonly index: number;
+}
+
+function compareAsked(a: AskedKey, b: AskedKey): number {
+  return a.at !== b.at ? a.at - b.at : a.index - b.index;
+}
+
+// Presented ids are deck[0..currentIndex], capped at deck end; latest ask wins.
+export function askedHistory(
+  sessions: readonly Pick<QuizSession, 'createdAt' | 'deck' | 'currentIndex'>[],
+): Map<string, AskedKey> {
+  const history = new Map<string, AskedKey>();
+  for (const s of sessions) {
+    if (!Array.isArray(s.deck) || s.deck.length === 0) continue;
+    const parsed = Date.parse(s.createdAt);
+    const at = Number.isFinite(parsed) ? parsed : 0;
+    const idx = Number.isInteger(s.currentIndex) ? s.currentIndex : 0;
+    const last = Math.min(Math.max(idx, 0), s.deck.length - 1);
+    for (let i = 0; i <= last; i++) {
+      const id = s.deck[i];
+      if (typeof id !== 'string') continue;
+      const key: AskedKey = { at, index: i };
+      const prev = history.get(id);
+      if (!prev || compareAsked(key, prev) > 0) history.set(id, key);
+    }
+  }
+  return history;
+}
+
+// Never-asked ids first (shuffled), then least-recently asked, in that deck order; up to count unique ids.
+export function pickRotationDeck(
+  done: readonly string[],
+  history: ReadonlyMap<string, AskedKey>,
+  count: number,
+  random: RandomSource,
+): string[] {
+  const unique = Array.from(new Set(done));
+  const shuffled = shuffleDeck(unique, random);
+  const ranked = shuffled
+    .map((id, pos) => ({ id, pos, key: history.get(id) }))
+    .sort((a, b) => {
+      if (!a.key || !b.key) {
+        if (a.key === b.key) return a.pos - b.pos;
+        return a.key ? 1 : -1;
+      }
+      return compareAsked(a.key, b.key) || a.pos - b.pos;
+    });
+  const n = Math.max(0, Math.min(Math.floor(count), ranked.length));
+  return ranked.slice(0, n).map((r) => r.id);
+}
+
 // ---------------------------------------------------------------------------
 // Prompt construction (PURE)
 // ---------------------------------------------------------------------------

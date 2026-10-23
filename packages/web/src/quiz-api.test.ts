@@ -1623,3 +1623,295 @@ describe('POST /api/quiz/answer — miss codes + post-nudge prompt (ADR 0012)', 
     expect(signals.misses?.edge?.count).toBe(1);
   });
 });
+
+describe('POST /api/quiz/start|new with { count }', () => {
+  const SEVEN = CATALOG.list()
+    .slice(0, 7)
+    .map((p) => p.id);
+
+  function post(route: string, deps: ApiDeps, body: string | undefined) {
+    return handleApiRoute('POST', route, deps, body);
+  }
+
+  async function answerAll(deps: ApiDeps, n: number): Promise<void> {
+    for (let i = 0; i < n; i++) {
+      const res = await post(
+        '/api/quiz/answer',
+        deps,
+        JSON.stringify({ answer: `answer ${i}` }),
+      );
+      expect(res.status).toBe(200);
+    }
+  }
+
+  it('count 5 with 7 done → deck of exactly 5 done ids', async () => {
+    await seedDone(SEVEN);
+    const res = await post(
+      '/api/quiz/start',
+      makeQuizDeps(new FakeQuizProvider()),
+      JSON.stringify({ count: 5 }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as { session: { deckSize: number } };
+    expect(body.session.deckSize).toBe(5);
+    const active = await new LocalFileStorageAdapter(
+      tmpDir,
+    ).readActiveQuizSession();
+    expect(new Set(active?.deck).size).toBe(5);
+    for (const id of active?.deck ?? []) expect(SEVEN).toContain(id);
+  });
+
+  it.each([
+    ['count 7', JSON.stringify({ count: 7 })],
+    ['string count', JSON.stringify({ count: '5' })],
+    ['negative', JSON.stringify({ count: -1 })],
+    ['too large', JSON.stringify({ count: 25 })],
+    ['float', JSON.stringify({ count: 5.5 })],
+    ['null', JSON.stringify({ count: null })],
+    ['non-JSON', 'not json'],
+    ['array body', '[5]'],
+  ])('%s → 400, no session written', async (_label, body) => {
+    await seedDone(SEVEN);
+    for (const route of ['/api/quiz/start', '/api/quiz/new']) {
+      const res = await post(route, makeQuizDeps(new FakeQuizProvider()), body);
+      expect(res.status).toBe(400);
+      const parsed = JSON.parse(res.body) as { error: string };
+      expect(parsed.error).toBe('count must be one of 5, 10, 15, 20');
+    }
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    expect(await adapter.readActiveQuizSession()).toBeNull();
+  });
+
+  it('count 10 with 7 done → 400', async () => {
+    await seedDone(SEVEN);
+    const res = await post(
+      '/api/quiz/start',
+      makeQuizDeps(new FakeQuizProvider()),
+      JSON.stringify({ count: 10 }),
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'count exceeds solved problems',
+    });
+  });
+
+  it('count 5 with 4 done → 400', async () => {
+    await seedDone(SEVEN.slice(0, 4));
+    const res = await post(
+      '/api/quiz/start',
+      makeQuizDeps(new FakeQuizProvider()),
+      JSON.stringify({ count: 5 }),
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'mark at least 5 problems done first',
+    });
+  });
+
+  it('count 5 with exactly 5 done → 200', async () => {
+    await seedDone(SEVEN.slice(0, 5));
+    const res = await post(
+      '/api/quiz/start',
+      makeQuizDeps(new FakeQuizProvider()),
+      JSON.stringify({ count: 5 }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('no body or {} keeps the legacy full deck', async () => {
+    await seedDone(SEVEN);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    for (const body of [undefined, '', '{}']) {
+      const res = await post('/api/quiz/start', deps, body);
+      expect(res.status).toBe(200);
+      const parsed = JSON.parse(res.body) as { session: { deckSize: number } };
+      expect(parsed.session.deckSize).toBe(SEVEN.length);
+    }
+  });
+
+  it('completes after exactly count answers', async () => {
+    await seedDone(SEVEN);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    await post('/api/quiz/start', deps, JSON.stringify({ count: 5 }));
+    await answerAll(deps, 5);
+    const session = (
+      await new LocalFileStorageAdapter(tmpDir).listQuizSessions()
+    )[0]!;
+    expect(session.status).toBe('complete');
+    expect(session.answeredCount).toBe(5);
+  });
+
+  it('back-to-back /new {count:5}: second deck includes both never-asked ids', async () => {
+    await seedDone(SEVEN);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    await post('/api/quiz/new', deps, JSON.stringify({ count: 5 }));
+    const first = await adapter.readActiveQuizSession();
+    await answerAll(deps, 5);
+    const res = await post('/api/quiz/new', deps, JSON.stringify({ count: 5 }));
+    expect(res.status).toBe(200);
+    const second = await adapter.readActiveQuizSession();
+    const neverAsked = SEVEN.filter((id) => !first!.deck.includes(id));
+    expect(neverAsked).toHaveLength(2);
+    for (const id of neverAsked) expect(second?.deck).toContain(id);
+  });
+
+  it('a discarded active session counts its presented question as asked', async () => {
+    await seedDone(SEVEN.slice(0, 5));
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    await post('/api/quiz/start', deps, JSON.stringify({ count: 5 }));
+    const first = await adapter.readActiveQuizSession();
+    await post('/api/quiz/new', deps, JSON.stringify({ count: 5 }));
+    const second = await adapter.readActiveQuizSession();
+    expect(second?.deck[4]).toBe(first?.deck[0]);
+  });
+});
+
+describe('QA: quiz count edge cases', () => {
+  const SEVEN = CATALOG.list()
+    .slice(0, 7)
+    .map((p) => p.id);
+
+  function tickingDeps(seed: number): ApiDeps {
+    let t = Date.parse('2026-09-24T12:00:00.000Z');
+    return makeQuizDeps(new FakeQuizProvider(), {
+      random: seededRandom(seed),
+      now: () => new Date((t += 1000)),
+    });
+  }
+
+  it.each([
+    ['bool', JSON.stringify({ count: true })],
+    ['nested', JSON.stringify({ count: { n: 5 } })],
+    ['string body', JSON.stringify('5')],
+    ['number body', '5'],
+    ['zero', JSON.stringify({ count: 0 })],
+    ['exponent string', JSON.stringify({ count: '5e0' })],
+  ])('%s → 400', async (_l, body) => {
+    await seedDone(SEVEN);
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/new',
+      makeQuizDeps(new FakeQuizProvider()),
+      body,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).not.toContain('5e0');
+  });
+
+  it('count 5 with 0 done → 400', async () => {
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/start',
+      makeQuizDeps(new FakeQuizProvider()),
+      JSON.stringify({ count: 5 }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('count 20 with exactly 20 done → deck 20', async () => {
+    const twenty = CATALOG.list()
+      .slice(0, 20)
+      .map((p) => p.id);
+    await seedDone(twenty);
+    const deps = makeQuizDeps(new FakeQuizProvider());
+    const ok = await handleApiRoute(
+      'POST',
+      '/api/quiz/start',
+      deps,
+      JSON.stringify({ count: 20 }),
+    );
+    expect(ok.status).toBe(200);
+    expect(
+      (JSON.parse(ok.body) as { session: { deckSize: number } }).session
+        .deckSize,
+    ).toBe(20);
+  });
+
+  it('malformed session file in store is skipped, start still 200', async () => {
+    await seedDone(SEVEN);
+    const dir = path.join(tmpDir, 'quiz-sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'quiz-bad.json'), '{not json');
+    fs.writeFileSync(path.join(dir, 'quiz-bad2.json'), '{"deck":5}');
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/start',
+      makeQuizDeps(new FakeQuizProvider()),
+      JSON.stringify({ count: 5 }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('rotation across many /new sessions: no repeat until all 7 asked', async () => {
+    await seedDone(SEVEN);
+    const deps = tickingDeps(3);
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const asked: string[] = [];
+    for (let s = 0; s < 6; s++) {
+      const res = await handleApiRoute(
+        'POST',
+        '/api/quiz/new',
+        deps,
+        JSON.stringify({ count: 5 }),
+      );
+      expect(res.status).toBe(200);
+      const active = await adapter.readActiveQuizSession();
+      for (let i = 0; i < 5; i++) {
+        await handleApiRoute(
+          'POST',
+          '/api/quiz/answer',
+          deps,
+          JSON.stringify({ answer: `a${i}` }),
+        );
+      }
+      asked.push(...active!.deck);
+    }
+    for (let start = 0; start + 7 <= asked.length; start += 7) {
+      expect(new Set(asked.slice(start, start + 7)).size).toBe(7);
+    }
+  });
+
+  it('history ids of no-longer-done problems are ignored', async () => {
+    const eight = CATALOG.list()
+      .slice(0, 8)
+      .map((p) => p.id);
+    await seedDone(eight);
+    const deps = tickingDeps(5);
+    await handleApiRoute(
+      'POST',
+      '/api/quiz/new',
+      deps,
+      JSON.stringify({ count: 5 }),
+    );
+    const adapter = new LocalFileStorageAdapter(tmpDir);
+    const first = await adapter.readActiveQuizSession();
+    const dropped = first!.deck[0]!;
+    await adapter.writeIntuitionNote({
+      problemId: dropped,
+      content: 'reopened',
+      lastUpdated: new Date().toISOString() as IsoTimestamp,
+      status: 'to_revisit',
+      completed: false,
+    });
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/new',
+      deps,
+      JSON.stringify({ count: 5 }),
+    );
+    expect(res.status).toBe(200);
+    const second = await adapter.readActiveQuizSession();
+    expect(second!.deck).not.toContain(dropped);
+    expect(new Set(second!.deck).size).toBe(5);
+  });
+
+  it('legacy no-count session still readable via GET session', async () => {
+    await seedDone(SEVEN);
+    const deps = tickingDeps(9);
+    await handleApiRoute('POST', '/api/quiz/start', deps, undefined);
+    const res = await handleApiRoute('GET', '/api/quiz/session', deps);
+    expect(res.status).toBe(200);
+  });
+});

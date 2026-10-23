@@ -93,6 +93,10 @@ import {
   parseVerdict,
   withVerdictRetryReminder,
   shuffleDeck,
+  askedHistory,
+  pickRotationDeck,
+  isQuestionCount,
+  MIN_INTERVIEW_SOLVED,
   advanceSession,
   appendAssistantTurn,
   appendNudgeTurn,
@@ -110,7 +114,7 @@ import {
   updateCompetencySignals,
   emptyCompetencySignals,
 } from './quiz.js';
-import type { ParsedVerdict, RandomSource } from './quiz.js';
+import type { ParsedVerdict, QuestionCount, RandomSource } from './quiz.js';
 import { buildInsights } from './insights.js';
 import type { ApiInsightsResponse } from './insights.js';
 import { computeStatusCounts } from './render.js';
@@ -799,6 +803,47 @@ function parseSessionIdBody(body: string | undefined): string | null {
   return raw.trim();
 }
 
+// Optional `{ count }` start body: undefined = legacy full deck, null = 400.
+function parseQuizStartBody(
+  body: string | undefined,
+): { count: QuestionCount | undefined } | null {
+  if (body === undefined || body.trim().length === 0) {
+    return { count: undefined };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(parsed, 'count')) {
+    return { count: undefined };
+  }
+  const raw = (parsed as Record<string, unknown>).count;
+  return isQuestionCount(raw) ? { count: raw } : null;
+}
+
+// Rotation history from every persisted session; unreadable ones are skipped (O(sessions)).
+async function readQuizHistory(
+  storage: StorageAdapter,
+): Promise<ReturnType<typeof askedHistory>> {
+  if (!storage.listQuizSessions || !storage.readQuizSession) {
+    return new Map();
+  }
+  const summaries = await storage.listQuizSessions().catch(() => []);
+  const sessions: QuizSession[] = [];
+  for (const summary of summaries) {
+    const session = await storage
+      .readQuizSession(summary.sessionId)
+      .catch(() => null);
+    if (session) sessions.push(session);
+  }
+  return askedHistory(sessions);
+}
+
 /**
  * Build a fresh shuffled session from the CURRENT done-set and present its
  * first question. Shared by POST /api/quiz/start and POST /api/quiz/new.
@@ -812,10 +857,21 @@ function parseSessionIdBody(body: string | undefined): string | null {
 async function startFreshSession(
   deps: ApiDeps,
   storage: StorageAdapter,
+  count?: QuestionCount,
 ): Promise<HandlerResponse> {
   const source = await loadProblemSource(deps.catalog, storage);
   const problems = source.list();
   const done = await readDoneProblemIds(problems, storage);
+  if (count !== undefined) {
+    if (done.length < MIN_INTERVIEW_SOLVED) {
+      return json(400, {
+        error: `mark at least ${MIN_INTERVIEW_SOLVED} problems done first`,
+      });
+    }
+    if (count > done.length) {
+      return json(400, { error: 'count exceeds solved problems' });
+    }
+  }
   if (done.length === 0) {
     return json(200, {
       empty: true,
@@ -826,7 +882,15 @@ async function startFreshSession(
     return json(400, { error: 'no database configured' });
   }
 
-  const deck = shuffleDeck(done, randomSource(deps));
+  const deck =
+    count === undefined
+      ? shuffleDeck(done, randomSource(deps))
+      : pickRotationDeck(
+          done,
+          await readQuizHistory(storage),
+          count,
+          randomSource(deps),
+        );
   const at = nowDate(deps).toISOString() as IsoTimestamp;
   const sessionId = `quiz-${nowDate(deps).getTime()}-${Math.floor(
     randomSource(deps)() * 1e9,
@@ -1227,7 +1291,11 @@ export async function handleApiRoute(
       // (writing the new active pointer). `start` reuses the same builder.
       // The provider is still REQUIRED here (answers need a model), even
       // though presenting the question no longer calls it.
-      return startFreshSession(deps, storage);
+      const startBody = parseQuizStartBody(body);
+      if (!startBody) {
+        return json(400, { error: 'count must be one of 5, 10, 15, 20' });
+      }
+      return startFreshSession(deps, storage, startBody.count);
     }
 
     // ----- /api/quiz/sessions (GET) — list past + active sessions -----

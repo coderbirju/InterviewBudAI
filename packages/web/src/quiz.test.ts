@@ -29,6 +29,11 @@ import {
   parseVerdict,
   seededRandom,
   shuffleDeck,
+  askedHistory,
+  pickRotationDeck,
+  isQuestionCount,
+  QUESTION_COUNT_OPTIONS,
+  MIN_INTERVIEW_SOLVED,
   advanceSession,
   appendAssistantTurn,
   appendNudgeTurn,
@@ -82,6 +87,221 @@ describe('shuffleDeck (seedable)', () => {
     const out1 = shuffleDeck(input, seededRandom(1));
     const out2 = shuffleDeck(input, seededRandom(999));
     expect(out1).not.toEqual(out2);
+  });
+});
+
+describe('rotation deck picker', () => {
+  const at = (min: number) =>
+    new Date(Date.UTC(2026, 9, 1, 0, min)).toISOString() as IsoTimestamp;
+
+  it('exposes count options and the solved minimum', () => {
+    expect(QUESTION_COUNT_OPTIONS).toEqual([5, 10, 15, 20]);
+    expect(MIN_INTERVIEW_SOLVED).toBe(5);
+    expect(isQuestionCount(10)).toBe(true);
+    for (const bad of [7, '5', -1, 25, 5.5, null, undefined]) {
+      expect(isQuestionCount(bad)).toBe(false);
+    }
+  });
+
+  it('askedHistory counts presented questions up to currentIndex, capped at deck end', () => {
+    const h = askedHistory([
+      makeSession({ createdAt: at(0), deck: ['a', 'b', 'c'], currentIndex: 1 }),
+      makeSession({ createdAt: at(1), deck: ['d', 'e'], currentIndex: 2 }),
+      makeSession({ createdAt: at(2), deck: [], currentIndex: 0 }),
+    ]);
+    expect([...h.keys()].sort()).toEqual(['a', 'b', 'd', 'e']);
+    expect(h.get('b')).toEqual({ at: Date.parse(at(0)), index: 1 });
+  });
+
+  it('askedHistory keeps the most recent ask per id regardless of input order', () => {
+    const h = askedHistory([
+      makeSession({ createdAt: at(5), deck: ['x', 'a'], currentIndex: 1 }),
+      makeSession({ createdAt: at(1), deck: ['a'], currentIndex: 0 }),
+    ]);
+    expect(h.get('a')).toEqual({ at: Date.parse(at(5)), index: 1 });
+  });
+
+  it('returns exactly min(count, done) unique ids from done', () => {
+    const done = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const deck = pickRotationDeck(done, new Map(), 5, seededRandom(3));
+    expect(deck).toHaveLength(5);
+    expect(new Set(deck).size).toBe(5);
+    for (const id of deck) expect(done).toContain(id);
+    expect(
+      pickRotationDeck(['a', 'b'], new Map(), 5, seededRandom(3)),
+    ).toHaveLength(2);
+  });
+
+  it('chooses never-asked ids before any previously asked id', () => {
+    const done = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const history = askedHistory([
+      makeSession({
+        createdAt: at(0),
+        deck: ['a', 'b', 'c', 'd', 'e'],
+        currentIndex: 5,
+      }),
+    ]);
+    for (let seed = 0; seed < 20; seed++) {
+      const deck = pickRotationDeck(done, history, 5, seededRandom(seed));
+      expect(deck).toContain('f');
+      expect(deck).toContain('g');
+    }
+  });
+
+  it('prefers least-recently asked ids among previously asked', () => {
+    const history = askedHistory([
+      makeSession({ createdAt: at(0), deck: ['old'], currentIndex: 1 }),
+      makeSession({
+        createdAt: at(9),
+        deck: ['new1', 'new2'],
+        currentIndex: 2,
+      }),
+    ]);
+    const deck = pickRotationDeck(
+      ['new1', 'old', 'new2'],
+      history,
+      2,
+      seededRandom(1),
+    );
+    expect(deck).toContain('old');
+    expect(deck).toContain('new1');
+  });
+
+  it('ignores history ids not in done and is deterministic', () => {
+    const history = askedHistory([
+      makeSession({ createdAt: at(0), deck: ['gone', 'a'], currentIndex: 2 }),
+    ]);
+    const done = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const d1 = pickRotationDeck(done, history, 5, seededRandom(7));
+    const d2 = pickRotationDeck(done, history, 5, seededRandom(7));
+    expect(d1).toEqual(d2);
+    expect(d1).not.toContain('gone');
+    expect(d1).not.toContain('a');
+  });
+
+  it('with 6 done and count 5, no id repeats until all 6 are asked', () => {
+    const done = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+    const random = seededRandom(11);
+    const sessions: QuizSession[] = [];
+    const counts = new Map<string, number>();
+    for (let n = 0; n < 12; n++) {
+      const history = askedHistory(sessions);
+      const deck = pickRotationDeck(done, history, 5, random);
+      expect(deck).toHaveLength(5);
+      if (n === 1) {
+        const firstTwo = new Set([...sessions[0]!.deck, ...deck]);
+        expect(firstTwo.size).toBe(done.length);
+      }
+      const skipped = done.filter((id) => !deck.includes(id));
+      for (const id of deck) {
+        for (const other of skipped) {
+          const a = history.get(id);
+          const b = history.get(other);
+          if (a && b)
+            expect(a.at * 100 + a.index).toBeLessThan(b.at * 100 + b.index);
+          else expect(b !== undefined || a === undefined).toBe(true);
+        }
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+      if ((n + 1) % 6 === 0) {
+        for (const id of done) expect(counts.get(id)).toBe(((n + 1) / 6) * 5);
+      }
+      sessions.push(
+        makeSession({
+          sessionId: `s${n}`,
+          createdAt: at(n),
+          deck,
+          currentIndex: deck.length,
+        }),
+      );
+    }
+  });
+
+  it('counts the current question of an abandoned active session as asked', () => {
+    const history = askedHistory([
+      makeSession({ createdAt: at(0), deck: ['a', 'b', 'c'], currentIndex: 0 }),
+    ]);
+    const deck = pickRotationDeck(['a', 'b', 'c'], history, 2, seededRandom(2));
+    expect(deck.sort()).toEqual(['b', 'c']);
+  });
+});
+
+describe('rotation deck picker (qa edges)', () => {
+  const at = (min: number) =>
+    new Date(Date.UTC(2026, 9, 1, 0, min)).toISOString() as IsoTimestamp;
+
+  it('empty done, zero/negative/NaN count -> empty deck', () => {
+    expect(pickRotationDeck([], new Map(), 5, seededRandom(1))).toEqual([]);
+    for (const c of [0, -3, Number.NaN]) {
+      expect(
+        pickRotationDeck(['a', 'b'], new Map(), c, seededRandom(1)),
+      ).toEqual([]);
+    }
+  });
+
+  it('duplicate ids in done never yield duplicates in deck', () => {
+    const deck = pickRotationDeck(
+      ['a', 'a', 'b', 'b', 'c'],
+      new Map(),
+      5,
+      seededRandom(4),
+    );
+    expect(deck.sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('does not mutate done or history', () => {
+    const done = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const copy = done.slice();
+    const history = askedHistory([
+      makeSession({ createdAt: at(0), deck: ['a'], currentIndex: 1 }),
+    ]);
+    pickRotationDeck(done, history, 5, seededRandom(9));
+    expect(done).toEqual(copy);
+    expect(history.size).toBe(1);
+  });
+
+  it('askedHistory tolerates malformed sessions', () => {
+    const bad = [
+      { createdAt: 'not-a-date', deck: ['a', 'b'], currentIndex: Number.NaN },
+      { createdAt: at(1), deck: null, currentIndex: 0 },
+      { createdAt: at(2), deck: ['c', 42, 'd'], currentIndex: 2 },
+      { createdAt: at(3), deck: ['e'], currentIndex: -5 },
+    ] as unknown as QuizSession[];
+    const h = askedHistory(bad);
+    expect([...h.keys()].sort()).toEqual(['a', 'c', 'd', 'e']);
+    expect(h.get('a')).toEqual({ at: 0, index: 0 });
+  });
+
+  it('fairness holds when problems are deleted and custom ones added mid-rotation', () => {
+    let done = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+    const sessions: QuizSession[] = [];
+    const random = seededRandom(21);
+    const push = (deck: string[], n: number) =>
+      sessions.push(
+        makeSession({ createdAt: at(n), deck, currentIndex: deck.length }),
+      );
+    push(pickRotationDeck(done, askedHistory(sessions), 5, random), 0);
+    done = done.filter((id) => id !== 'p6').concat(['custom-1', 'custom-2']);
+    const d2 = pickRotationDeck(done, askedHistory(sessions), 5, random);
+    expect(d2).toContain('custom-1');
+    expect(d2).toContain('custom-2');
+    expect(d2).not.toContain('p6');
+    for (const id of d2) expect(done).toContain(id);
+  });
+
+  it('count larger than option set still capped by done', () => {
+    const done = Array.from({ length: 30 }, (_, i) => `q${i}`);
+    expect(pickRotationDeck(done, new Map(), 20, seededRandom(2))).toHaveLength(
+      20,
+    );
+  });
+
+  it('different seeds vary never-asked order but keep the same set rule', () => {
+    const done = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const orders = new Set<string>();
+    for (let s = 0; s < 10; s++)
+      orders.add(pickRotationDeck(done, new Map(), 8, seededRandom(s)).join());
+    expect(orders.size).toBeGreaterThan(1);
   });
 });
 

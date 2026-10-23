@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Interview } from './Interview';
 import * as api from '../lib/api';
 import disabledStatement from '../test/fixtures/statement/statement-disabled.json';
 import type {
   ProblemStatement,
+  ProgressResponse,
   QuizAnswerResult,
   QuizSessionResult,
   QuizSessionSummary,
@@ -26,6 +27,7 @@ vi.mock('../lib/api', async () => {
     endQuiz: vi.fn(),
     resumeQuiz: vi.fn(),
     deleteQuizSession: vi.fn(),
+    fetchProgress: vi.fn(),
     // The card's statement (ADR 0015): never hits the network here; the
     // statement flow itself is covered by Interview.statement.test.tsx.
     fetchStatement: vi.fn(),
@@ -43,6 +45,24 @@ const STATE = (over: Partial<QuizState> = {}): QuizState => ({
   status: 'active',
   ...over,
 });
+
+const PROGRESS = (completed: number): ProgressResponse => ({
+  completed,
+  total: 50,
+  byStatus: {
+    none: 50 - completed,
+    done: completed,
+    to_revisit: 0,
+    did_not_understand: 0,
+  },
+});
+
+/** Find a button and wait until the solved count enables it. */
+async function enabledButton(name: RegExp): Promise<HTMLElement> {
+  const btn = await screen.findByRole('button', { name });
+  await waitFor(() => expect(btn).toBeEnabled());
+  return btn;
+}
 
 const NO_SESSION: QuizSessionResult = { active: false };
 
@@ -91,6 +111,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedApi.getQuizSession.mockResolvedValue(NO_SESSION);
   mockedApi.listQuizSessions.mockResolvedValue({ sessions: [] });
+  mockedApi.fetchProgress.mockResolvedValue(PROGRESS(12));
   mockedApi.fetchStatement.mockResolvedValue({
     ...disabledStatement,
     invalidTree: false,
@@ -118,7 +139,7 @@ describe('Quickfire Quiz Master', () => {
 
     render(<Interview />);
 
-    const startBtn = await screen.findByRole('button', { name: /start quiz/i });
+    const startBtn = await enabledButton(/start quiz/i);
     expect(startBtn).toBeInTheDocument();
 
     await user.click(startBtn);
@@ -134,9 +155,7 @@ describe('Quickfire Quiz Master', () => {
     mockedApi.startQuiz.mockResolvedValue(START_EMPTY);
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
 
     expect(
       await screen.findByText(/mark some problems as/i),
@@ -152,9 +171,7 @@ describe('Quickfire Quiz Master', () => {
     );
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
 
     expect(
       await screen.findByText(/configure a model to start/i),
@@ -181,9 +198,7 @@ describe('Quickfire Quiz Master', () => {
     mockedApi.answerQuiz.mockResolvedValue(answerResult);
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
 
     await user.type(screen.getByLabelText(/your answer/i), 'Use a hash map');
@@ -213,9 +228,7 @@ describe('Quickfire Quiz Master', () => {
     });
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
 
     await user.type(
@@ -249,9 +262,7 @@ describe('Quickfire Quiz Master', () => {
     });
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
 
     await user.type(screen.getByLabelText(/your answer/i), 'Use a hash map');
@@ -283,9 +294,7 @@ describe('Quickfire Quiz Master', () => {
     });
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
 
     await user.type(screen.getByLabelText(/your answer/i), 'A hash map');
@@ -320,9 +329,7 @@ describe('Quickfire Quiz Master', () => {
     });
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
 
     await user.type(screen.getByLabelText(/your answer/i), 'final answer');
@@ -330,7 +337,7 @@ describe('Quickfire Quiz Master', () => {
 
     expect(await screen.findByText(/session complete/i)).toBeInTheDocument();
 
-    const newBtn = screen.getByRole('button', { name: /new session/i });
+    const newBtn = await enabledButton(/new session/i);
     await user.click(newBtn);
     expect(mockedApi.newQuiz).toHaveBeenCalledTimes(1);
     expect(
@@ -346,9 +353,7 @@ describe('Quickfire Quiz Master', () => {
     );
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
 
     await user.type(screen.getByLabelText(/your answer/i), 'my approach');
@@ -385,9 +390,7 @@ describe('Quickfire Quiz Master', () => {
       } as QuizAnswerResult);
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
     await user.type(screen.getByLabelText(/your answer/i), 'my approach');
     await user.click(screen.getByRole('button', { name: /submit answer/i }));
@@ -426,9 +429,7 @@ describe('Quickfire Quiz Master', () => {
     );
 
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('A wrapped question about arrays.');
     mockedApi.getQuizSession.mockResolvedValue(ACTIVE_SESSION);
 
@@ -457,9 +458,7 @@ describe('Quickfire Quiz Master', () => {
     });
 
     const { container } = render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
 
     // The payload appears as literal text, not an injected element.
     expect(await screen.findByText(payload)).toBeInTheDocument();
@@ -614,9 +613,7 @@ describe('Quiz reliability (W1) — catalog question card', () => {
       question: CATALOG_Q,
     });
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
 
     expect(await screen.findByText('Two Sum')).toBeInTheDocument();
     expect(screen.getByText('Easy')).toHaveClass('text-difficulty-easy');
@@ -641,9 +638,7 @@ describe('Quiz reliability (W1) — catalog question card', () => {
       question: { ...CATALOG_Q, probe: 'What about duplicates?' },
     });
     render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     await screen.findByText('Two Sum');
     await user.type(screen.getByLabelText(/your answer/i), 'hash map');
     await user.click(screen.getByRole('button', { name: /submit answer/i }));
@@ -709,10 +704,217 @@ describe('Quiz reliability (W1) — catalog question card', () => {
       question: { ...CATALOG_Q, title: payload },
     });
     const { container } = render(<Interview />);
-    await user.click(
-      await screen.findByRole('button', { name: /start quiz/i }),
-    );
+    await user.click(await enabledButton(/start quiz/i));
     expect(await screen.findByText(payload)).toBeInTheDocument();
     expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+describe('Interview question-count picker', () => {
+  const option = (n: number): HTMLElement =>
+    screen.getByRole('button', { name: String(n) });
+
+  it.each([0, 4])(
+    'completed %i: all options and Start disabled, hint shown',
+    async (completed) => {
+      mockedApi.fetchProgress.mockResolvedValue(PROGRESS(completed));
+      render(<Interview />);
+      expect(
+        await screen.findByText(/mark at least 5 problems done/i),
+      ).toBeInTheDocument();
+      for (const n of [5, 10, 15, 20]) expect(option(n)).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: /start quiz/i }),
+      ).toBeDisabled();
+    },
+  );
+
+  it('completed 12: 5 and 10 enabled, 15 and 20 disabled, 10 selected', async () => {
+    render(<Interview />);
+    await enabledButton(/start quiz/i);
+    expect(option(5)).toBeEnabled();
+    expect(option(10)).toBeEnabled();
+    expect(option(15)).toBeDisabled();
+    expect(option(20)).toBeDisabled();
+    expect(option(10)).toHaveAttribute('aria-pressed', 'true');
+    expect(option(5)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('completed exactly 5: only 5 enabled and selected; 20 solved enables all', async () => {
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(5));
+    const { unmount } = render(<Interview />);
+    await enabledButton(/start quiz/i);
+    expect(option(5)).toHaveAttribute('aria-pressed', 'true');
+    for (const n of [10, 15, 20]) expect(option(n)).toBeDisabled();
+    unmount();
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(20));
+    render(<Interview />);
+    await enabledButton(/start quiz/i);
+    for (const n of [5, 10, 15, 20]) expect(option(n)).toBeEnabled();
+    expect(option(10)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('clicking 5 then Start passes the chosen count', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    render(<Interview />);
+    const start = await enabledButton(/start quiz/i);
+    await user.click(option(5));
+    expect(option(5)).toHaveAttribute('aria-pressed', 'true');
+    await user.click(start);
+    expect(mockedApi.startQuiz).toHaveBeenCalledWith(5);
+  });
+
+  it('New session posts the selected count', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    mockedApi.answerQuiz.mockResolvedValue({
+      verdict: 'correct',
+      feedback: 'Done.',
+      terminal: true,
+      complete: true,
+      session: STATE({ index: 3, answered: 3, status: 'complete' }),
+      question: null,
+    });
+    mockedApi.newQuiz.mockResolvedValue(START_OK);
+    render(<Interview />);
+    await user.click(await enabledButton(/start quiz/i));
+    await user.type(await screen.findByLabelText(/your answer/i), 'x');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+    const newBtn = await enabledButton(/new session/i);
+    await user.click(option(5));
+    await user.click(newBtn);
+    expect(mockedApi.startQuiz).toHaveBeenCalledWith(10);
+    expect(mockedApi.newQuiz).toHaveBeenCalledWith(5);
+  });
+
+  it('progress fetch failure: Start disabled with an inline error', async () => {
+    mockedApi.fetchProgress.mockRejectedValue(new Error('boom'));
+    render(<Interview />);
+    expect(
+      await screen.findByText(/could not load your solved count/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /start quiz/i })).toBeDisabled();
+    for (const n of [5, 10, 15, 20]) expect(option(n)).toBeDisabled();
+  });
+});
+
+describe('Interview question-count picker: QA edge cases', () => {
+  const option = (n: number): HTMLElement =>
+    screen.getByRole('button', { name: String(n) });
+
+  it('clicking 10 then Start posts body {"count":10} through the real client', async () => {
+    const user = userEvent.setup();
+    const real = await vi.importActual<typeof api>('../lib/api');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(START_EMPTY), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(20));
+    mockedApi.startQuiz.mockImplementation((c) => real.startQuiz(c));
+    render(<Interview />);
+    const start = await enabledButton(/start quiz/i);
+    await user.click(option(15));
+    await user.click(option(10));
+    expect(option(10)).toHaveAttribute('aria-pressed', 'true');
+    expect(option(15)).toHaveAttribute('aria-pressed', 'false');
+    await user.click(start);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/quiz/start');
+    expect(JSON.parse(String(init.body))).toEqual({ count: 10 });
+    vi.unstubAllGlobals();
+  });
+
+  it('Start disabled while progress is still loading', async () => {
+    mockedApi.fetchProgress.mockReturnValue(new Promise(() => {}));
+    render(<Interview />);
+    const start = await screen.findByRole('button', { name: /start quiz/i });
+    expect(start).toBeDisabled();
+    for (const n of [5, 10, 15, 20]) expect(option(n)).toBeDisabled();
+    expect(screen.queryByText(/mark at least 5/i)).toBeNull();
+  });
+
+  it('clicking a disabled option does not select it or start', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(7));
+    render(<Interview />);
+    await enabledButton(/start quiz/i);
+    await user.click(option(15));
+    expect(option(15)).toHaveAttribute('aria-pressed', 'false');
+    expect(option(5)).toHaveAttribute('aria-pressed', 'true');
+    expect(mockedApi.startQuiz).not.toHaveBeenCalled();
+  });
+
+  it('completed 4: clicking disabled Start never calls the API', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(4));
+    render(<Interview />);
+    await screen.findByText(/mark at least 5 problems done/i);
+    await user.click(screen.getByRole('button', { name: /start quiz/i }));
+    expect(mockedApi.startQuiz).not.toHaveBeenCalled();
+  });
+
+  it('options and Start disabled while a start request is in flight', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockReturnValue(new Promise(() => {}));
+    render(<Interview />);
+    await user.click(await enabledButton(/start quiz/i));
+    for (const n of [5, 10, 15, 20]) expect(option(n)).toBeDisabled();
+    expect(mockedApi.startQuiz).toHaveBeenCalledTimes(1);
+  });
+
+  it('complete view refetches progress; drops selection when solved count falls under it', async () => {
+    const user = userEvent.setup();
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(20));
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    mockedApi.answerQuiz.mockResolvedValue({
+      verdict: 'correct',
+      feedback: 'Done.',
+      terminal: true,
+      complete: true,
+      session: STATE({ index: 3, answered: 3, status: 'complete' }),
+      question: null,
+    });
+    render(<Interview />);
+    const start = await enabledButton(/start quiz/i);
+    await user.click(option(20));
+    await user.click(start);
+    expect(mockedApi.startQuiz).toHaveBeenCalledWith(20);
+    mockedApi.fetchProgress.mockResolvedValue(PROGRESS(6));
+    await user.type(await screen.findByLabelText(/your answer/i), 'x');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+    await enabledButton(/new session/i);
+    expect(mockedApi.fetchProgress).toHaveBeenCalledTimes(2);
+    expect(option(20)).toBeDisabled();
+    expect(option(5)).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: /new session/i }));
+    expect(mockedApi.newQuiz).toHaveBeenCalledWith(5);
+  });
+
+  it('complete view progress failure: New session disabled with inline error', async () => {
+    const user = userEvent.setup();
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    mockedApi.answerQuiz.mockResolvedValue({
+      verdict: 'correct',
+      feedback: 'Done.',
+      terminal: true,
+      complete: true,
+      session: STATE({ index: 3, answered: 3, status: 'complete' }),
+      question: null,
+    });
+    render(<Interview />);
+    await user.click(await enabledButton(/start quiz/i));
+    mockedApi.fetchProgress.mockRejectedValue(new Error('boom'));
+    await user.type(await screen.findByLabelText(/your answer/i), 'x');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+    expect(
+      await screen.findByText(/could not load your solved count/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new session/i })).toBeDisabled();
+    expect(mockedApi.newQuiz).not.toHaveBeenCalled();
   });
 });
