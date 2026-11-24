@@ -622,12 +622,14 @@ export function advanceSession(
     readonly at: IsoTimestamp;
     readonly userTurn: string;
     readonly assistantTurn: string;
+    readonly miss?: MissCode;
   },
 ): QuizSession {
   const answerRecord: QuizAnswerRecord = {
     problemId: outcome.problemId,
     verdict: outcome.verdict,
     at: outcome.at,
+    ...(outcome.miss && { miss: outcome.miss }),
   };
   const userEntry: QuizTranscriptEntry = {
     role: 'user',
