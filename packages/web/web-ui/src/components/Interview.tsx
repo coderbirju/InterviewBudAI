@@ -43,7 +43,9 @@ import type {
   QuizVerdict,
 } from '../lib/api';
 import { homeHref, isPlainClick, navigate, settingsHref } from '../lib/router';
+import { useQuizBreakdown } from '../lib/useQuizBreakdown';
 import { DifficultyBadge } from './DifficultyBadge';
+import { QuizBreakdown } from './QuizBreakdown';
 import { QuizStatement } from './QuizStatement';
 
 /**
@@ -152,6 +154,10 @@ export function Interview(): JSX.Element {
   const [completed, setCompleted] = useState<number | null>(null);
   const [progressError, setProgressError] = useState<string | null>(null);
   const [count, setCount] = useState<QuestionCount | null>(null);
+
+  const { breakdown, failed: breakdownFailed } = useQuizBreakdown(
+    phase.kind === 'complete' ? session?.sessionId ?? null : null,
+  );
 
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
@@ -392,11 +398,7 @@ export function Interview(): JSX.Element {
     }
   }, [draft, busy, question, describeError]);
 
-  /**
-   * End the active session (quiz-fix-b): persist it complete + clear the active
-   * pointer server-side, then drop back to the idle view with the refreshed
-   * sessions list (where the just-ended session appears with a Resume button).
-   */
+  /** End the active session: show its results, or go back to idle if nothing was answered. */
   const onEndSession = useCallback(async (): Promise<void> => {
     if (busy) {
       return;
@@ -405,13 +407,17 @@ export function Interview(): JSX.Element {
     setError(null);
     setUnavailable(null);
     try {
-      await endQuiz();
-      // Reset per-session view state and return to idle + list.
+      const ended = await endQuiz();
       setQuestion(null);
-      setSession(null);
       setTranscript([]);
       setVerdictCard(null);
       setDraft('');
+      if (ended.session.answered > 0) {
+        setSession(ended.session);
+        setPhase({ kind: 'complete' });
+        return;
+      }
+      setSession(null);
       setPhase({ kind: 'idle' });
       await refreshSessions();
     } catch (err) {
@@ -624,7 +630,9 @@ export function Interview(): JSX.Element {
 
   // ----- Session complete -----
   if (phase.kind === 'complete') {
-    const total = tally.correct + tally.revisit;
+    const correct = breakdown?.correct ?? tally.correct;
+    const revisit = breakdown?.incorrect ?? tally.revisit;
+    const total = correct + revisit;
     return (
       <div className="space-y-6">
         {error && <InlineError message={error} />}
@@ -639,7 +647,7 @@ export function Interview(): JSX.Element {
           <div className="mx-auto mt-5 flex max-w-xs items-center justify-center gap-4">
             <div className="flex-1 rounded-lg border border-status-done/40 bg-status-done/10 p-3">
               <div className="text-2xl font-bold text-status-done">
-                {tally.correct}
+                {correct}
               </div>
               <div className="text-xs uppercase tracking-wide text-slate-400">
                 Correct
@@ -647,7 +655,7 @@ export function Interview(): JSX.Element {
             </div>
             <div className="flex-1 rounded-lg border border-status-revisit/40 bg-status-revisit/10 p-3">
               <div className="text-2xl font-bold text-status-revisit">
-                {tally.revisit}
+                {revisit}
               </div>
               <div className="text-xs uppercase tracking-wide text-slate-400">
                 To revisit
@@ -675,6 +683,9 @@ export function Interview(): JSX.Element {
             New session
           </button>
         </div>
+        {session && (
+          <QuizBreakdown breakdown={breakdown} failed={breakdownFailed} />
+        )}
         <SessionsList
           sessions={sessions}
           loading={sessionsLoading}
@@ -1155,56 +1166,80 @@ function SessionRow({
 }): JSX.Element {
   const progress = `${session.answeredCount} / ${session.deckSize} answered`;
   const correct = `${session.correctCount} correct`;
+  const hasResults = session.answeredCount > 0 && !session.isActive;
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const showResults = hasResults && resultsOpen;
+  const resultsId = useId();
+  const results = useQuizBreakdown(showResults ? session.sessionId : null);
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-800/40 p-3 transition-all duration-200 hover:border-slate-700">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-            <Clock className="h-3.5 w-3.5" aria-hidden />
-            {formatCreatedAt(session.createdAt)}
-          </span>
-          {session.isActive ? (
-            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
-              Active
+    <li className="rounded-lg border border-slate-800 bg-slate-800/40 p-3 transition-all duration-200 hover:border-slate-700">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 grow basis-48">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+              <Clock className="h-3.5 w-3.5" aria-hidden />
+              {formatCreatedAt(session.createdAt)}
             </span>
-          ) : session.status === 'complete' ? (
-            <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              Complete
-            </span>
-          ) : (
-            <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              Paused
-            </span>
-          )}
+            {session.isActive ? (
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+                Active
+              </span>
+            ) : session.status === 'complete' ? (
+              <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Complete
+              </span>
+            ) : (
+              <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Paused
+              </span>
+            )}
+          </div>
+          <p className="mt-1 truncate text-sm text-slate-300">
+            {progress} · {correct}
+          </p>
         </div>
-        <p className="mt-1 truncate text-sm text-slate-300">
-          {progress} · {correct}
-        </p>
-      </div>
 
-      <button
-        type="button"
-        onClick={onResume}
-        disabled={busy || disabled}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-        ) : (
-          <Play className="h-3.5 w-3.5" aria-hidden />
+        {hasResults && (
+          <button
+            type="button"
+            aria-expanded={resultsOpen}
+            aria-controls={resultsId}
+            onClick={() => setResultsOpen((open) => !open)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-xs font-semibold text-slate-300 transition-all duration-200 hover:border-slate-600 hover:text-slate-100"
+          >
+            <ListChecks className="h-3.5 w-3.5" aria-hidden />
+            View results
+          </button>
         )}
-        Resume
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={busy || disabled}
-        aria-label="Delete session"
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-xs font-semibold text-slate-400 transition-all duration-200 hover:border-status-blocked/50 hover:text-status-blocked disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        <Trash2 className="h-3.5 w-3.5" aria-hidden />
-        Delete
-      </button>
+        <button
+          type="button"
+          onClick={onResume}
+          disabled={busy || disabled}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-900 transition-all duration-200 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <Play className="h-3.5 w-3.5" aria-hidden />
+          )}
+          Resume
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={busy || disabled}
+          aria-label="Delete session"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-xs font-semibold text-slate-400 transition-all duration-200 hover:border-status-blocked/50 hover:text-status-blocked disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          Delete
+        </button>
+      </div>
+      {hasResults && (
+        <div id={resultsId} hidden={!resultsOpen} className="mt-3">
+          {resultsOpen && <QuizBreakdown {...results} />}
+        </div>
+      )}
     </li>
   );
 }

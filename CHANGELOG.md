@@ -71,6 +71,15 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Added
 
+- **Per-question quiz results** (#112). **Session complete** now lists every
+  question with its title, difficulty, verdict and the grader's feedback:
+  misses first, each linked to its Notes page, unanswered ones collapsed, and
+  a short "Most misses" / "Slips" summary. Ending a session early shows the
+  same results when at least one question was answered. **View results** on a
+  past session opens them without resuming it. Served by the new read-only
+  `GET /api/quiz/session/:id`; no model call, grading unchanged. Answer
+  records gain an optional `miss` field; older sessions still open. Breaking
+  changes: none. Nothing to do.
 - **Problem statement on the quiz card** (ADR 0007, amendment 2026-10-08).
   The Quickfire quiz question card now shows the problem statement and its
   examples under the title, from the same cache as the Notes page (fetched
