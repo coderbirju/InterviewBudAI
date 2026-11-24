@@ -446,6 +446,10 @@ and is listed there with what you need to do (ADR 0009 D4).
 
 ### Fixed
 
+- 10 stale catalog difficulties corrected (#113): all 175 checked against
+  public mirrors of LeetCode data, the 10 confirmed on leetcode.com. Easy →
+  Medium: 36, 53, 155, 172, 235, 237, 1382; Hard → Medium: 72; Medium →
+  Hard: 127; Medium → Easy: 1582.
 - **Anthropic: models that always think before answering now work.** On
   these models the thinking counts toward the output-token limit, so the
   app's small limits (1 token for Settings → Test connection, a few hundred
