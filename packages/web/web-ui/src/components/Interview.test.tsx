@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Interview } from './Interview';
 import * as api from '../lib/api';
@@ -8,6 +8,7 @@ import type {
   ProblemStatement,
   ProgressResponse,
   QuizAnswerResult,
+  QuizBreakdown,
   QuizSessionResult,
   QuizSessionSummary,
   QuizStartResult,
@@ -27,6 +28,7 @@ vi.mock('../lib/api', async () => {
     endQuiz: vi.fn(),
     resumeQuiz: vi.fn(),
     deleteQuizSession: vi.fn(),
+    fetchQuizBreakdown: vi.fn(),
     fetchProgress: vi.fn(),
     // The card's statement (ADR 0015): never hits the network here; the
     // statement flow itself is covered by Interview.statement.test.tsx.
@@ -107,8 +109,55 @@ const SUMMARY = (
   ...over,
 });
 
+const BREAKDOWN = (over: Partial<QuizBreakdown> = {}): QuizBreakdown => ({
+  session: STATE({ index: 3, answered: 3, status: 'complete' }),
+  correct: 1,
+  incorrect: 2,
+  questions: [
+    {
+      number: 2,
+      problemId: 'lc-215',
+      title: 'Kth Largest Element in an Array',
+      difficulty: 'medium',
+      verdict: 'incorrect',
+      feedback: 'A size-k heap is cheaper.',
+      miss: 'complexity',
+      missLabel: 'Complexity analysis off',
+    },
+    {
+      number: 3,
+      problemId: 'u-gone',
+      verdict: 'incorrect',
+      feedback: null,
+    },
+    {
+      number: 1,
+      problemId: 'lc-739',
+      title: 'Daily Temperatures',
+      difficulty: 'medium',
+      verdict: 'correct',
+      feedback: 'Monotonic stack, yes.',
+    },
+  ],
+  summary: {
+    topics: [
+      { id: 'heap', label: 'Heap', problemIds: ['lc-215', 'lc-264'] },
+      { id: 'trees', label: 'Trees', problemIds: ['lc-700'] },
+    ],
+    slips: [
+      {
+        id: 'complexity',
+        label: 'Complexity analysis off',
+        problemIds: ['lc-215'],
+      },
+    ],
+  },
+  ...over,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedApi.fetchQuizBreakdown.mockResolvedValue(BREAKDOWN());
   mockedApi.getQuizSession.mockResolvedValue(NO_SESSION);
   mockedApi.listQuizSessions.mockResolvedValue({ sessions: [] });
   mockedApi.fetchProgress.mockResolvedValue(PROGRESS(12));
@@ -512,6 +561,7 @@ describe('Quickfire Quiz Master', () => {
     expect(mockedApi.endQuiz).toHaveBeenCalledTimes(1);
     // Back on the idle/list view with the ended session listed.
     expect(await screen.findByText(/your sessions/i)).toBeInTheDocument();
+    expect(screen.queryByText(/session complete/i)).toBeNull();
     expect(
       await screen.findByRole('button', { name: /resume/i }),
     ).toBeInTheDocument();
@@ -916,5 +966,161 @@ describe('Interview question-count picker: QA edge cases', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /new session/i })).toBeDisabled();
     expect(mockedApi.newQuiz).not.toHaveBeenCalled();
+  });
+});
+
+describe('Quiz question breakdown', () => {
+  const LAST_ANSWER: QuizAnswerResult = {
+    verdict: 'correct',
+    feedback: 'Done.',
+    terminal: true,
+    complete: true,
+    session: STATE({ index: 3, answered: 3, status: 'complete' }),
+    question: null,
+  };
+
+  const breakdown = (): Promise<HTMLElement> =>
+    screen.findByRole('region', { name: /question breakdown/i });
+
+  async function finishSession(
+    user: ReturnType<typeof userEvent.setup>,
+  ): Promise<void> {
+    mockedApi.startQuiz.mockResolvedValue(START_OK);
+    mockedApi.answerQuiz.mockResolvedValue(LAST_ANSWER);
+    render(<Interview />);
+    await user.click(await enabledButton(/start quiz/i));
+    await user.type(await screen.findByLabelText(/your answer/i), 'x');
+    await user.click(screen.getByRole('button', { name: /submit answer/i }));
+    await screen.findByText(/session complete/i);
+  }
+
+  it('last answer: every question, misses first, linked, with a summary', async () => {
+    await finishSession(userEvent.setup());
+
+    const region = await breakdown();
+    expect(mockedApi.fetchQuizBreakdown).toHaveBeenCalledWith('s1');
+    const rows = within(region).getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent(/Medium.*Missed/);
+    expect(rows[0]).toHaveTextContent('A size-k heap is cheaper.');
+    expect(rows[0]).toHaveTextContent('Complexity analysis off');
+    expect(rows[0]).toHaveClass('border-status-revisit/40');
+    expect(rows[1]).toHaveTextContent('u-gone');
+    expect(within(rows[1]!).queryByRole('link')).toBeNull();
+    expect(rows[2]).toHaveTextContent(/Correct.*Monotonic stack, yes\./);
+    expect(rows[2]).toHaveClass('border-status-done/40');
+    expect(
+      within(region).getByRole('link', {
+        name: 'Kth Largest Element in an Array',
+      }),
+    ).toHaveAttribute('href', '/notes/lc-215');
+    expect(region).toHaveTextContent(
+      'Most misses: Heap (215, 264), Trees (700)',
+    );
+    // Counts come from the server, not the one answer seen on this page.
+    expect(screen.getByText(/you answered 3 questions/i)).toBeInTheDocument();
+  });
+
+  it('End after an answer shows the breakdown, unanswered collapsed', async () => {
+    const user = userEvent.setup();
+    mockedApi.getQuizSession.mockResolvedValue(ACTIVE_SESSION);
+    mockedApi.endQuiz.mockResolvedValue({
+      ok: true,
+      session: STATE({ index: 1, answered: 1, status: 'complete' }),
+    });
+    mockedApi.fetchQuizBreakdown.mockResolvedValue(
+      BREAKDOWN({
+        correct: 0,
+        incorrect: 1,
+        questions: [
+          BREAKDOWN().questions[0]!,
+          {
+            number: 3,
+            problemId: 'lc-1',
+            title: 'Two Sum',
+            verdict: 'unanswered',
+            feedback: null,
+          },
+        ],
+      }),
+    );
+    render(<Interview />);
+    await user.click(
+      await screen.findByRole('button', { name: /end session/i }),
+    );
+
+    const region = await breakdown();
+    expect(screen.getByText(/you answered 1 question in/i)).toBeInTheDocument();
+    const details = within(region).getByText('Not answered (1)');
+    expect(details.closest('details')).not.toHaveAttribute('open');
+    expect(within(region).getByText('Two Sum')).not.toBeVisible();
+  });
+
+  it('View results toggles a past session without resuming it', async () => {
+    const user = userEvent.setup();
+    mockedApi.listQuizSessions.mockResolvedValue({
+      sessions: [
+        SUMMARY(),
+        SUMMARY({ sessionId: 'none', answeredCount: 0, correctCount: 0 }),
+        SUMMARY({ sessionId: 'live', status: 'active', isActive: true }),
+      ],
+    });
+    render(<Interview />);
+    const toggle = await screen.findByRole('button', { name: /view results/i });
+    expect(mockedApi.fetchQuizBreakdown).not.toHaveBeenCalled();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(await breakdown()).toHaveTextContent('A size-k heap is cheaper.');
+    expect(mockedApi.fetchQuizBreakdown).toHaveBeenCalledWith('sess-1');
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('A size-k heap is cheaper.')).toBeNull();
+    expect(mockedApi.resumeQuiz).not.toHaveBeenCalled();
+  });
+
+  it('a failed fetch keeps the tally, New session and the list', async () => {
+    mockedApi.fetchQuizBreakdown.mockRejectedValue(new Error('boom'));
+    mockedApi.listQuizSessions.mockResolvedValue({ sessions: [SUMMARY()] });
+    await finishSession(userEvent.setup());
+
+    expect(
+      await screen.findByText(/could not load the question breakdown/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/you answered 1 question in/i)).toBeInTheDocument();
+    await enabledButton(/new session/i);
+    expect(
+      await screen.findByRole('button', { name: /resume/i }),
+    ).toBeEnabled();
+  });
+
+  it('a late reply for another session is ignored', async () => {
+    const user = userEvent.setup();
+    let resolveFirst: (b: QuizBreakdown) => void = () => {};
+    mockedApi.fetchQuizBreakdown.mockImplementation((id) =>
+      id === 's1'
+        ? new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+        : Promise.resolve(BREAKDOWN()),
+    );
+    mockedApi.listQuizSessions.mockResolvedValue({ sessions: [SUMMARY()] });
+    mockedApi.resumeQuiz.mockResolvedValue({
+      ok: true,
+      session: STATE({ sessionId: 'sess-1', status: 'complete' }),
+      question: null,
+      transcript: [],
+    });
+    await finishSession(user);
+    await user.click(await screen.findByRole('button', { name: /resume/i }));
+    await breakdown();
+
+    await act(async () =>
+      resolveFirst(BREAKDOWN({ correct: 9, questions: [] })),
+    );
+    expect(screen.getByText('A size-k heap is cheaper.')).toBeInTheDocument();
+    expect(screen.getByText(/you answered 3 questions/i)).toBeInTheDocument();
   });
 });

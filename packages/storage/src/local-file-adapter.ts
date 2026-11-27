@@ -286,23 +286,29 @@ function isCompetencySignals(value: unknown): value is CompetencySignals {
   return typeof lastUpdated === 'string';
 }
 
-/**
- * Drop an unknown/malformed optional `miss` from transcript entries (ADR 0012
- * D1: unknown codes read from disk are ignored). Same object when clean.
- */
+function hasUnknownMiss(e: QuizAnswerRecord | QuizTranscriptEntry): boolean {
+  return 'miss' in e && !isMissCode(e.miss);
+}
+
+function dropUnknownMiss<T extends QuizAnswerRecord | QuizTranscriptEntry>(
+  e: T,
+): Omit<T, 'miss'> {
+  if (!hasUnknownMiss(e)) return e;
+  const { miss: _drop, ...rest } = e;
+  void _drop;
+  return rest;
+}
+
+/** Unknown `miss` codes read from disk are ignored (ADR 0012 D1). Same object when clean. */
 function normalizeQuizSession(session: QuizSession): QuizSession {
-  const dirty = session.transcript.some(
-    (e) => 'miss' in e && !isMissCode(e.miss),
-  );
+  const dirty =
+    session.answered.some(hasUnknownMiss) ||
+    session.transcript.some(hasUnknownMiss);
   if (!dirty) return session;
   return {
     ...session,
-    transcript: session.transcript.map((e) => {
-      if (!('miss' in e) || isMissCode(e.miss)) return e;
-      const { miss: _drop, ...rest } = e;
-      void _drop;
-      return rest;
-    }),
+    answered: session.answered.map(dropUnknownMiss),
+    transcript: session.transcript.map(dropUnknownMiss),
   };
 }
 

@@ -116,7 +116,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-36',
     title: 'Valid Sudoku',
     url: 'https://leetcode.com/problems/valid-sudoku/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['hashing'],
   },
   {
@@ -158,7 +158,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-53',
     title: 'Maximum Subarray',
     url: 'https://leetcode.com/problems/maximum-subarray/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['arrays'],
   },
   {
@@ -186,7 +186,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-72',
     title: 'Edit Distance',
     url: 'https://leetcode.com/problems/edit-distance/',
-    difficulty: 'hard',
+    difficulty: 'medium',
     topics: ['dynamic-programming'],
   },
   {
@@ -333,7 +333,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-127',
     title: 'Word Ladder',
     url: 'https://leetcode.com/problems/word-ladder/',
-    difficulty: 'medium',
+    difficulty: 'hard',
     topics: ['graphs'],
   },
   {
@@ -396,7 +396,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-155',
     title: 'Min Stack',
     url: 'https://leetcode.com/problems/min-stack/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['stack'],
   },
   {
@@ -417,7 +417,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-172',
     title: 'Factorial Trailing Zeroes',
     url: 'https://leetcode.com/problems/factorial-trailing-zeroes/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['binary-search'],
   },
   {
@@ -543,14 +543,14 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-235',
     title: 'Lowest Common Ancestor of a Binary Search Tree',
     url: 'https://leetcode.com/problems/lowest-common-ancestor-of-a-binary-search-tree/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['trees'],
   },
   {
     id: 'lc-237',
     title: 'Delete Node in a Linked List',
     url: 'https://leetcode.com/problems/delete-node-in-a-linked-list/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['linked-list'],
   },
   {
@@ -1147,7 +1147,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-1382',
     title: 'Balance a Binary Search Tree',
     url: 'https://leetcode.com/problems/balance-a-binary-search-tree/',
-    difficulty: 'easy',
+    difficulty: 'medium',
     topics: ['trees'],
   },
   {
@@ -1182,7 +1182,7 @@ export const CATALOG: readonly Problem[] = [
     id: 'lc-1582',
     title: 'Special Positions in a Binary Matrix',
     url: 'https://leetcode.com/problems/special-positions-in-a-binary-matrix/',
-    difficulty: 'medium',
+    difficulty: 'easy',
     topics: ['arrays'],
   },
   {

@@ -9,10 +9,10 @@ import {
   handleApiRoute,
   isModelUnavailableError,
 } from './api.js';
-import type { ApiDeps } from './api.js';
+import type { ApiDeps, ApiQuizBreakdownResponse } from './api.js';
 import { createCatalogSource } from '@ibai/curriculum';
 import { LocalFileStorageAdapter } from '@ibai/storage';
-import type { IsoTimestamp } from '@ibai/storage';
+import type { IsoTimestamp, QuizSession } from '@ibai/storage';
 import {
   ANTHROPIC_BUDGET_EXHAUSTED_MESSAGE,
   ProviderReplyError,
@@ -1913,5 +1913,313 @@ describe('QA: quiz count edge cases', () => {
     await handleApiRoute('POST', '/api/quiz/start', deps, undefined);
     const res = await handleApiRoute('GET', '/api/quiz/session', deps);
     expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /api/quiz/session/:id (breakdown)', () => {
+  const at = (n: number): IsoTimestamp =>
+    `2026-09-24T12:00:0${n}.000Z` as IsoTimestamp;
+
+  const reply = (verdict: string, feedback: string, miss?: string): string =>
+    JSON.stringify({ verdict, feedback, ...(miss && { miss }) });
+
+  function tickingClock(): () => Date {
+    let t = Date.parse('2026-09-24T12:00:00.000Z');
+    return () => new Date((t += 1000));
+  }
+
+  function get(id: string, deps: ApiDeps = makeQuizDeps(undefined)) {
+    return handleApiRoute('GET', `/api/quiz/session/${id}`, deps, undefined);
+  }
+
+  async function breakdown(id: string): Promise<ApiQuizBreakdownResponse> {
+    const res = await get(id);
+    expect(res.status).toBe(200);
+    return JSON.parse(res.body) as ApiQuizBreakdownResponse;
+  }
+
+  async function start(deps: ApiDeps): Promise<QuizSession> {
+    await seedDone(DONE_IDS);
+    await handleApiRoute('POST', '/api/quiz/start', deps, '{}');
+    return (await new LocalFileStorageAdapter(tmpDir).readActiveQuizSession())!;
+  }
+
+  async function answer(deps: ApiDeps): Promise<void> {
+    const res = await handleApiRoute(
+      'POST',
+      '/api/quiz/answer',
+      deps,
+      JSON.stringify({ answer: 'my idea' }),
+    );
+    expect(res.status).toBe(200);
+  }
+
+  async function store(overrides: Partial<QuizSession>): Promise<void> {
+    await new LocalFileStorageAdapter(tmpDir).writeQuizSession({
+      sessionId: 'quiz-old',
+      createdAt: at(0),
+      deck: DONE_IDS,
+      currentIndex: DONE_IDS.length,
+      answered: [],
+      transcript: [],
+      status: 'complete',
+      ...overrides,
+    });
+  }
+
+  function snapshot(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const entry of fs.readdirSync(tmpDir, {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const file = path.join(entry.parentPath, entry.name);
+      const { mtimeMs } = fs.statSync(file);
+      out[file] = `${mtimeMs}:${fs.readFileSync(file, 'utf8')}`;
+    }
+    return out;
+  }
+
+  it.each([
+    ['fixed clock', undefined],
+    ['ticking clock', tickingClock],
+  ])(
+    'nudged full run (%s): own terminal feedback, misses first',
+    async (_l, clock) => {
+      const provider = new SequencedQuizProvider([
+        reply('on_track', 'probe one?', 'edge'),
+        reply('correct', 'fb one'),
+        reply('incorrect', 'fb two', 'technique'),
+        reply('on_track', 'probe three?', 'edge'),
+        reply('on_track', 'fb three', 'vague'),
+      ]);
+      const deps = makeQuizDeps(provider, clock && { now: clock() });
+      const { sessionId, deck } = await start(deps);
+      for (let i = 0; i < 5; i++) await answer(deps);
+      expect(provider.evalCalls).toBe(5);
+
+      const body = await breakdown(sessionId);
+      expect(body.session).toEqual({
+        sessionId,
+        deckSize: 3,
+        index: 3,
+        answered: 3,
+        status: 'complete',
+      });
+      expect([body.correct, body.incorrect]).toEqual([1, 2]);
+      expect(
+        body.questions.map((q) => [q.number, q.problemId, q.verdict]),
+      ).toEqual([
+        [2, deck[1], 'incorrect'],
+        [3, deck[2], 'incorrect'],
+        [1, deck[0], 'correct'],
+      ]);
+      expect(body.questions.map((q) => q.feedback)).toEqual([
+        'fb two',
+        'fb three',
+        'fb one',
+      ]);
+      expect(body.questions.map((q) => q.miss)).toEqual([
+        'technique',
+        'vague',
+        'edge',
+      ]);
+      const problem = CATALOG.getById(deck[1]!)!;
+      expect(body.questions[0]).toMatchObject({
+        title: problem.title,
+        difficulty: problem.difficulty,
+        url: problem.url,
+        missLabel: 'Wrong technique',
+      });
+      expect(body.summary.slips).toEqual([
+        { id: 'technique', label: 'Wrong technique', problemIds: [deck[1]] },
+        { id: 'vague', label: 'Incomplete or vague', problemIds: [deck[2]] },
+      ]);
+      expect(provider.evalCalls).toBe(5);
+    },
+  );
+
+  it('persists the terminal miss on the answer record only, no key when none', async () => {
+    const deps = makeQuizDeps(
+      new SequencedQuizProvider([
+        reply('incorrect', 'fb one', 'technique'),
+        reply('correct', 'fb two'),
+      ]),
+    );
+    const { sessionId } = await start(deps);
+    await answer(deps);
+    await answer(deps);
+    const saved = (await new LocalFileStorageAdapter(tmpDir).readQuizSession(
+      sessionId,
+    ))!;
+    expect(saved.answered[0]?.miss).toBe('technique');
+    expect('miss' in saved.answered[1]!).toBe(false);
+    expect(saved.transcript.some((e) => 'miss' in e)).toBe(false);
+  });
+
+  it('works on an active and an ended-early session, without any write', async () => {
+    const deps = makeQuizDeps(
+      new SequencedQuizProvider([
+        reply('correct', 'fb one'),
+        reply('incorrect', 'fb two', 'edge'),
+        reply('on_track', 'probe three?'),
+      ]),
+    );
+    const { sessionId, deck } = await start(deps);
+    await answer(deps);
+    await answer(deps);
+    await answer(deps);
+    const expected = [
+      [2, deck[1], 'incorrect', 'fb two'],
+      [1, deck[0], 'correct', 'fb one'],
+      [3, deck[2], 'unanswered', null],
+    ];
+    for (const status of ['active', 'complete']) {
+      const before = snapshot();
+      expect(Object.keys(before).length).toBeGreaterThan(0);
+      const body = await breakdown(sessionId);
+      expect(snapshot()).toEqual(before);
+      expect(body.session.status).toBe(status);
+      expect(
+        body.questions.map((q) => [
+          q.number,
+          q.problemId,
+          q.verdict,
+          q.feedback,
+        ]),
+      ).toEqual(expected);
+      await handleApiRoute('POST', '/api/quiz/end', deps, '{}');
+    }
+  });
+
+  it('old file without answered[].miss: probe miss when present, else topics only', async () => {
+    const [a, b, c] = DONE_IDS as [string, string, string];
+    await store({
+      answered: [
+        { problemId: a, verdict: 'incorrect', at: at(2) },
+        { problemId: b, verdict: 'incorrect', at: at(3) },
+        { problemId: c, verdict: 'correct', at: at(4) },
+      ],
+      transcript: [
+        { role: 'assistant', content: 'Q1', at: at(0) },
+        { role: 'user', content: 'x', at: at(1) },
+        { role: 'assistant', content: 'probe?', at: at(1), miss: 'edge' },
+        { role: 'user', content: 'x', at: at(2) },
+        { role: 'assistant', content: 'fb one', at: at(2) },
+        { role: 'assistant', content: 'Q2', at: at(2) },
+        { role: 'user', content: 'x', at: at(3) },
+        { role: 'assistant', content: 'fb two', at: at(3) },
+      ],
+    });
+    const body = await breakdown('quiz-old');
+    expect(body.questions.map((q) => q.feedback)).toEqual([
+      'fb one',
+      'fb two',
+      null,
+    ]);
+    expect(body.questions[0]?.miss).toBe('edge');
+    expect(body.questions[1]).not.toHaveProperty('miss');
+    expect(body.questions[1]).not.toHaveProperty('missLabel');
+    expect(body.summary.slips).toEqual([
+      { id: 'edge', label: 'Missed edge cases', problemIds: [a] },
+    ]);
+    const missed = body.summary.topics.flatMap((t) => t.problemIds);
+    expect(new Set(missed)).toEqual(new Set([a, b]));
+  });
+
+  it('a record without a matching pair does not steal the next one', async () => {
+    const [a, b] = DONE_IDS as [string, string];
+    await store({
+      deck: [a, b],
+      answered: [
+        { problemId: a, verdict: 'incorrect', at: at(1) },
+        { problemId: b, verdict: 'incorrect', at: at(2) },
+      ],
+      transcript: [
+        { role: 'assistant', content: 'Q2', at: at(1) },
+        { role: 'user', content: 'x', at: at(2) },
+        { role: 'assistant', content: 'fb two', at: at(2) },
+      ],
+    });
+    const body = await breakdown('quiz-old');
+    expect(body.questions.map((q) => q.feedback)).toEqual([null, 'fb two']);
+  });
+
+  it('summary topics: incorrect only, most problems first, then topic order', async () => {
+    const ids = (topic: string, n: number): string[] =>
+      CATALOG.filterByTopic(topic)
+        .filter((p) => p.topics.length === 1)
+        .slice(0, n)
+        .map((p) => p.id);
+    const [heap, stack, graphs] = [
+      ids('heap', 1),
+      ids('stack', 1),
+      ids('graphs', 2),
+    ];
+    const [solved] = ids('trees', 1);
+    const deck = [...heap, ...stack, ...graphs, solved!];
+    await store({
+      deck,
+      answered: deck.map((problemId) => ({
+        problemId,
+        verdict: problemId === solved ? 'correct' : 'incorrect',
+        at: at(1),
+      })),
+    });
+    const { summary } = await breakdown('quiz-old');
+    expect(summary).toEqual({
+      topics: [
+        { id: 'graphs', label: 'Graphs', problemIds: graphs },
+        { id: 'stack', label: 'Stack & Queue', problemIds: stack },
+        { id: 'heap', label: 'Heap', problemIds: heap },
+      ],
+      slips: [],
+    });
+  });
+
+  it('deleted custom problem keeps id and verdict, no title/difficulty/url', async () => {
+    await store({
+      deck: ['u-gone', DONE_IDS[0]!],
+      answered: [
+        {
+          problemId: 'u-gone',
+          verdict: 'incorrect',
+          at: at(1),
+          miss: 'misread',
+        },
+      ],
+    });
+    const body = await breakdown('quiz-old');
+    expect(body.questions[0]).toEqual({
+      number: 1,
+      problemId: 'u-gone',
+      verdict: 'incorrect',
+      feedback: null,
+      miss: 'misread',
+      missLabel: 'Misread the problem',
+    });
+    expect(body.summary.topics).toEqual([]);
+  });
+
+  it.each(['ghost', 'active', '..%2Factive', '%00'])(
+    'unknown id %s → 404',
+    async (id) => {
+      await start(makeQuizDeps(new FakeQuizProvider()));
+      const before = snapshot();
+      expect((await get(id)).status).toBe(404);
+      expect(snapshot()).toEqual(before);
+    },
+  );
+
+  it.each(['%', '', '%20'])('malformed or empty id "%s" → 400', async (id) => {
+    expect((await get(id)).status).toBe(400);
+  });
+
+  it('no storage → 400', async () => {
+    const dataDir = path.join(tmpDir, 'missing');
+    const res = await get('quiz-old', makeQuizDeps(undefined, { dataDir }));
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'no database configured' });
   });
 });

@@ -988,6 +988,45 @@ export interface QuizResumeResult {
   readonly transcript: readonly QuizTranscriptEntry[];
 }
 
+/** One deck question in a session breakdown (mirrors `ApiQuizBreakdownQuestion`). */
+export interface QuizBreakdownQuestion {
+  /** 1-based deck position. */
+  readonly number: number;
+  readonly problemId: string;
+  readonly title?: string;
+  readonly difficulty?: string;
+  readonly url?: string;
+  readonly verdict: 'correct' | 'incorrect' | 'unanswered';
+  readonly feedback: string | null;
+  readonly miss?: MissCode;
+  readonly missLabel?: string;
+}
+
+export interface QuizBreakdownGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly problemIds: readonly string[];
+}
+
+/** GET /api/quiz/session/:id result (mirrors `ApiQuizBreakdownResponse`). */
+export interface QuizBreakdown {
+  readonly session: QuizState;
+  readonly correct: number;
+  readonly incorrect: number;
+  readonly questions: readonly QuizBreakdownQuestion[];
+  readonly summary: {
+    readonly topics: readonly QuizBreakdownGroup[];
+    readonly slips: readonly QuizBreakdownGroup[];
+  };
+}
+
+/** GET /api/quiz/session/:id — per-question results of one session. Read-only. */
+export function fetchQuizBreakdown(sessionId: string): Promise<QuizBreakdown> {
+  return getJson<QuizBreakdown>(
+    `/api/quiz/session/${encodeURIComponent(sessionId)}`,
+  );
+}
+
 /**
  * GET /api/quiz/sessions — the list of past + active sessions for the Quiz
  * section. Resolves to `{ sessions: [] }` when no DB is configured or none

@@ -115,6 +115,8 @@ import {
   emptyCompetencySignals,
 } from './quiz.js';
 import type { ParsedVerdict, QuestionCount, RandomSource } from './quiz.js';
+import { sessionBreakdown } from './quiz-breakdown.js';
+import type { QuizBreakdown } from './quiz-breakdown.js';
 import { buildInsights } from './insights.js';
 import type { ApiInsightsResponse } from './insights.js';
 import { computeStatusCounts } from './render.js';
@@ -568,6 +570,11 @@ export interface ApiQuizSessionSummary {
 /** GET /api/quiz/sessions response shape (empty-safe). */
 export interface ApiQuizSessionsResponse {
   readonly sessions: readonly ApiQuizSessionSummary[];
+}
+
+/** GET /api/quiz/session/:id response shape. */
+export interface ApiQuizBreakdownResponse extends QuizBreakdown {
+  readonly session: ApiQuizState;
 }
 
 /** The error message returned when no provider is configured for a quiz route. */
@@ -1407,18 +1414,36 @@ export async function handleApiRoute(
       return json(200, { ok: true });
     }
 
-    // ----- DELETE /api/quiz/session/:id — delete a session by id -----
+    // ----- /api/quiz/session/:id (GET breakdown, DELETE) -----
     if (pathname.startsWith('/api/quiz/session/')) {
-      const rawId = decodeURIComponent(
-        pathname.slice('/api/quiz/session/'.length),
-      );
-      if (method !== 'DELETE') {
+      if (method !== 'GET' && method !== 'DELETE') {
         return json(405, { error: 'method not allowed' });
+      }
+      let rawId: string;
+      try {
+        rawId = decodeURIComponent(pathname.slice('/api/quiz/session/'.length));
+      } catch {
+        return json(400, { error: 'malformed sessionId' });
       }
       if (rawId.trim().length === 0) {
         return json(400, { error: 'sessionId must be a non-empty string' });
       }
       const { storage } = resolveActiveStorage(deps);
+      if (method === 'GET') {
+        if (!storage?.readQuizSession) {
+          return json(400, { error: 'no database configured' });
+        }
+        const session = await storage.readQuizSession(rawId);
+        if (!session) {
+          return json(404, { error: 'unknown quiz session' });
+        }
+        const source = await loadProblemSource(deps.catalog, storage);
+        const response: ApiQuizBreakdownResponse = {
+          session: toQuizState(session),
+          ...sessionBreakdown(session, (id) => source.getById(id)),
+        };
+        return json(200, response);
+      }
       if (!storage?.deleteQuizSession) {
         return json(400, { error: 'no database configured' });
       }
@@ -1661,6 +1686,9 @@ export async function handleApiRoute(
         await storage.writeIntuitionNote(revisit);
       }
 
+      // ADR 0012 D1: one miss per question (terminal ?? probe ?? none).
+      const miss = questionMiss(verdict.miss, currentProbeMiss(session));
+
       // Update competency signals.
       const currentSignals: CompetencySignals =
         (await storage.readCompetencySignals()) ?? emptyCompetencySignals(at);
@@ -1671,8 +1699,7 @@ export async function handleApiRoute(
         problemTitle: problem.title,
         intuition,
         at,
-        // ADR 0012 D1: one miss per question (terminal ?? probe ?? none).
-        miss: questionMiss(verdict.miss, currentProbeMiss(session)),
+        miss,
       });
       await storage.writeCompetencySignals(updatedSignals);
 
@@ -1686,6 +1713,7 @@ export async function handleApiRoute(
         at,
         userTurn: answer,
         assistantTurn,
+        miss,
       });
 
       // If the deck is exhausted, persist the complete session and report done.

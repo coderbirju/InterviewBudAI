@@ -171,7 +171,7 @@ IDs with a running transcript and one-shot outcomes:
   "createdAt": "2026-09-24T10:00:00.000Z",
   "deck": ["lc-1", "lc-42", "lc-53"],   // shuffled once, no repeats
   "currentIndex": 1,                      // next unanswered problem
-  "answered": [{ "problemId": "lc-1", "verdict": "correct", "at": "…" }],
+  "answered": [{ "problemId": "lc-1", "verdict": "correct", "at": "…" }], // + optional "miss" code
   "transcript": [{ "role": "assistant", "content": "…", "at": "…" }],
   "status": "active"                      // 'active' | 'complete'
 }
@@ -181,6 +181,10 @@ Resumability uses an active-session pointer at `quiz-sessions/active.json`
 (`{ "sessionId": "quiz-1" }`). Writing an `active` session updates the pointer;
 writing a `complete` session clears it (so a fresh deck is started next).
 Completed sessions stay readable by id.
+
+An `answered` record may carry `miss`, the question's one recorded miss code
+(ADR 0012). It is additive: absent when there was none and in files written by
+older builds; an unknown code is dropped on read.
 
 | Method | Behaviour |
 |--------|-----------|

@@ -247,6 +247,8 @@ export interface QuizAnswerRecord {
   readonly verdict: QuizVerdict;
   /** When the verdict was recorded. */
   readonly at: IsoTimestamp;
+  /** The question's one recorded miss; absent when none, unknown codes are dropped on read. */
+  readonly miss?: MissCode;
 }
 
 /**

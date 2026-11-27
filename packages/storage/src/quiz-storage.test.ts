@@ -662,4 +662,33 @@ describe('LocalFileStorageAdapter - miss codes (ADR 0012 D1, additive)', () => {
       at: AT,
     });
   });
+
+  it('an answer record keeps a valid miss and drops an unknown one', async () => {
+    const session = makeSession({
+      answered: [
+        { problemId: 'lc-1', verdict: 'incorrect', at: AT, miss: 'edge' },
+        { problemId: 'lc-42', verdict: 'correct', at: AT },
+      ],
+    });
+    await adapter.writeQuizSession(session);
+    expect(await adapter.readQuizSession('quiz-1')).toEqual(session);
+
+    await writeFile(
+      join(tempDir, 'quiz-sessions', 'quiz-1.json'),
+      JSON.stringify({
+        ...session,
+        answered: [
+          { ...session.answered[0], miss: 'nope' },
+          { ...session.answered[1], miss: { code: 'edge' } },
+        ],
+      }),
+    );
+    const read = await adapter.readQuizSession('quiz-1');
+    expect(read?.answered).toEqual([
+      { problemId: 'lc-1', verdict: 'incorrect', at: AT },
+      { problemId: 'lc-42', verdict: 'correct', at: AT },
+    ]);
+    expect(read?.answered.some((a) => 'miss' in a)).toBe(false);
+    expect(read?.transcript).toEqual(session.transcript);
+  });
 });

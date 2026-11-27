@@ -12,9 +12,12 @@ Audit record of the curated catalog import from founder's Notion export.
 
 ## Difficulty Breakdown
 
-- Easy: 38
-- Medium: 106
+- Easy: 32
+- Medium: 112
 - Hard: 31
+
+All 175 checked against public mirrors of LeetCode data (#113); the 10 stale ratings corrected were
+confirmed on leetcode.com.
 
 ## Topic Breakdown
 
